@@ -2,6 +2,18 @@
 
 A modern, high-performance Android media player built with **Jetpack Compose** and **Kotlin**, featuring audiophile-grade **USB Bit-Perfect Audio** output and seamless music/video playback.
 
+[![Download APK](https://img.shields.io/badge/Download%20APK-v1.0-blue?logo=android&style=for-the-badge)](https://github.com/bijoykumarmistri/MediaPlayer/releases/latest/download/MediaPlayer-v1.0.apk)
+[![Latest Release](https://img.shields.io/github/v/release/bijoykumarmistri/MediaPlayer?style=for-the-badge)](https://github.com/bijoykumarmistri/MediaPlayer/releases/latest)
+
+---
+
+## 📥 Download & Install
+
+Anyone can download and install the latest APK directly on their Android device:
+👉 **[Download MediaPlayer-v1.0.apk](https://github.com/bijoykumarmistri/MediaPlayer/releases/download/v1.0/MediaPlayer-v1.0.apk)**
+
+*Compatible with Android 8.0 (API level 26) and above.*
+
 ---
 
 ## Key Features
