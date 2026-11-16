@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">Media Player</string>
+    <string name="media_playback_channel_name">Media Playback</string>
+</resources>
