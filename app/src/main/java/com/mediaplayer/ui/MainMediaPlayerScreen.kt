@@ -1,7 +1,10 @@
 package com.mediaplayer.ui
 
 import android.Manifest
+import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
@@ -79,6 +82,11 @@ import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.QueueMusic
 import androidx.compose.material.icons.automirrored.rounded.ViewList
 import androidx.compose.material.icons.rounded.Album
+import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.CheckCircle
+import androidx.compose.material.icons.rounded.CheckCircleOutline
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Deselect
 import androidx.compose.material.icons.rounded.FileOpen
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.FilterList
@@ -95,10 +103,12 @@ import androidx.compose.material.icons.rounded.Movie
 import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.RadioButtonUnchecked
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Replay10
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Security
+import androidx.compose.material.icons.rounded.SelectAll
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.SettingsVoice
 import androidx.compose.material.icons.rounded.Share
@@ -218,6 +228,38 @@ fun formatFolderDuration(durationMs: Long): String {
     return String.format(java.util.Locale.US, "%02d:%02d:%02d", hours, minutes, seconds)
 }
 
+fun shareMediaFiles(ctx: Context, items: List<MediaItemModel>) {
+    if (items.isEmpty()) return
+    val uris = ArrayList<Uri>(items.map { it.uri })
+    val mimeType = when {
+        items.all { it.isVideo } -> "video/*"
+        items.all { !it.isVideo } -> "audio/*"
+        else -> "*/*"
+    }
+    val shareIntent = if (uris.size == 1) {
+        Intent(Intent.ACTION_SEND).apply {
+            type = items.first().mimeType.ifEmpty { mimeType }
+            putExtra(Intent.EXTRA_STREAM, uris.first())
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+    } else {
+        Intent(Intent.ACTION_SEND_MULTIPLE).apply {
+            type = mimeType
+            putParcelableArrayListExtra(Intent.EXTRA_STREAM, uris)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+    }
+    val chooserTitle = if (items.size == 1) "Share Media File" else "Share ${items.size} Files"
+    val chooser = Intent.createChooser(shareIntent, chooserTitle).apply {
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    }
+    try {
+        ctx.startActivity(chooser)
+    } catch (_: Exception) {
+        Toast.makeText(ctx, "No app available to share files", Toast.LENGTH_SHORT).show()
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MainMediaPlayerScreen(
@@ -262,20 +304,26 @@ fun MainMediaPlayerScreen(
     // Music filters: All Tracks, Hi-Res / Lossless, Artists, Albums, Folders
     var musicFilterTab by remember { mutableStateOf("All Tracks") }
 
-    // Deletion state and system consent launcher
-    var itemToDelete by remember { mutableStateOf<MediaItemModel?>(null) }
-    var pendingConsentItem by remember { mutableStateOf<MediaItemModel?>(null) }
+    // Multi-Selection and Deletion state
+    var selectedMediaItems by remember { mutableStateOf<Set<MediaItemModel>>(emptySet()) }
+    var itemsToDelete by remember { mutableStateOf<List<MediaItemModel>>(emptyList()) }
+    var pendingConsentItems by remember { mutableStateOf<List<MediaItemModel>>(emptyList()) }
 
     val deleteConsentLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartIntentSenderForResult()
     ) { result ->
-        itemToDelete = null
+        itemsToDelete = emptyList()
         if (result.resultCode == android.app.Activity.RESULT_OK) {
-            pendingConsentItem?.let { item ->
+            val items = pendingConsentItems
+            if (items.isNotEmpty()) {
                 scope.launch {
-                    repository.removeCachedItem(item)
-                    if (item.isVideo) {
-                        videoList = videoList.filter { it.id != item.id && it.uri != item.uri }
+                    repository.removeCachedItems(items)
+                    val deletedIds = items.map { it.id }.toSet()
+                    val deletedUris = items.map { it.uri }.toSet()
+                    val hasVideos = items.any { it.isVideo }
+                    val hasAudios = items.any { !it.isVideo }
+                    if (hasVideos) {
+                        videoList = videoList.filter { it.id !in deletedIds && it.uri !in deletedUris }
                         if (openedVideoFolder != null) {
                             val remaining = videoList.filter {
                                 (it.folderName.ifEmpty { "Videos" } == openedVideoFolder!!.name)
@@ -284,36 +332,43 @@ fun MainMediaPlayerScreen(
                                 openedVideoFolder = null
                             }
                         }
-                    } else {
-                        audioList = audioList.filter { it.id != item.id && it.uri != item.uri }
                     }
-                    if (playerManager.currentMediaItem.value?.id == item.id) {
+                    if (hasAudios) {
+                        audioList = audioList.filter { it.id !in deletedIds && it.uri !in deletedUris }
+                    }
+                    if (playerManager.currentMediaItem.value?.id in deletedIds) {
                         playerManager.stop()
                         playerManager.setPlayerExpanded(false)
                     }
-                    Toast.makeText(context, "${item.title} deleted from storage", Toast.LENGTH_SHORT).show()
+                    selectedMediaItems = selectedMediaItems.filter { it.id !in deletedIds && it.uri !in deletedUris }.toSet()
+                    val msg = if (items.size == 1) "${items.first().title} deleted from storage"
+                              else "${items.size} files deleted from storage"
+                    Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
                 }
             }
         }
-        pendingConsentItem = null
+        pendingConsentItems = emptyList()
     }
 
     val onDeleteMedia: (MediaItemModel) -> Unit = { item ->
-        itemToDelete = item
+        itemsToDelete = listOf(item)
     }
 
-    fun performDelete(item: MediaItemModel) {
-        itemToDelete = null
+    fun performDelete(items: List<MediaItemModel>) {
+        itemsToDelete = emptyList()
+        if (items.isEmpty()) return
         scope.launch {
-            val directSuccess = repository.deleteMediaFile(item) { intentSender ->
-                pendingConsentItem = item
+            val directlyDeleted = repository.deleteMediaFiles(items) { intentSender, needingConsent ->
+                pendingConsentItems = needingConsent
                 deleteConsentLauncher.launch(
                     IntentSenderRequest.Builder(intentSender).build()
                 )
             }
-            if (directSuccess) {
-                if (item.isVideo) {
-                    videoList = videoList.filter { it.id != item.id && it.uri != item.uri }
+            if (directlyDeleted.isNotEmpty()) {
+                val deletedIds = directlyDeleted.map { it.id }.toSet()
+                val deletedUris = directlyDeleted.map { it.uri }.toSet()
+                if (directlyDeleted.any { it.isVideo }) {
+                    videoList = videoList.filter { it.id !in deletedIds && it.uri !in deletedUris }
                     if (openedVideoFolder != null) {
                         val remaining = videoList.filter {
                             (it.folderName.ifEmpty { "Videos" } == openedVideoFolder!!.name)
@@ -322,14 +377,18 @@ fun MainMediaPlayerScreen(
                             openedVideoFolder = null
                         }
                     }
-                } else {
-                    audioList = audioList.filter { it.id != item.id && it.uri != item.uri }
                 }
-                if (playerManager.currentMediaItem.value?.id == item.id) {
+                if (directlyDeleted.any { !it.isVideo }) {
+                    audioList = audioList.filter { it.id !in deletedIds && it.uri !in deletedUris }
+                }
+                if (playerManager.currentMediaItem.value?.id in deletedIds) {
                     playerManager.stop()
                     playerManager.setPlayerExpanded(false)
                 }
-                Toast.makeText(context, "${item.title} deleted from storage", Toast.LENGTH_SHORT).show()
+                selectedMediaItems = selectedMediaItems.filter { it.id !in deletedIds && it.uri !in deletedUris }.toSet()
+                val msg = if (directlyDeleted.size == 1) "${directlyDeleted.first().title} deleted from storage"
+                          else "${directlyDeleted.size} files deleted from storage"
+                Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -337,8 +396,13 @@ fun MainMediaPlayerScreen(
     // Predictive back progress state
     var predictiveBackProgress by remember { mutableFloatStateOf(0f) }
 
+    // Back handling for multi-selection mode
+    BackHandler(enabled = selectedMediaItems.isNotEmpty()) {
+        selectedMediaItems = emptySet()
+    }
+
     // Back handling for opened video folder
-    BackHandler(enabled = openedVideoFolder != null && selectedDestination == 0) {
+    BackHandler(enabled = selectedMediaItems.isEmpty() && openedVideoFolder != null && selectedDestination == 0) {
         openedVideoFolder = null
     }
 
@@ -620,7 +684,123 @@ fun MainMediaPlayerScreen(
                                     )
                                     .statusBarsPadding()
                             ) {
-                                if (selectedDestination == 0) {
+                                if (selectedMediaItems.isNotEmpty()) {
+                                    // Contextual Action Bar for Multi-Selection
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 14.dp, vertical = 8.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(38.dp)
+                                                    .clip(CircleShape)
+                                                    .background(Color(0x1AFFFFFF))
+                                                    .clickable { selectedMediaItems = emptySet() },
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Rounded.Close,
+                                                    contentDescription = "Cancel Selection",
+                                                    tint = Color.White,
+                                                    modifier = Modifier.size(20.dp)
+                                                )
+                                            }
+                                            Spacer(modifier = Modifier.width(12.dp))
+                                            Column {
+                                                Text(
+                                                    text = "${selectedMediaItems.size} Selected",
+                                                    style = MaterialTheme.typography.titleMedium,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = Color.White
+                                                )
+                                                val totalSize = selectedMediaItems.sumOf { it.sizeBytes }
+                                                Text(
+                                                    text = formatFileSize(totalSize),
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    color = Color(0xFFA0A8B8),
+                                                    fontSize = 11.sp
+                                                )
+                                            }
+                                        }
+
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            // Select All / Deselect All
+                                            val currentPool = if (selectedDestination == 0) {
+                                                openedVideoFolder?.videos ?: filteredVideo
+                                            } else {
+                                                filteredAudio
+                                            }
+                                            val isAllSelected = currentPool.isNotEmpty() && selectedMediaItems.containsAll(currentPool)
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(38.dp)
+                                                    .clip(CircleShape)
+                                                    .background(Color(0x1AFFFFFF))
+                                                    .clickable {
+                                                        if (isAllSelected) {
+                                                            selectedMediaItems = emptySet()
+                                                        } else {
+                                                            selectedMediaItems = currentPool.toSet()
+                                                        }
+                                                    },
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Icon(
+                                                    imageVector = if (isAllSelected) Icons.Rounded.Deselect else Icons.Rounded.SelectAll,
+                                                    contentDescription = if (isAllSelected) "Deselect All" else "Select All",
+                                                    tint = AudiophileCyan,
+                                                    modifier = Modifier.size(20.dp)
+                                                )
+                                            }
+
+                                            // Share Button
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(38.dp)
+                                                    .clip(CircleShape)
+                                                    .background(Color(0x1AFFFFFF))
+                                                    .clickable {
+                                                        shareMediaFiles(context, selectedMediaItems.toList())
+                                                    },
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Rounded.Share,
+                                                    contentDescription = "Share Selected Files",
+                                                    tint = Color.White,
+                                                    modifier = Modifier.size(20.dp)
+                                                )
+                                            }
+
+                                            // Delete Button (Red)
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(38.dp)
+                                                    .clip(CircleShape)
+                                                    .background(Color(0x33FF453A))
+                                                    .border(1.dp, Color(0x66FF453A), CircleShape)
+                                                    .clickable {
+                                                        itemsToDelete = selectedMediaItems.toList()
+                                                    },
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Rounded.Delete,
+                                                    contentDescription = "Delete Selected Files",
+                                                    tint = Color(0xFFFF5252),
+                                                    modifier = Modifier.size(20.dp)
+                                                )
+                                            }
+                                        }
+                                    }
+                                } else if (selectedDestination == 0) {
                                     if (openedVideoFolder != null) {
                                         val folder = openedVideoFolder!!
                                         // Folder Header Bar when inside a folder
@@ -1127,6 +1307,7 @@ fun MainMediaPlayerScreen(
                                                     FloatingDockItem(
                                                         selected = selectedDestination == 0,
                                                         onClick = {
+                                                            selectedMediaItems = emptySet()
                                                             if (selectedDestination == 0 && openedVideoFolder != null) {
                                                                 openedVideoFolder = null
                                                             } else {
@@ -1144,6 +1325,7 @@ fun MainMediaPlayerScreen(
                                                     FloatingDockItem(
                                                         selected = selectedDestination == 1,
                                                         onClick = {
+                                                            selectedMediaItems = emptySet()
                                                             selectedDestination = 1
                                                             playerManager.historyManager.saveLastTab(1)
                                                         },
@@ -1157,6 +1339,7 @@ fun MainMediaPlayerScreen(
                                                     FloatingDockItem(
                                                         selected = selectedDestination == 2,
                                                         onClick = {
+                                                            selectedMediaItems = emptySet()
                                                             selectedDestination = 2
                                                             playerManager.historyManager.saveLastTab(2)
                                                         },
@@ -1170,6 +1353,7 @@ fun MainMediaPlayerScreen(
                                                     FloatingDockItem(
                                                         selected = selectedDestination == 3,
                                                         onClick = {
+                                                            selectedMediaItems = emptySet()
                                                             selectedDestination = 3
                                                             playerManager.historyManager.saveLastTab(3)
                                                         },
@@ -1198,7 +1382,10 @@ fun MainMediaPlayerScreen(
                                             videos = filteredVideo,
                                             isGridView = isVideoGridView,
                                             openedFolder = openedVideoFolder,
-                                            onOpenFolder = { openedVideoFolder = it },
+                                            onOpenFolder = {
+                                                selectedMediaItems = emptySet()
+                                                openedVideoFolder = it
+                                            },
                                             sortOrder = videoSortOrder,
                                             playbackPositions = playbackPositions,
                                             playedMediaIds = playedMediaIds,
@@ -1228,7 +1415,14 @@ fun MainMediaPlayerScreen(
                                             },
                                             onPickFiles = { openFilesLauncher.launch(arrayOf("video/*", "audio/*")) },
                                             onDeleteVideo = onDeleteMedia,
-                                            searchQuery = searchQuery
+                                            searchQuery = searchQuery,
+                                            selectedMediaItems = selectedMediaItems,
+                                            onToggleSelectItem = { item ->
+                                                selectedMediaItems = if (item in selectedMediaItems) selectedMediaItems - item else selectedMediaItems + item
+                                            },
+                                            onStartSelection = { item ->
+                                                selectedMediaItems = setOf(item)
+                                            }
                                         )
                                     }
                                     1 -> {
@@ -1268,7 +1462,14 @@ fun MainMediaPlayerScreen(
                                                 permissionLauncher.launch(perms)
                                             },
                                             onPickFiles = { openFilesLauncher.launch(arrayOf("audio/*", "video/*")) },
-                                            onDeleteAudio = onDeleteMedia
+                                            onDeleteAudio = onDeleteMedia,
+                                            selectedMediaItems = selectedMediaItems,
+                                            onToggleSelectItem = { item: MediaItemModel ->
+                                                selectedMediaItems = if (item in selectedMediaItems) selectedMediaItems - item else selectedMediaItems + item
+                                            },
+                                            onStartSelection = { item: MediaItemModel ->
+                                                selectedMediaItems = setOf(item)
+                                            }
                                         )
                                     }
                                     2 -> {
@@ -1377,15 +1578,15 @@ fun MainMediaPlayerScreen(
                 }
 
                 // Delete Media Confirmation Dialog
-                itemToDelete?.let { item ->
+                if (itemsToDelete.isNotEmpty()) {
                     DeleteMediaConfirmDialog(
-                        item = item,
+                        items = itemsToDelete,
                         onConfirm = {
-                            val target = item
-                            itemToDelete = null
-                            performDelete(target)
+                            val targets = itemsToDelete
+                            itemsToDelete = emptyList()
+                            performDelete(targets)
                         },
-                        onDismiss = { itemToDelete = null }
+                        onDismiss = { itemsToDelete = emptyList() }
                     )
                 }
             }
@@ -1695,7 +1896,10 @@ private fun VideosTabScreen(
     onRequestPermission: () -> Unit,
     onPickFiles: () -> Unit,
     onDeleteVideo: (MediaItemModel) -> Unit = {},
-    searchQuery: String = ""
+    searchQuery: String = "",
+    selectedMediaItems: Set<MediaItemModel> = emptySet(),
+    onToggleSelectItem: (MediaItemModel) -> Unit = {},
+    onStartSelection: (MediaItemModel) -> Unit = {}
 ) {
     var selectedVideoForDetails by remember { mutableStateOf<MediaItemModel?>(null) }
     var selectedVideoForOptions by remember { mutableStateOf<MediaItemModel?>(null) }
@@ -1766,14 +1970,25 @@ private fun VideosTabScreen(
                         items(sortedFolderVideos, key = { it.id }, contentType = { "video_grid_card" }) { video ->
                             val pos = playbackPositions[video.id] ?: 0L
                             val isPlayed = playedMediaIds.contains(video.id) || pos > 0
+                            val isSelected = selectedMediaItems.contains(video)
+                            val isSelectionMode = selectedMediaItems.isNotEmpty()
                             VideoCardItem(
                                 item = video,
                                 savedPositionMs = pos,
                                 isPlayed = isPlayed,
                                 isPlaying = currentPlayingId == video.id,
-                                onClick = { onPlayVideo(video, sortedFolderVideos) },
+                                isSelected = isSelected,
+                                isSelectionMode = isSelectionMode,
+                                onClick = {
+                                    if (isSelectionMode) {
+                                        onToggleSelectItem(video)
+                                    } else {
+                                        onPlayVideo(video, sortedFolderVideos)
+                                    }
+                                },
                                 onShowOptions = { selectedVideoForOptions = video },
-                                onDeleteClick = { onDeleteVideo(video) }
+                                onDeleteClick = { onDeleteVideo(video) },
+                                onLongClick = { onStartSelection(video) }
                             )
                         }
                     }
@@ -1786,14 +2001,25 @@ private fun VideosTabScreen(
                         items(sortedFolderVideos, key = { it.id }, contentType = { "video_list_card" }) { video ->
                             val pos = playbackPositions[video.id] ?: 0L
                             val isPlayed = playedMediaIds.contains(video.id) || pos > 0
+                            val isSelected = selectedMediaItems.contains(video)
+                            val isSelectionMode = selectedMediaItems.isNotEmpty()
                             VideoListItem(
                                 item = video,
                                 savedPositionMs = pos,
                                 isPlayed = isPlayed,
                                 isPlaying = currentPlayingId == video.id,
-                                onClick = { onPlayVideo(video, sortedFolderVideos) },
+                                isSelected = isSelected,
+                                isSelectionMode = isSelectionMode,
+                                onClick = {
+                                    if (isSelectionMode) {
+                                        onToggleSelectItem(video)
+                                    } else {
+                                        onPlayVideo(video, sortedFolderVideos)
+                                    }
+                                },
                                 onShowOptions = { selectedVideoForOptions = video },
-                                onDeleteClick = { onDeleteVideo(video) }
+                                onDeleteClick = { onDeleteVideo(video) },
+                                onLongClick = { onStartSelection(video) }
                             )
                         }
                     }
@@ -1894,12 +2120,11 @@ private fun VideosTabScreen(
             },
             onShare = {
                 selectedVideoForOptions = null
-                val shareIntent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
-                    type = "video/*"
-                    putExtra(android.content.Intent.EXTRA_STREAM, video.uri)
-                    addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                }
-                context.startActivity(android.content.Intent.createChooser(shareIntent, "Share Video"))
+                shareMediaFiles(context, listOf(video))
+            },
+            onStartSelection = {
+                selectedVideoForOptions = null
+                onStartSelection(video)
             },
             onDelete = {
                 selectedVideoForOptions = null
@@ -1918,6 +2143,7 @@ private fun VideoOptionsMenuDialog(
     onPlayFromBeginning: () -> Unit,
     onShowDetails: () -> Unit,
     onShare: () -> Unit,
+    onStartSelection: () -> Unit = {},
     onDelete: () -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -1979,6 +2205,16 @@ private fun VideoOptionsMenuDialog(
                     }
                 }
                 TextButton(
+                    onClick = onStartSelection,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Rounded.CheckCircleOutline, contentDescription = null, tint = AudiophileCyan)
+                        Spacer(Modifier.width(12.dp))
+                        Text("Select File", color = Color.White)
+                    }
+                }
+                TextButton(
                     onClick = onDelete,
                     modifier = Modifier.fillMaxWidth()
                 ) {
@@ -2033,9 +2269,12 @@ private fun VideoCardItem(
     savedPositionMs: Long,
     isPlayed: Boolean,
     isPlaying: Boolean,
+    isSelected: Boolean = false,
+    isSelectionMode: Boolean = false,
     onClick: () -> Unit,
     onShowOptions: () -> Unit,
-    onDeleteClick: () -> Unit = {}
+    onDeleteClick: () -> Unit = {},
+    onLongClick: () -> Unit = onDeleteClick
 ) {
     val context = LocalContext.current
 
@@ -2064,13 +2303,17 @@ private fun VideoCardItem(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(14.dp))
-            .border(1.dp, if (isPlaying) AudiophileCyan else OledBorder, RoundedCornerShape(14.dp))
+            .border(
+                if (isSelected) 2.dp else 1.dp,
+                if (isSelected) AudiophileCyan else if (isPlaying) AudiophileCyan else OledBorder,
+                RoundedCornerShape(14.dp)
+            )
             .combinedClickable(
                 onClick = onClick,
-                onLongClick = onDeleteClick
+                onLongClick = onLongClick
             ),
         shape = RoundedCornerShape(14.dp),
-        colors = CardDefaults.cardColors(containerColor = OledSurfaceVariant)
+        colors = CardDefaults.cardColors(containerColor = if (isSelected) Color(0xFF1B2A38) else OledSurfaceVariant)
     ) {
         Column {
             Box(
@@ -2089,6 +2332,29 @@ private fun VideoCardItem(
                     )
                 } else {
                     Icon(Icons.Rounded.Movie, contentDescription = null, tint = Color(0xFF6E6E80), modifier = Modifier.size(36.dp))
+                }
+
+                // Selection Checkbox Badge
+                if (isSelectionMode) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(6.dp)
+                            .size(24.dp)
+                            .clip(CircleShape)
+                            .background(if (isSelected) AudiophileCyan else Color(0x99000000))
+                            .border(1.5.dp, if (isSelected) AudiophileCyan else Color.White, CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (isSelected) {
+                            Icon(
+                                imageVector = Icons.Rounded.Check,
+                                contentDescription = "Selected",
+                                tint = Color.Black,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                    }
                 }
 
                 // Play Icon Overlay
@@ -2126,7 +2392,7 @@ private fun VideoCardItem(
                 }
 
                 // NEW Badge (only shown on genuinely unplayed & recent videos)
-                if (showNewBadge) {
+                if (showNewBadge && !isSelectionMode) {
                     Box(
                         modifier = Modifier
                             .align(Alignment.TopEnd)
@@ -2238,9 +2504,12 @@ private fun VideoListItem(
     savedPositionMs: Long,
     isPlayed: Boolean,
     isPlaying: Boolean,
+    isSelected: Boolean = false,
+    isSelectionMode: Boolean = false,
     onClick: () -> Unit,
     onShowOptions: () -> Unit,
-    onDeleteClick: () -> Unit = {}
+    onDeleteClick: () -> Unit = {},
+    onLongClick: () -> Unit = onDeleteClick
 ) {
     val context = LocalContext.current
 
@@ -2269,15 +2538,40 @@ private fun VideoListItem(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(14.dp))
-            .background(if (isPlaying) Color(0x1A00E5FF) else OledSurfaceVariant)
-            .border(1.dp, if (isPlaying) AudiophileCyan else OledBorder, RoundedCornerShape(14.dp))
+            .background(if (isSelected) Color(0xFF1E2D3D) else if (isPlaying) Color(0x1A00E5FF) else OledSurfaceVariant)
+            .border(
+                if (isSelected) 2.dp else 1.dp,
+                if (isSelected) AudiophileCyan else if (isPlaying) AudiophileCyan else OledBorder,
+                RoundedCornerShape(14.dp)
+            )
             .combinedClickable(
                 onClick = onClick,
-                onLongClick = onDeleteClick
+                onLongClick = onLongClick
             )
             .padding(horizontal = 10.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
+        if (isSelectionMode) {
+            Box(
+                modifier = Modifier
+                    .size(24.dp)
+                    .clip(CircleShape)
+                    .background(if (isSelected) AudiophileCyan else Color(0x33FFFFFF))
+                    .border(1.5.dp, if (isSelected) AudiophileCyan else Color.White, CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                if (isSelected) {
+                    Icon(
+                        imageVector = Icons.Rounded.Check,
+                        contentDescription = "Selected",
+                        tint = Color.Black,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.width(8.dp))
+        }
+
         // Thumbnail Box
         Box(
             modifier = Modifier
@@ -2431,6 +2725,8 @@ private fun TrackOptionsMenuDialog(
     item: MediaItemModel,
     onPlay: () -> Unit,
     onShowDetails: () -> Unit,
+    onShare: () -> Unit,
+    onStartSelection: () -> Unit = {},
     onDelete: () -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -2467,6 +2763,26 @@ private fun TrackOptionsMenuDialog(
                         Icon(Icons.Rounded.Info, contentDescription = null, tint = AudiophileCyan)
                         Spacer(Modifier.width(12.dp))
                         Text("Track Details", color = Color.White)
+                    }
+                }
+                TextButton(
+                    onClick = onShare,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Rounded.Share, contentDescription = null, tint = Color.White)
+                        Spacer(Modifier.width(12.dp))
+                        Text("Share Track", color = Color.White)
+                    }
+                }
+                TextButton(
+                    onClick = onStartSelection,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Rounded.CheckCircleOutline, contentDescription = null, tint = AudiophileCyan)
+                        Spacer(Modifier.width(12.dp))
+                        Text("Select File", color = Color.White)
                     }
                 }
                 TextButton(
@@ -2669,23 +2985,37 @@ private fun MusicQuickActionsBar(
 private fun MusicTrackLazyList(
     tracks: List<MediaItemModel>,
     currentPlayingId: Long?,
+    selectedMediaItems: Set<MediaItemModel> = emptySet(),
     onPlayTrack: (MediaItemModel) -> Unit,
     onShowOptions: (MediaItemModel) -> Unit,
     onDeleteTrack: (MediaItemModel) -> Unit,
+    onToggleSelect: (MediaItemModel) -> Unit = {},
+    onStartSelection: (MediaItemModel) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
+    val isSelectionMode = selectedMediaItems.isNotEmpty()
     LazyColumn(
         contentPadding = PaddingValues(bottom = 120.dp),
         modifier = modifier.fillMaxSize()
     ) {
         items(tracks, key = { it.id }, contentType = { "music_track" }) { audio ->
             val isPlaying = currentPlayingId == audio.id
+            val isSelected = selectedMediaItems.contains(audio)
             MusicTrackRow(
                 item = audio,
                 isPlaying = isPlaying,
-                onClick = { onPlayTrack(audio) },
+                isSelected = isSelected,
+                isSelectionMode = isSelectionMode,
+                onClick = {
+                    if (isSelectionMode) {
+                        onToggleSelect(audio)
+                    } else {
+                        onPlayTrack(audio)
+                    }
+                },
                 onShowOptions = { onShowOptions(audio) },
-                onDeleteClick = { onDeleteTrack(audio) }
+                onDeleteClick = { onDeleteTrack(audio) },
+                onLongClick = { onStartSelection(audio) }
             )
         }
     }
@@ -2738,7 +3068,10 @@ private fun MusicTabScreen(
     onShuffleAll: () -> Unit,
     onRequestPermission: () -> Unit,
     onPickFiles: () -> Unit,
-    onDeleteAudio: (MediaItemModel) -> Unit = {}
+    onDeleteAudio: (MediaItemModel) -> Unit = {},
+    selectedMediaItems: Set<MediaItemModel> = emptySet(),
+    onToggleSelectItem: (MediaItemModel) -> Unit = {},
+    onStartSelection: (MediaItemModel) -> Unit = {}
 ) {
     var sortOrder by remember { mutableStateOf("Default") }
     var selectedTrackDetails by remember { mutableStateOf<MediaItemModel?>(null) }
@@ -2807,15 +3140,19 @@ private fun MusicTabScreen(
                 MusicTrackLazyList(
                     tracks = displayedList,
                     currentPlayingId = currentPlayingId,
+                    selectedMediaItems = selectedMediaItems,
                     onPlayTrack = { track -> onPlayAudio(track, displayedList) },
                     onShowOptions = { track -> selectedTrackForOptions = track },
-                    onDeleteTrack = onDeleteAudio
+                    onDeleteTrack = onDeleteAudio,
+                    onToggleSelect = onToggleSelectItem,
+                    onStartSelection = onStartSelection
                 )
             }
         }
 
         // Track Options Dialog (Hoisted singleton dialog, avoids allocating hundreds of DropdownMenus in LazyColumn)
         selectedTrackForOptions?.let { track ->
+            val context = LocalContext.current
             TrackOptionsMenuDialog(
                 item = track,
                 onPlay = {
@@ -2825,6 +3162,14 @@ private fun MusicTabScreen(
                 onShowDetails = {
                     selectedTrackForOptions = null
                     selectedTrackDetails = track
+                },
+                onShare = {
+                    selectedTrackForOptions = null
+                    shareMediaFiles(context, listOf(track))
+                },
+                onStartSelection = {
+                    selectedTrackForOptions = null
+                    onStartSelection(track)
                 },
                 onDelete = {
                     selectedTrackForOptions = null
@@ -2844,13 +3189,17 @@ private fun MusicTabScreen(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun MusicTrackRow(
     item: MediaItemModel,
     isPlaying: Boolean,
+    isSelected: Boolean = false,
+    isSelectionMode: Boolean = false,
     onClick: () -> Unit,
     onShowOptions: () -> Unit,
-    onDeleteClick: () -> Unit = {}
+    onDeleteClick: () -> Unit = {},
+    onLongClick: () -> Unit = onDeleteClick
 ) {
     val context = LocalContext.current
     val imageRequest = remember(item.id, item.artworkUri) {
@@ -2889,11 +3238,39 @@ private fun MusicTrackRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .background(if (isPlaying) Color(0x1F00E5FF) else Color.Transparent)
+            .combinedClickable(
+                onClick = onClick,
+                onLongClick = onLongClick
+            )
+            .background(
+                if (isSelected) Color(0x3300E5FF)
+                else if (isPlaying) Color(0x1F00E5FF)
+                else Color.Transparent
+            )
             .padding(horizontal = 16.dp, vertical = 7.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
+        if (isSelectionMode) {
+            Box(
+                modifier = Modifier
+                    .size(24.dp)
+                    .clip(CircleShape)
+                    .background(if (isSelected) AudiophileCyan else Color(0x33FFFFFF))
+                    .border(1.5.dp, if (isSelected) AudiophileCyan else Color.White, CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                if (isSelected) {
+                    Icon(
+                        imageVector = Icons.Rounded.Check,
+                        contentDescription = "Selected",
+                        tint = Color.Black,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.width(12.dp))
+        }
+
         // Album artwork / Procedural Avatar
         Box(
             modifier = Modifier
@@ -3613,10 +3990,15 @@ private fun FloatingDockItem(
 
 @Composable
 private fun DeleteMediaConfirmDialog(
-    item: MediaItemModel,
+    items: List<MediaItemModel>,
     onConfirm: () -> Unit,
     onDismiss: () -> Unit
 ) {
+    if (items.isEmpty()) return
+    val isSingle = items.size == 1
+    val singleItem = items.first()
+    val totalBytes = items.sumOf { it.sizeBytes }
+
     AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = Color(0xFF141722),
@@ -3638,7 +4020,7 @@ private fun DeleteMediaConfirmDialog(
         },
         title = {
             Text(
-                text = "Delete from Device Storage?",
+                text = if (isSingle) "Delete from Device Storage?" else "Delete ${items.size} Files?",
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
                 color = Color.White
@@ -3650,7 +4032,11 @@ private fun DeleteMediaConfirmDialog(
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Text(
-                    text = "Are you sure you want to permanently delete \"${item.title}\"?",
+                    text = if (isSingle) {
+                        "Are you sure you want to permanently delete \"${singleItem.title}\"?"
+                    } else {
+                        "Are you sure you want to permanently delete these ${items.size} files from device storage?"
+                    },
                     style = MaterialTheme.typography.bodyMedium,
                     color = Color(0xFFD0D0DC),
                     textAlign = androidx.compose.ui.text.style.TextAlign.Center
@@ -3669,14 +4055,24 @@ private fun DeleteMediaConfirmDialog(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = if (item.isVideo) "VIDEO FILE" else "AUDIO FILE",
+                            text = if (isSingle) {
+                                if (singleItem.isVideo) "VIDEO FILE" else "AUDIO FILE"
+                            } else {
+                                val vCount = items.count { it.isVideo }
+                                val aCount = items.count { !it.isVideo }
+                                when {
+                                    vCount > 0 && aCount > 0 -> "$vCount VIDEOS • $aCount AUDIOS"
+                                    vCount > 0 -> "$vCount VIDEO FILES"
+                                    else -> "$aCount AUDIO FILES"
+                                }
+                            },
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
-                            color = if (item.isVideo) AudiophileCyan else AudiophileGold,
+                            color = AudiophileCyan,
                             fontFamily = FontFamily.Monospace
                         )
                         Text(
-                            text = formatFileSize(item.sizeBytes),
+                            text = formatFileSize(totalBytes),
                             fontSize = 12.sp,
                             fontWeight = FontWeight.SemiBold,
                             color = Color(0xFFA0AAB8),
@@ -3685,8 +4081,35 @@ private fun DeleteMediaConfirmDialog(
                     }
                 }
 
+                if (!isSingle) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 4.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        items.take(4).forEach { item ->
+                            Text(
+                                text = "• ${item.title}",
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                color = Color(0xFFA0A8B8),
+                                fontSize = 12.sp
+                            )
+                        }
+                        if (items.size > 4) {
+                            Text(
+                                text = "... and ${items.size - 4} more files",
+                                color = AudiophileCyan,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                    }
+                }
+
                 Text(
-                    text = "This will physically remove the file from your device storage. This action cannot be undone.",
+                    text = "This will physically remove the file${if (isSingle) "" else "s"} from your device storage. This action cannot be undone.",
                     style = MaterialTheme.typography.bodySmall,
                     color = Color(0xFF888898),
                     textAlign = androidx.compose.ui.text.style.TextAlign.Center
@@ -3699,7 +4122,11 @@ private fun DeleteMediaConfirmDialog(
                 shape = RoundedCornerShape(12.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFF453A))
             ) {
-                Text("Delete Permanently", color = Color.White, fontWeight = FontWeight.Bold)
+                Text(
+                    text = if (isSingle) "Delete Permanently" else "Delete ${items.size} Files",
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold
+                )
             }
         },
         dismissButton = {

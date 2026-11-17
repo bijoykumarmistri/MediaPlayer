@@ -71,12 +71,23 @@ class MediaLibraryRepository(private val context: Context) {
     }
 
     suspend fun removeCachedItem(item: MediaItemModel) = withContext(Dispatchers.IO) {
-        if (item.isVideo) {
-            val list = getCachedVideos().filter { it.id != item.id && it.uri != item.uri }
+        removeCachedItems(listOf(item))
+    }
+
+    suspend fun removeCachedItems(items: List<MediaItemModel>) = withContext(Dispatchers.IO) {
+        if (items.isEmpty()) return@withContext
+        val videoIds = items.filter { it.isVideo }.map { it.id }.toSet()
+        val videoUris = items.filter { it.isVideo }.map { it.uri }.toSet()
+        if (videoIds.isNotEmpty() || videoUris.isNotEmpty()) {
+            val list = getCachedVideos().filter { it.id !in videoIds && it.uri !in videoUris }
             inMemoryVideos = list
             saveCacheToFile(videosCacheFile, list)
-        } else {
-            val list = getCachedAudios().filter { it.id != item.id && it.uri != item.uri }
+        }
+
+        val audioIds = items.filter { !it.isVideo }.map { it.id }.toSet()
+        val audioUris = items.filter { !it.isVideo }.map { it.uri }.toSet()
+        if (audioIds.isNotEmpty() || audioUris.isNotEmpty()) {
+            val list = getCachedAudios().filter { it.id !in audioIds && it.uri !in audioUris }
             inMemoryAudios = list
             saveCacheToFile(audioCacheFile, list)
         }
@@ -85,81 +96,111 @@ class MediaLibraryRepository(private val context: Context) {
     suspend fun deleteMediaFile(
         item: MediaItemModel,
         onRequiresConsent: (android.content.IntentSender) -> Unit
-    ): Boolean = withContext(Dispatchers.IO) {
-        val uri = item.uri
-        val contentResolver = context.contentResolver
+    ): Boolean {
+        val deleted = deleteMediaFiles(listOf(item)) { sender, _ ->
+            onRequiresConsent(sender)
+        }
+        return deleted.isNotEmpty()
+    }
 
-        // 1. If it's a SAF document tree / file picker URI
-        if (DocumentsContract.isDocumentUri(context, uri)) {
-            try {
-                val deleted = DocumentsContract.deleteDocument(contentResolver, uri)
-                if (deleted) {
-                    removeCachedItem(item)
-                    return@withContext true
+    suspend fun deleteMediaFiles(
+        items: List<MediaItemModel>,
+        onRequiresConsent: (android.content.IntentSender, List<MediaItemModel>) -> Unit
+    ): List<MediaItemModel> = withContext(Dispatchers.IO) {
+        if (items.isEmpty()) return@withContext emptyList()
+        val contentResolver = context.contentResolver
+        val successfullyDeleted = mutableListOf<MediaItemModel>()
+        val remainingForConsent = mutableListOf<MediaItemModel>()
+
+        for (item in items) {
+            val uri = item.uri
+            var isDeleted = false
+
+            // 1. If it's a SAF document tree / file picker URI
+            if (DocumentsContract.isDocumentUri(context, uri)) {
+                try {
+                    val deleted = DocumentsContract.deleteDocument(contentResolver, uri)
+                    if (deleted) {
+                        successfullyDeleted.add(item)
+                        isDeleted = true
+                    }
+                } catch (e: Exception) {
+                    Log.w(tag, "DocumentsContract.deleteDocument failed: ${e.message}")
                 }
-            } catch (e: Exception) {
-                Log.w(tag, "DocumentsContract.deleteDocument failed: ${e.message}")
+            }
+
+            // 2. Direct ContentResolver delete (works if app has ownership or direct rights)
+            if (!isDeleted) {
+                try {
+                    val rows = contentResolver.delete(uri, null, null)
+                    if (rows > 0) {
+                        successfullyDeleted.add(item)
+                        isDeleted = true
+                    }
+                } catch (_: SecurityException) {
+                    remainingForConsent.add(item)
+                    isDeleted = true // Mark to be requested via batch consent below
+                } catch (e: Exception) {
+                    Log.w(tag, "Direct delete failed: ${e.message}")
+                }
+            }
+
+            // 3. File system fallback if path is accessible and not already deferred to consent
+            if (!isDeleted && !remainingForConsent.contains(item)) {
+                if (uri.scheme == "file" || (item.folderPath.isNotEmpty() && item.title.isNotEmpty())) {
+                    try {
+                        val path = if (uri.scheme == "file") uri.path else "${item.folderPath}/${item.title}"
+                        if (path != null) {
+                            val file = File(path)
+                            if (file.exists() && file.delete()) {
+                                successfullyDeleted.add(item)
+                                isDeleted = true
+                            }
+                        }
+                    } catch (e: Exception) {
+                        Log.w(tag, "File.delete fallback failed: ${e.message}")
+                    }
+                }
+                if (!isDeleted) {
+                    // Try to request consent via MediaStore if direct delete didn't succeed
+                    remainingForConsent.add(item)
+                }
             }
         }
 
-        // 2. Direct ContentResolver delete (works if app has ownership or direct rights)
-        try {
-            val rows = contentResolver.delete(uri, null, null)
-            if (rows > 0) {
-                removeCachedItem(item)
-                return@withContext true
-            }
-        } catch (secEx: SecurityException) {
+        // Clean cache for immediately deleted files
+        if (successfullyDeleted.isNotEmpty()) {
+            removeCachedItems(successfullyDeleted)
+        }
+
+        // Handle batch consent for Android 11+ (API 30+) or RecoverableSecurityException for Q
+        if (remainingForConsent.isNotEmpty()) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                 try {
-                    val pendingIntent = MediaStore.createDeleteRequest(contentResolver, listOf(uri))
+                    val uris = remainingForConsent.map { it.uri }
+                    val pendingIntent = MediaStore.createDeleteRequest(contentResolver, uris)
                     withContext(Dispatchers.Main) {
-                        onRequiresConsent(pendingIntent.intentSender)
+                        onRequiresConsent(pendingIntent.intentSender, remainingForConsent)
                     }
-                    return@withContext false
                 } catch (e: Exception) {
-                    Log.e(tag, "Failed to create delete request", e)
+                    Log.e(tag, "Failed to create batch delete request", e)
                 }
-            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && secEx is android.app.RecoverableSecurityException) {
-                withContext(Dispatchers.Main) {
-                    onRequiresConsent(secEx.userAction.actionIntent.intentSender)
-                }
-                return@withContext false
-            }
-        } catch (e: Exception) {
-            Log.w(tag, "Direct delete failed: ${e.message}")
-        }
-
-        // 3. Android 11+ (API 30+) Scoped Storage standard delete request
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            try {
-                val pendingIntent = MediaStore.createDeleteRequest(contentResolver, listOf(uri))
-                withContext(Dispatchers.Main) {
-                    onRequiresConsent(pendingIntent.intentSender)
-                }
-                return@withContext false
-            } catch (e: Exception) {
-                Log.e(tag, "createDeleteRequest fallback failed", e)
-            }
-        }
-
-        // 4. File system fallback if path is accessible
-        if (uri.scheme == "file" || (item.folderPath.isNotEmpty() && item.title.isNotEmpty())) {
-            try {
-                val path = if (uri.scheme == "file") uri.path else "${item.folderPath}/${item.title}"
-                if (path != null) {
-                    val file = File(path)
-                    if (file.exists() && file.delete()) {
-                        removeCachedItem(item)
-                        return@withContext true
+            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                // For Android 10 (Q), prompt for items that triggered RecoverableSecurityException
+                val first = remainingForConsent.first()
+                try {
+                    contentResolver.delete(first.uri, null, null)
+                } catch (secEx: android.app.RecoverableSecurityException) {
+                    withContext(Dispatchers.Main) {
+                        onRequiresConsent(secEx.userAction.actionIntent.intentSender, listOf(first))
                     }
+                } catch (e: Exception) {
+                    Log.w(tag, "Android Q delete consent failed", e)
                 }
-            } catch (e: Exception) {
-                Log.w(tag, "File.delete fallback failed: ${e.message}")
             }
         }
 
-        false
+        successfullyDeleted
     }
 
     private fun readCacheFromFile(file: File): List<MediaItemModel> {

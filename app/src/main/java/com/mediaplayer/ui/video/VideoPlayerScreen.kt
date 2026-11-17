@@ -23,14 +23,21 @@ import androidx.compose.ui.platform.LocalLayoutDirection
 import com.mediaplayer.ui.cleanMovieDisplayTitle
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.material.icons.rounded.ZoomIn
+import androidx.compose.material.icons.rounded.ZoomOutMap
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -351,38 +358,140 @@ fun VideoPlayerScreen(
         }
     }
 
+    // Interactive Pinch-to-Zoom & Pan states (smooth zoom from 1.0x to 5.0x)
+    var zoomScale by remember { mutableFloatStateOf(1.0f) }
+    var panOffset by remember { mutableStateOf(Offset.Zero) }
+    var showZoomFeedback by remember { mutableStateOf(false) }
+    var isPinchingActive by remember { mutableStateOf(false) }
+
+    // Auto-hide Zoom Level HUD Pill after 1.5s
+    LaunchedEffect(showZoomFeedback, zoomScale) {
+        if (showZoomFeedback) {
+            delay(1500)
+            showZoomFeedback = false
+        }
+    }
+
+    // Reset zoom when switching into Picture-in-Picture mode
+    LaunchedEffect(isInPipMode) {
+        if (isInPipMode) {
+            zoomScale = 1.0f
+            panOffset = Offset.Zero
+        }
+    }
+
     Box(
         modifier = modifier
             .fillMaxSize()
             .background(Color.Black)
     ) {
-        // Media3 Video Surface
-        AndroidView(
-            factory = { ctx ->
-                PlayerView(ctx).apply {
-                    player = playerManager.player
-                    useController = false
-                    controllerAutoShow = false
-                    resizeMode = resizeModes[resizeModeIndex].first
-                    isClickable = false
-                    isFocusable = false
-                    setOnTouchListener { _, _ -> false }
+        // Media3 Video Surface with Interactive Pinch-to-Zoom and Pan
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .clipToBounds()
+                .graphicsLayer {
+                    scaleX = zoomScale
+                    scaleY = zoomScale
+                    translationX = panOffset.x
+                    translationY = panOffset.y
                 }
-            },
-            update = { view ->
-                view.player = playerManager.player
-                view.resizeMode = if (isInPipMode) AspectRatioFrameLayout.RESIZE_MODE_FIT else resizeModes[resizeModeIndex].first
-            },
-            modifier = Modifier.fillMaxSize()
-        )
+        ) {
+            AndroidView(
+                factory = { ctx ->
+                    PlayerView(ctx).apply {
+                        player = playerManager.player
+                        useController = false
+                        controllerAutoShow = false
+                        resizeMode = resizeModes[resizeModeIndex].first
+                        isClickable = false
+                        isFocusable = false
+                        setOnTouchListener { _, _ -> false }
+                    }
+                },
+                update = { view ->
+                    view.player = playerManager.player
+                    view.resizeMode = if (isInPipMode) AspectRatioFrameLayout.RESIZE_MODE_FIT else resizeModes[resizeModeIndex].first
+                },
+                modifier = Modifier.fillMaxSize()
+            )
+        }
 
         if (!isInPipMode) {
-            // Under-the-hood MX Player Gesture Engine (Taps, Double-Taps, Vertical Brightness/Volume, Horizontal Scrubbing)
+            // Under-the-hood MX Player Gesture Engine (Pinch-to-Zoom, Pan, Taps, Double-Taps, Vertical Brightness/Volume, Horizontal Scrubbing)
             Box(
             modifier = Modifier
                 .fillMaxSize()
                 .pointerInput(isScreenLocked, durationMs) {
                     coroutineScope {
+                        // 1. Pinch-to-Zoom & Pan Multi-Touch Engine
+                        launch {
+                            if (!isScreenLocked) {
+                                awaitEachGesture {
+                                    awaitFirstDown(requireUnconsumed = false)
+                                    var lastDistance = 0f
+                                    var lastCentroid = Offset.Zero
+                                    var isPinching = false
+
+                                    while (true) {
+                                        val event = awaitPointerEvent()
+                                        val activePointers = event.changes.filter { it.pressed }
+
+                                        if (activePointers.size >= 2) {
+                                            isPinchingActive = true
+                                            val p1 = activePointers[0]
+                                            val p2 = activePointers[1]
+                                            val currentDistance = (p1.position - p2.position).getDistance()
+                                            val currentCentroid = (p1.position + p2.position) / 2f
+
+                                            if (!isPinching) {
+                                                isPinching = true
+                                                lastDistance = currentDistance
+                                                lastCentroid = currentCentroid
+                                            } else if (lastDistance > 0f) {
+                                                val zoomFactor = currentDistance / lastDistance
+                                                val panDelta = currentCentroid - lastCentroid
+
+                                                val newScale = (zoomScale * zoomFactor).coerceIn(1.0f, 5.0f)
+                                                zoomScale = newScale
+
+                                                val maxPanX = (size.width * (newScale - 1f) / 2f).coerceAtLeast(0f)
+                                                val maxPanY = (size.height * (newScale - 1f) / 2f).coerceAtLeast(0f)
+
+                                                panOffset = if (newScale <= 1.01f) {
+                                                    Offset.Zero
+                                                } else {
+                                                    Offset(
+                                                        x = (panOffset.x + panDelta.x).coerceIn(-maxPanX, maxPanX),
+                                                        y = (panOffset.y + panDelta.y).coerceIn(-maxPanY, maxPanY)
+                                                    )
+                                                }
+
+                                                lastDistance = currentDistance
+                                                lastCentroid = currentCentroid
+                                                showZoomFeedback = true
+                                            }
+
+                                            // Consume multi-touch pointers so single-finger drags/taps don't trigger
+                                            p1.consume()
+                                            p2.consume()
+                                        } else {
+                                            if (isPinching) {
+                                                isPinching = false
+                                                lastDistance = 0f
+                                                isPinchingActive = false
+                                            }
+                                            if (activePointers.isEmpty()) {
+                                                isPinchingActive = false
+                                                break
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // 2. Taps Engine (Tap to toggle controls, Double-tap to reset zoom or seek/pause)
                         launch {
                             detectTapGestures(
                                 onTap = {
@@ -394,30 +503,54 @@ fun VideoPlayerScreen(
                                 },
                                 onDoubleTap = { offset ->
                                     if (!isScreenLocked) {
-                                        val width = size.width
-                                        when {
-                                            offset.x < width * 0.35f -> {
-                                                playerManager.seekBackward(10000L)
-                                                scope.launch {
-                                                    leftRippleAlpha.snapTo(1f)
-                                                    leftRippleAlpha.animateTo(0f, tween(500))
+                                        if (zoomScale > 1.05f) {
+                                            // Reset zoom back to 100% on double-tap
+                                            scope.launch {
+                                                val startScale = zoomScale
+                                                val startPan = panOffset
+                                                animate(
+                                                    initialValue = 0f,
+                                                    targetValue = 1f,
+                                                    animationSpec = tween(220)
+                                                ) { fraction, _ ->
+                                                    zoomScale = startScale + (1.0f - startScale) * fraction
+                                                    panOffset = Offset(
+                                                        startPan.x * (1f - fraction),
+                                                        startPan.y * (1f - fraction)
+                                                    )
                                                 }
+                                                zoomScale = 1.0f
+                                                panOffset = Offset.Zero
                                             }
-                                            offset.x > width * 0.65f -> {
-                                                playerManager.seekForward(10000L)
-                                                scope.launch {
-                                                    rightRippleAlpha.snapTo(1f)
-                                                    rightRippleAlpha.animateTo(0f, tween(500))
+                                            showZoomFeedback = true
+                                        } else {
+                                            val width = size.width
+                                            when {
+                                                offset.x < width * 0.35f -> {
+                                                    playerManager.seekBackward(10000L)
+                                                    scope.launch {
+                                                        leftRippleAlpha.snapTo(1f)
+                                                        leftRippleAlpha.animateTo(0f, tween(500))
+                                                    }
                                                 }
-                                            }
-                                            else -> {
-                                                playerManager.playPause()
+                                                offset.x > width * 0.65f -> {
+                                                    playerManager.seekForward(10000L)
+                                                    scope.launch {
+                                                        rightRippleAlpha.snapTo(1f)
+                                                        rightRippleAlpha.animateTo(0f, tween(500))
+                                                    }
+                                                }
+                                                else -> {
+                                                    playerManager.playPause()
+                                                }
                                             }
                                         }
                                     }
                                 }
                             )
                         }
+
+                        // 3. Single-Finger Drag Engine (Volume, Brightness, Scrubbing)
                         launch {
                             if (!isScreenLocked) {
                                 var startX = 0f
@@ -427,6 +560,7 @@ fun VideoPlayerScreen(
 
                                 detectDragGestures(
                                     onDragStart = { offset ->
+                                        if (isPinchingActive) return@detectDragGestures
                                         startX = offset.x
                                         startY = offset.y
                                         dragDirection = 0
@@ -450,6 +584,13 @@ fun VideoPlayerScreen(
                                         dragDirection = 0
                                     },
                                     onDrag = { change, dragAmount ->
+                                        if (isPinchingActive) {
+                                            isHorizontalScrubbing = false
+                                            showBrightnessFeedback = false
+                                            showVolumeFeedback = false
+                                            dragDirection = 0
+                                            return@detectDragGestures
+                                        }
                                         change.consume()
                                         val totalDx = change.position.x - startX
                                         val totalDy = change.position.y - startY
@@ -663,6 +804,48 @@ fun VideoPlayerScreen(
                                 fontSize = 16.sp
                             )
                         }
+                    }
+                }
+            }
+        }
+
+        // Gesture Feedback HUD Card: Zoom In / Zoom Out Level
+        AnimatedVisibility(
+            visible = showZoomFeedback,
+            enter = fadeIn(tween(140)),
+            exit = fadeOut(tween(250)),
+            modifier = Modifier.align(Alignment.Center)
+        ) {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = Color(0xDD12131A)),
+                shape = RoundedCornerShape(20.dp),
+                border = BorderStroke(1.dp, AudiophileCyan)
+            ) {
+                Column(
+                    modifier = Modifier.padding(24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.ZoomIn,
+                        contentDescription = null,
+                        tint = AudiophileCyan,
+                        modifier = Modifier.size(44.dp)
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "Zoom: ${(zoomScale * 100).roundToInt()}%",
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 17.sp,
+                        fontFamily = FontFamily.Monospace
+                    )
+                    if (zoomScale > 1.05f) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "Double-tap to reset to 100%",
+                            color = Color(0xFFA0A8B8),
+                            fontSize = 11.sp
+                        )
                     }
                 }
             }
@@ -968,6 +1151,54 @@ fun VideoPlayerScreen(
                                 tint = Color.White
                             )
                         }
+
+                        // Quick Reset Zoom Pill Button (Visible when video is zoomed in)
+                        if (zoomScale > 1.05f) {
+                            Surface(
+                                onClick = {
+                                    scope.launch {
+                                        val startScale = zoomScale
+                                        val startPan = panOffset
+                                        animate(
+                                            initialValue = 0f,
+                                            targetValue = 1f,
+                                            animationSpec = tween(200)
+                                        ) { fraction, _ ->
+                                            zoomScale = startScale + (1.0f - startScale) * fraction
+                                            panOffset = Offset(
+                                                startPan.x * (1f - fraction),
+                                                startPan.y * (1f - fraction)
+                                            )
+                                        }
+                                        zoomScale = 1.0f
+                                        panOffset = Offset.Zero
+                                    }
+                                    showZoomFeedback = true
+                                },
+                                shape = RoundedCornerShape(14.dp),
+                                color = Color(0x3300E5FF),
+                                border = BorderStroke(1.dp, AudiophileCyan.copy(alpha = 0.6f))
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.ZoomOutMap,
+                                        contentDescription = "Reset Zoom",
+                                        tint = AudiophileCyan,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Text(
+                                        text = "${(zoomScale * 100).roundToInt()}%",
+                                        color = Color.White,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+                        }
                     }
 
                     // Picture-in-Picture Button
@@ -1048,6 +1279,26 @@ fun VideoPlayerScreen(
                                     showSpeedDialog = true
                                 }
                             )
+                            if (zoomScale > 1.05f) {
+                                DropdownMenuItem(
+                                    text = { Text("Reset Zoom (${(zoomScale * 100).roundToInt()}%)", color = Color.White) },
+                                    leadingIcon = { Icon(Icons.Rounded.ZoomOutMap, contentDescription = null, tint = AudiophileCyan) },
+                                    onClick = {
+                                        showMoreMenu = false
+                                        scope.launch {
+                                            val startScale = zoomScale
+                                            val startPan = panOffset
+                                            animate(0f, 1f, animationSpec = tween(200)) { fraction, _ ->
+                                                zoomScale = startScale + (1.0f - startScale) * fraction
+                                                panOffset = Offset(startPan.x * (1f - fraction), startPan.y * (1f - fraction))
+                                            }
+                                            zoomScale = 1.0f
+                                            panOffset = Offset.Zero
+                                        }
+                                        showZoomFeedback = true
+                                    }
+                                )
+                            }
                             DropdownMenuItem(
                                 text = {
                                     val timerLabel = if (sleepTimerRemainingMinutes > 0) "Sleep Timer (${sleepTimerRemainingMinutes}m)" else "Sleep Timer"
