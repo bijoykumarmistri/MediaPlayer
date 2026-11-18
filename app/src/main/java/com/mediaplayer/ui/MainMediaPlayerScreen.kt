@@ -97,6 +97,7 @@ import androidx.compose.material.icons.rounded.GridView
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Link
+import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.MoreHoriz
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Movie
@@ -122,6 +123,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -192,11 +194,19 @@ import com.mediaplayer.data.MediaLibraryRepository
 import com.mediaplayer.playback.MediaPlayerManager
 import com.mediaplayer.playback.StreamHistoryItem
 import com.mediaplayer.ui.components.AboutDeveloperDialog
+import com.mediaplayer.ui.components.AppUpdateDialog
 import com.mediaplayer.ui.components.BottomMiniPlayer
 import com.mediaplayer.ui.components.DeveloperSupportCard
 import com.mediaplayer.ui.components.MediaHubPage
 import com.mediaplayer.ui.components.UsbDacSettingsDialog
 import com.mediaplayer.ui.components.UsbTelemetryPill
+import com.mediaplayer.util.AppReleaseInfo
+import com.mediaplayer.util.AppUpdateManager
+import com.mediaplayer.vault.PrivacyVaultScreen
+import com.mediaplayer.vault.VaultMediaItem
+import com.mediaplayer.vault.VaultPinDialog
+import com.mediaplayer.vault.VaultRepository
+import com.mediaplayer.vault.VaultSecurityManager
 import com.mediaplayer.ui.music.MusicNowPlayingScreen
 import com.mediaplayer.ui.theme.AudiophileCyan
 import com.mediaplayer.ui.theme.AudiophileGold
@@ -264,6 +274,8 @@ fun shareMediaFiles(ctx: Context, items: List<MediaItemModel>) {
 @Composable
 fun MainMediaPlayerScreen(
     repository: MediaLibraryRepository,
+    vaultRepository: VaultRepository,
+    vaultSecurityManager: VaultSecurityManager,
     playerManager: MediaPlayerManager,
     usbController: UsbBitPerfectAudioController,
     isInPipMode: Boolean,
@@ -293,6 +305,24 @@ fun MainMediaPlayerScreen(
 
     var showDacDialog by remember { mutableStateOf(false) }
     var showAboutDialog by remember { mutableStateOf(false) }
+    var appReleaseInfo by remember { mutableStateOf<AppReleaseInfo?>(null) }
+    var showAutoUpdateDialog by remember { mutableStateOf(false) }
+
+    // Privacy Vault states
+    var showVaultScreen by remember { mutableStateOf(false) }
+    var showVaultPinDialog by remember { mutableStateOf(false) }
+    var isMovingToVault by remember { mutableStateOf(false) }
+
+    // Automatic silent check for GitHub releases on app startup
+    LaunchedEffect(Unit) {
+        val updateResult = AppUpdateManager.checkForUpdates(context)
+        updateResult.onSuccess { info ->
+            if (info.isUpdateAvailable) {
+                appReleaseInfo = info
+                showAutoUpdateDialog = true
+            }
+        }
+    }
 
     // Video view mode: Grid vs List (default to List view)
     var isVideoGridView by remember { mutableStateOf(false) }
@@ -393,8 +423,67 @@ fun MainMediaPlayerScreen(
         }
     }
 
+    fun moveToPrivacyVault(items: List<MediaItemModel>) {
+        if (items.isEmpty()) return
+        scope.launch {
+            isMovingToVault = true
+            val moved = vaultRepository.moveToVault(items)
+            if (moved.isNotEmpty()) {
+                repository.removeCachedItems(items)
+                val directlyDeleted = repository.deleteMediaFiles(items) { intentSender, needingConsent ->
+                    pendingConsentItems = needingConsent
+                    deleteConsentLauncher.launch(
+                        IntentSenderRequest.Builder(intentSender).build()
+                    )
+                }
+                val movedIds = items.map { it.id }.toSet()
+                val movedUris = items.map { it.uri }.toSet()
+                if (items.any { it.isVideo }) {
+                    videoList = videoList.filter { it.id !in movedIds && it.uri !in movedUris }
+                    if (openedVideoFolder != null) {
+                        val remaining = videoList.filter {
+                            (it.folderName.ifEmpty { "Videos" } == openedVideoFolder!!.name)
+                        }
+                        if (remaining.isEmpty()) {
+                            openedVideoFolder = null
+                        }
+                    }
+                }
+                if (items.any { !it.isVideo }) {
+                    audioList = audioList.filter { it.id !in movedIds && it.uri !in movedUris }
+                }
+                if (playerManager.currentMediaItem.value?.id in movedIds) {
+                    playerManager.stop()
+                    playerManager.setPlayerExpanded(false)
+                }
+                selectedMediaItems = emptySet()
+                val msg = if (items.size == 1) "${items.first().title} secured in Privacy Folder"
+                          else "${items.size} files secured in Privacy Folder"
+                Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+            }
+            isMovingToVault = false
+        }
+    }
+
+    fun openPrivacyVault() {
+        if (vaultSecurityManager.isUnlocked()) {
+            showVaultScreen = true
+        } else {
+            showVaultPinDialog = true
+        }
+    }
+
     // Predictive back progress state
     var predictiveBackProgress by remember { mutableFloatStateOf(0f) }
+
+    // Back handling for Privacy Vault screen
+    BackHandler(enabled = showVaultScreen && !isExpanded) {
+        showVaultScreen = false
+        scope.launch {
+            videoList = repository.getVideoList()
+            audioList = repository.getAudioList()
+        }
+    }
 
     // Back handling for multi-selection mode
     BackHandler(enabled = selectedMediaItems.isNotEmpty()) {
@@ -776,6 +865,26 @@ fun MainMediaPlayerScreen(
                                                     contentDescription = "Share Selected Files",
                                                     tint = Color.White,
                                                     modifier = Modifier.size(20.dp)
+                                                )
+                                            }
+
+                                            // Lock in Privacy Vault Button (Gold)
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(38.dp)
+                                                    .clip(CircleShape)
+                                                    .background(Color(0x33FFD54F))
+                                                    .border(1.dp, Color(0x66FFD54F), CircleShape)
+                                                    .clickable {
+                                                        moveToPrivacyVault(selectedMediaItems.toList())
+                                                    },
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Rounded.Lock,
+                                                    contentDescription = "Move to Privacy Folder",
+                                                    tint = AudiophileGold,
+                                                    modifier = Modifier.size(18.dp)
                                                 )
                                             }
 
@@ -1161,6 +1270,21 @@ fun MainMediaPlayerScreen(
                                             }
                                         }
 
+                                        Box(
+                                            modifier = Modifier
+                                                .size(38.dp)
+                                                .clip(CircleShape)
+                                                .background(Color(0x1AFFFFFF))
+                                                .clickable { showAboutDialog = true },
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Rounded.Info,
+                                                contentDescription = "About & Updates",
+                                                tint = Color.White,
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                        }
                                     }
                                 }
 
@@ -1415,6 +1539,7 @@ fun MainMediaPlayerScreen(
                                             },
                                             onPickFiles = { openFilesLauncher.launch(arrayOf("video/*", "audio/*")) },
                                             onDeleteVideo = onDeleteMedia,
+                                            onMoveToVault = { video -> moveToPrivacyVault(listOf(video)) },
                                             searchQuery = searchQuery,
                                             selectedMediaItems = selectedMediaItems,
                                             onToggleSelectItem = { item ->
@@ -1463,6 +1588,7 @@ fun MainMediaPlayerScreen(
                                             },
                                             onPickFiles = { openFilesLauncher.launch(arrayOf("audio/*", "video/*")) },
                                             onDeleteAudio = onDeleteMedia,
+                                            onMoveToVault = { audio -> moveToPrivacyVault(listOf(audio)) },
                                             selectedMediaItems = selectedMediaItems,
                                             onToggleSelectItem = { item: MediaItemModel ->
                                                 selectedMediaItems = if (item in selectedMediaItems) selectedMediaItems - item else selectedMediaItems + item
@@ -1483,8 +1609,7 @@ fun MainMediaPlayerScreen(
                                                 if (context is android.app.Activity) {
                                                     usbController.requestUsbPermission(context)
                                                 }
-                                            },
-                                            onOpenAboutDialog = { showAboutDialog = true }
+                                            }
                                         )
                                     }
                                     3 -> {
@@ -1504,13 +1629,45 @@ fun MainMediaPlayerScreen(
                                             onClearAllRecentStreams = {
                                                 playerManager.historyManager.clearRecentStreams()
                                                 recentStreamsState = emptyList()
-                                            }
+                                            },
+                                            onOpenAboutDialog = { showAboutDialog = true },
+                                            onOpenPrivacyVault = { openPrivacyVault() }
                                         )
                                     }
                                 }
                             }
                         }
                     }
+
+                // Privacy Vault Full Screen
+                if (showVaultScreen) {
+                    PrivacyVaultScreen(
+                        vaultRepository = vaultRepository,
+                        securityManager = vaultSecurityManager,
+                        onPlayMedia = { item ->
+                            if (item.isVideo) {
+                                playerManager.playMedia(item, listOf(item))
+                            } else {
+                                playerManager.playMedia(item, listOf(item))
+                            }
+                            playerManager.setPlayerExpanded(true)
+                        },
+                        onLockVault = {
+                            showVaultScreen = false
+                            scope.launch {
+                                videoList = repository.getVideoList()
+                                audioList = repository.getAudioList()
+                            }
+                        },
+                        onBack = {
+                            showVaultScreen = false
+                            scope.launch {
+                                videoList = repository.getVideoList()
+                                audioList = repository.getAudioList()
+                            }
+                        }
+                    )
+                }
 
                 // Full-Screen Player with Predictive Back Morphing (Hardware accelerated via graphicsLayer)
                 AnimatedVisibility(
@@ -1574,6 +1731,71 @@ fun MainMediaPlayerScreen(
                 if (showAboutDialog) {
                     AboutDeveloperDialog(
                         onDismiss = { showAboutDialog = false }
+                    )
+                }
+
+                // Automatic Update Dialog
+                if (showAutoUpdateDialog && appReleaseInfo != null) {
+                    AppUpdateDialog(
+                        releaseInfo = appReleaseInfo!!,
+                        onDismiss = { showAutoUpdateDialog = false }
+                    )
+                }
+
+                // Privacy Vault PIN Dialog
+                if (showVaultPinDialog) {
+                    VaultPinDialog(
+                        securityManager = vaultSecurityManager,
+                        onSuccess = {
+                            showVaultPinDialog = false
+                            showVaultScreen = true
+                        },
+                        onDismiss = { showVaultPinDialog = false }
+                    )
+                }
+
+                // Moving to Privacy Vault Progress Dialog
+                if (isMovingToVault) {
+                    AlertDialog(
+                        onDismissRequest = { /* prevent dismissal while moving */ },
+                        containerColor = Color(0xFF141722),
+                        shape = RoundedCornerShape(24.dp),
+                        icon = {
+                            Box(
+                                modifier = Modifier
+                                    .size(56.dp)
+                                    .background(Color(0x22FFD54F), CircleShape),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                CircularProgressIndicator(
+                                    color = AudiophileGold,
+                                    modifier = Modifier.size(34.dp),
+                                    strokeWidth = 3.dp
+                                )
+                            }
+                        },
+                        title = {
+                            Text(
+                                text = "Securing Media...",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White
+                            )
+                        },
+                        text = {
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text(
+                                    text = "Moving to Privacy Vault & hiding from device gallery...",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = Color(0xFFD0D0DC),
+                                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                                )
+                            }
+                        },
+                        confirmButton = {}
                     )
                 }
 
@@ -1896,6 +2118,7 @@ private fun VideosTabScreen(
     onRequestPermission: () -> Unit,
     onPickFiles: () -> Unit,
     onDeleteVideo: (MediaItemModel) -> Unit = {},
+    onMoveToVault: (MediaItemModel) -> Unit = {},
     searchQuery: String = "",
     selectedMediaItems: Set<MediaItemModel> = emptySet(),
     onToggleSelectItem: (MediaItemModel) -> Unit = {},
@@ -2130,6 +2353,10 @@ private fun VideosTabScreen(
                 selectedVideoForOptions = null
                 onDeleteVideo(video)
             },
+            onMoveToVault = {
+                selectedVideoForOptions = null
+                onMoveToVault(video)
+            },
             onDismiss = { selectedVideoForOptions = null }
         )
     }
@@ -2145,6 +2372,7 @@ private fun VideoOptionsMenuDialog(
     onShare: () -> Unit,
     onStartSelection: () -> Unit = {},
     onDelete: () -> Unit,
+    onMoveToVault: () -> Unit = {},
     onDismiss: () -> Unit
 ) {
     AlertDialog(
@@ -2212,6 +2440,16 @@ private fun VideoOptionsMenuDialog(
                         Icon(Icons.Rounded.CheckCircleOutline, contentDescription = null, tint = AudiophileCyan)
                         Spacer(Modifier.width(12.dp))
                         Text("Select File", color = Color.White)
+                    }
+                }
+                TextButton(
+                    onClick = onMoveToVault,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Rounded.Lock, contentDescription = null, tint = AudiophileGold)
+                        Spacer(Modifier.width(12.dp))
+                        Text("Move to Privacy Folder", color = Color.White)
                     }
                 }
                 TextButton(
@@ -2728,6 +2966,7 @@ private fun TrackOptionsMenuDialog(
     onShare: () -> Unit,
     onStartSelection: () -> Unit = {},
     onDelete: () -> Unit,
+    onMoveToVault: () -> Unit = {},
     onDismiss: () -> Unit
 ) {
     AlertDialog(
@@ -2783,6 +3022,16 @@ private fun TrackOptionsMenuDialog(
                         Icon(Icons.Rounded.CheckCircleOutline, contentDescription = null, tint = AudiophileCyan)
                         Spacer(Modifier.width(12.dp))
                         Text("Select File", color = Color.White)
+                    }
+                }
+                TextButton(
+                    onClick = onMoveToVault,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Rounded.Lock, contentDescription = null, tint = AudiophileGold)
+                        Spacer(Modifier.width(12.dp))
+                        Text("Move to Privacy Folder", color = Color.White)
                     }
                 }
                 TextButton(
@@ -3069,6 +3318,7 @@ private fun MusicTabScreen(
     onRequestPermission: () -> Unit,
     onPickFiles: () -> Unit,
     onDeleteAudio: (MediaItemModel) -> Unit = {},
+    onMoveToVault: (MediaItemModel) -> Unit = {},
     selectedMediaItems: Set<MediaItemModel> = emptySet(),
     onToggleSelectItem: (MediaItemModel) -> Unit = {},
     onStartSelection: (MediaItemModel) -> Unit = {}
@@ -3174,6 +3424,10 @@ private fun MusicTabScreen(
                 onDelete = {
                     selectedTrackForOptions = null
                     onDeleteAudio(track)
+                },
+                onMoveToVault = {
+                    selectedTrackForOptions = null
+                    onMoveToVault(track)
                 },
                 onDismiss = { selectedTrackForOptions = null }
             )
@@ -3381,8 +3635,7 @@ private fun AudioDacLabScreen(
     decoderMode: String,
     onSetBitPerfect: (Boolean) -> Unit,
     onSetDecoderMode: (String) -> Unit,
-    onRequestUsbPermission: () -> Unit,
-    onOpenAboutDialog: () -> Unit
+    onRequestUsbPermission: () -> Unit
 ) {
     Column(
         modifier = Modifier
@@ -3697,50 +3950,6 @@ private fun AudioDacLabScreen(
                             Text("Snapdragon silicon hardware decoders for ultra-low power playback.", style = MaterialTheme.typography.bodySmall, color = Color(0xFF9E9EAE))
                         }
                     }
-                }
-            }
-        }
-
-        Spacer(modifier = Modifier.height(14.dp))
-
-        // 5. Streamlined Developer & System Specs Card
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = OledSurfaceVariant),
-            shape = RoundedCornerShape(18.dp),
-            border = androidx.compose.foundation.BorderStroke(1.dp, OledBorder)
-        ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(
-                        modifier = Modifier
-                            .size(38.dp)
-                            .clip(CircleShape)
-                            .background(Color(0x3300E5FF)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text("B", fontWeight = FontWeight.Bold, color = AudiophileCyan, fontSize = 16.sp)
-                    }
-                    Spacer(modifier = Modifier.width(12.dp))
-                    Column {
-                        Text("Lead Developer: Bijoy", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 14.sp)
-                        Text("System Architect & Audio Engineer", style = MaterialTheme.typography.bodySmall, color = Color(0xFF9E9EAE), fontSize = 11.sp)
-                    }
-                }
-
-                OutlinedButton(
-                    onClick = onOpenAboutDialog,
-                    shape = RoundedCornerShape(12.dp),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x44FFFFFF)),
-                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
-                ) {
-                    Text("About", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                 }
             }
         }

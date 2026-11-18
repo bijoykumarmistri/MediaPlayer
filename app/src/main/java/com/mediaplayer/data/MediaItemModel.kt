@@ -46,10 +46,16 @@ data class MediaItemModel(
 
         val metadata = metadataBuilder.build()
 
+        val cleanMime = when {
+            mimeType.isBlank() || mimeType == "video/*" || mimeType == "audio/*" -> null
+            mimeType.startsWith("video/") || mimeType.startsWith("audio/") || mimeType.startsWith("application/") -> mimeType
+            else -> null
+        }
+
         val builder = MediaItem.Builder()
             .setMediaId(id.toString())
             .setUri(uri)
-            .setMimeType(mimeType.ifEmpty { null })
+            .setMimeType(cleanMime)
             .setMediaMetadata(metadata)
 
         val scheme = uri.scheme?.lowercase()

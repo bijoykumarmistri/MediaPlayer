@@ -10,6 +10,9 @@ import com.mediaplayer.audio.UsbBitPerfectAudioController
 import com.mediaplayer.data.MediaRepository
 import com.mediaplayer.playback.MediaPlayerManager
 
+import com.mediaplayer.vault.VaultRepository
+import com.mediaplayer.vault.VaultSecurityManager
+
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -25,11 +28,19 @@ class MediaPlayerApplication : Application(), ImageLoaderFactory {
     lateinit var repository: MediaRepository
         private set
 
+    lateinit var vaultRepository: VaultRepository
+        private set
+
+    lateinit var vaultSecurityManager: VaultSecurityManager
+        private set
+
     override fun onCreate() {
         super.onCreate()
         instance = this
         usbAudioController = UsbBitPerfectAudioController(this)
         repository = MediaRepository(this)
+        vaultRepository = VaultRepository(this)
+        vaultSecurityManager = VaultSecurityManager(this)
         playerManager = MediaPlayerManager(this, usbAudioController)
         playerManager.initialize()
 

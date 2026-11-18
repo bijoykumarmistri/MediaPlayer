@@ -307,7 +307,8 @@ class MediaLibraryRepository(private val context: Context) {
             MediaStore.Audio.Media.DURATION,
             MediaStore.Audio.Media.SIZE,
             MediaStore.Audio.Media.MIME_TYPE,
-            MediaStore.Audio.Media.DATE_ADDED
+            MediaStore.Audio.Media.DATE_ADDED,
+            MediaStore.Audio.Media.DATA
         )
 
         val selection = "${MediaStore.Audio.Media.IS_MUSIC} != 0"
@@ -324,6 +325,7 @@ class MediaLibraryRepository(private val context: Context) {
                 val sizeCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.SIZE)
                 val mimeCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.MIME_TYPE)
                 val dateCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DATE_ADDED)
+                val dataCol = cursor.getColumnIndex(MediaStore.Audio.Media.DATA)
 
                 while (cursor.moveToNext()) {
                     val id = cursor.getLong(idCol)
@@ -336,6 +338,9 @@ class MediaLibraryRepository(private val context: Context) {
                     val size = cursor.getLong(sizeCol)
                     val mime = cursor.getString(mimeCol) ?: "audio/*"
                     val dateAdded = cursor.getLong(dateCol)
+                    val rawPath = if (dataCol >= 0) cursor.getString(dataCol) else null
+                    val parentDir = if (!rawPath.isNullOrEmpty()) File(rawPath).parent ?: "" else ""
+                    val folderName = if (!rawPath.isNullOrEmpty()) File(rawPath).parentFile?.name ?: "Music" else "Music"
 
                     // Point directly to MediaStore's indexed album art URI if album exists, or null.
                     // Never point artworkUri to the raw audio track contentUri (which triggers expensive ID3 extraction on 100+ files).
@@ -356,6 +361,8 @@ class MediaLibraryRepository(private val context: Context) {
                             isVideo = false,
                             mimeType = mime,
                             sizeBytes = size,
+                            folderName = folderName,
+                            folderPath = parentDir,
                             codecBadge = codecInfo,
                             dateAdded = dateAdded
                         )

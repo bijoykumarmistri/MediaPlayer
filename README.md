@@ -1,8 +1,8 @@
 # Media Player Android App
 
-A modern, high-performance Android media player built with **Jetpack Compose** and **Kotlin**, featuring audiophile-grade **USB Bit-Perfect Audio** output and seamless music/video playback.
+A modern, high-performance Android media player built with **Jetpack Compose** and **Kotlin**, featuring audiophile-grade **USB Bit-Perfect Audio** output, seamless music/video playback, and a fast **Privacy Vault**.
 
-[![Download APK](https://img.shields.io/badge/Download%20APK-v1.1-blue?logo=android&style=for-the-badge)](https://github.com/bijoykumarmistri/MediaPlayer/releases/latest/download/MediaPlayer-v1.1.apk)
+[![Download APK](https://img.shields.io/badge/Download%20APK-v1.2-blue?logo=android&style=for-the-badge)](https://github.com/bijoykumarmistri/MediaPlayer/releases/latest/download/MediaPlayer-v1.2.apk)
 [![Latest Release](https://img.shields.io/github/v/release/bijoykumarmistri/MediaPlayer?style=for-the-badge)](https://github.com/bijoykumarmistri/MediaPlayer/releases/latest)
 
 ---
@@ -10,7 +10,7 @@ A modern, high-performance Android media player built with **Jetpack Compose** a
 ## 📥 Download & Install
 
 Anyone can download and install the latest APK directly on their Android device:
-👉 **[Download MediaPlayer-v1.1.apk](https://github.com/bijoykumarmistri/MediaPlayer/releases/download/v1.1/MediaPlayer-v1.1.apk)**
+👉 **[Download MediaPlayer-v1.2.apk](https://github.com/bijoykumarmistri/MediaPlayer/releases/download/v1.2/MediaPlayer-v1.2.apk)**
 
 *Compatible with Android 8.0 (API level 26) and above.*
 
@@ -18,6 +18,9 @@ Anyone can download and install the latest APK directly on their Android device:
 
 ## Key Features
 
+- **Privacy Vault / Secret Folder**: Password/PIN and Security Question protected private vault to hide sensitive videos and audio from device gallery and other apps, with instant single-tap playback and direct restoration to original folders.
+- **In-App GitHub Release Update Checker**: Automatically checks for newer versions on startup and provides an in-app dialog with changelog details and one-tap direct download.
+- **Luxury OLED "About & Support"**: Re-engineered luxury OLED dialog featuring developer info, quick bug reporting, email contact, and release notes.
 - **Multi-File Batch Selection, Sharing & Deletion**: Select multiple audio tracks or videos at once with long-press or menu actions to share via external apps or permanently delete from device storage with Scoped Storage consent.
 - **Pinch-to-Zoom & Pan Video Playback**: Smooth hardware-accelerated pinch-to-zoom (1.0x to 5.0x) with pan repositioning, real-time zoom HUD percentage, and double-tap to reset.
 - **Universal Media Playback**: Supports both local music and video playback with smooth playback controls.
@@ -47,7 +50,7 @@ Anyone can download and install the latest APK directly on their Android device:
 2. Open the project in **Android Studio Ladybug (or newer)**.
 3. Sync Gradle and build the app:
    ```bash
-   ./gradlew assembleDebug
+   ./gradlew assembleRelease
    ```
 4. Run on an Android device running Android 8.0 (API level 26) or higher.
 

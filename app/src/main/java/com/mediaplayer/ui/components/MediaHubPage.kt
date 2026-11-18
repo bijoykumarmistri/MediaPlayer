@@ -38,9 +38,11 @@ import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.FolderOpen
 import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.Link
+import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.Movie
 import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.RocketLaunch
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -77,6 +79,7 @@ import com.mediaplayer.ui.theme.AudiophileCyan
 import com.mediaplayer.ui.theme.AudiophileGold
 import com.mediaplayer.ui.theme.OledBorder
 import com.mediaplayer.ui.theme.OledSurfaceVariant
+import com.mediaplayer.util.AppUpdateManager
 
 @Composable
 fun MediaHubPage(
@@ -85,7 +88,9 @@ fun MediaHubPage(
     onPlayStream: (url: String, title: String, isVideo: Boolean) -> Unit,
     recentStreams: List<StreamHistoryItem>,
     onDeleteRecentStream: (String) -> Unit,
-    onClearAllRecentStreams: () -> Unit
+    onClearAllRecentStreams: () -> Unit,
+    onOpenAboutDialog: () -> Unit = {},
+    onOpenPrivacyVault: () -> Unit = {}
 ) {
     val context = LocalContext.current
     var selectedTab by remember { mutableIntStateOf(0) } // 0: Local, 1: Stream, 2: History
@@ -184,6 +189,27 @@ fun MediaHubPage(
                             iconTint = AudiophileGold,
                             iconBg = Color(0x26FFD54F),
                             onClick = onPickFolder
+                        )
+
+                        // 3. Privacy Folder / Secure Vault Tile
+                        HubSourceCard(
+                            title = "Privacy Vault",
+                            subtitle = "Password-protected folder for sensitive video and audio files",
+                            icon = Icons.Rounded.Lock,
+                            iconTint = AudiophileGold,
+                            iconBg = Color(0x26FFD54F),
+                            onClick = onOpenPrivacyVault
+                        )
+
+                        // 4. App Updates & GitHub Tile
+                        val currentVersion = remember { AppUpdateManager.getCurrentVersionName(context) }
+                        HubSourceCard(
+                            title = "App Updates & Releases",
+                            subtitle = "Installed: v$currentVersion • Check for latest version on GitHub",
+                            icon = Icons.Rounded.RocketLaunch,
+                            iconTint = AudiophileCyan,
+                            iconBg = Color(0x2600E5FF),
+                            onClick = onOpenAboutDialog
                         )
 
                         // Supported Decoders Info Pill

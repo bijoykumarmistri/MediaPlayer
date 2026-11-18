@@ -29,6 +29,8 @@ import com.mediaplayer.playback.MediaPlayerManager
 import com.mediaplayer.ui.MainMediaPlayerScreen
 import com.mediaplayer.ui.theme.MediaPlayerTheme
 import com.mediaplayer.util.HighRefreshRateManager
+import com.mediaplayer.vault.VaultRepository
+import com.mediaplayer.vault.VaultSecurityManager
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
@@ -85,6 +87,8 @@ class MainActivity : ComponentActivity() {
         playerManager = app.playerManager
         usbController = app.usbAudioController
         repository = app.repository
+        val vaultRepository = app.vaultRepository
+        val vaultSecurityManager = app.vaultSecurityManager
 
         val filter = IntentFilter(ACTION_PIP_CONTROL)
         ContextCompat.registerReceiver(this, pipReceiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
@@ -105,6 +109,8 @@ class MainActivity : ComponentActivity() {
             MediaPlayerTheme(oledMode = true) {
                 MainContent(
                     repository = repository,
+                    vaultRepository = vaultRepository,
+                    vaultSecurityManager = vaultSecurityManager,
                     playerManager = playerManager,
                     usbController = usbController,
                     isInPipMode = isInPipModeState.value,
@@ -248,6 +254,11 @@ class MainActivity : ComponentActivity() {
         highRefreshRateManager.applyOptimalRefreshRate()
     }
 
+    override fun onPause() {
+        super.onPause()
+        (application as? MediaPlayerApplication)?.vaultSecurityManager?.lock()
+    }
+
     override fun onDestroy() {
         super.onDestroy()
         highRefreshRateManager.stop()
@@ -263,6 +274,8 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun MainContent(
     repository: MediaRepository,
+    vaultRepository: VaultRepository,
+    vaultSecurityManager: VaultSecurityManager,
     playerManager: MediaPlayerManager,
     usbController: UsbBitPerfectAudioController,
     isInPipMode: Boolean,
@@ -270,6 +283,8 @@ fun MainContent(
 ) {
     MainMediaPlayerScreen(
         repository = repository,
+        vaultRepository = vaultRepository,
+        vaultSecurityManager = vaultSecurityManager,
         playerManager = playerManager,
         usbController = usbController,
         isInPipMode = isInPipMode,
