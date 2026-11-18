@@ -55,6 +55,70 @@ class VaultRepository(private val context: Context) {
         return inMemoryItems ?: loadFromDisk().also { inMemoryItems = it }
     }
 
+    fun findValidVaultFile(item: VaultMediaItem): File? {
+        val direct = File(item.vaultFilePath)
+        if (direct.exists() && direct.length() > 0L) return direct
+
+        val inVaultDir = File(vaultDir, direct.name)
+        if (inVaultDir.exists() && inVaultDir.length() > 0L) return inVaultDir
+
+        // Search by UUID prefix in vault directory
+        if (item.id.isNotEmpty()) {
+            val matchById = vaultDir.listFiles()?.firstOrNull {
+                it.name.startsWith(item.id) && it.length() > 0L && !it.name.endsWith(".tmp")
+            }
+            if (matchById != null) return matchById
+        }
+
+        // Search by original file name
+        if (item.originalFileName.isNotEmpty()) {
+            val matchByName = vaultDir.listFiles()?.firstOrNull {
+                it.name.endsWith(item.originalFileName) && it.length() > 0L && !it.name.endsWith(".tmp")
+            }
+            if (matchByName != null) return matchByName
+        }
+
+        // Check if a completed .tmp file exists
+        val tmpMatch = vaultDir.listFiles()?.firstOrNull {
+            it.name.startsWith(item.id) && it.name.endsWith(".tmp") && it.length() > 0L
+        }
+        if (tmpMatch != null) {
+            val proper = File(vaultDir, "${item.id}_${item.originalFileName.ifEmpty { "media" }}")
+            if (tmpMatch.renameTo(proper) && proper.exists() && proper.length() > 0L) {
+                return proper
+            }
+            return tmpMatch
+        }
+
+        // Check legacy public vault directory
+        try {
+            val legacyDir = File(Environment.getExternalStorageDirectory(), ".mediaplayer_vault")
+            if (legacyDir.exists() && legacyDir.canRead()) {
+                val legacyDirect = File(legacyDir, direct.name)
+                if (legacyDirect.exists() && legacyDirect.length() > 0L) return legacyDirect
+
+                if (item.id.isNotEmpty()) {
+                    val legacyMatch = legacyDir.listFiles()?.firstOrNull {
+                        it.name.startsWith(item.id) && it.length() > 0L
+                    }
+                    if (legacyMatch != null) return legacyMatch
+                }
+            }
+        } catch (_: Exception) {}
+
+        // Check if still in original folder
+        if (item.originalFolderPath.isNotEmpty()) {
+            val origFile = if (item.originalFileName.isNotEmpty()) {
+                File(item.originalFolderPath, item.originalFileName)
+            } else {
+                File(item.originalFolderPath, item.title)
+            }
+            if (origFile.exists() && origFile.length() > 0L) return origFile
+        }
+
+        return if (direct.exists()) direct else null
+    }
+
     private fun loadFromDisk(): List<VaultMediaItem> {
         if (!metadataFile.exists() || metadataFile.length() == 0L) return emptyList()
         return try {
@@ -66,43 +130,16 @@ class VaultRepository(private val context: Context) {
             for (i in 0 until jsonArray.length()) {
                 val obj = jsonArray.getJSONObject(i)
                 var item = VaultMediaItem.fromJson(obj)
-                var f = File(item.vaultFilePath)
+                val resolved = findValidVaultFile(item)
 
-                // If file is not accessible at recorded path, check candidate locations
-                if (!f.exists() || f.length() == 0L) {
-                    val candidatePublic = File(Environment.getExternalStorageDirectory(), ".mediaplayer_vault/${f.name}")
-                    val candidatePrivate = File(vaultDir, f.name)
-
-                    if (candidatePublic.exists() && candidatePublic.length() > 0L) {
-                        try {
-                            if (!candidatePrivate.exists()) {
-                                if (!candidatePublic.renameTo(candidatePrivate)) {
-                                    FileInputStream(candidatePublic).use { input ->
-                                        FileOutputStream(candidatePrivate).use { output ->
-                                            input.copyTo(output, bufferSize = 512 * 1024)
-                                        }
-                                    }
-                                    if (candidatePrivate.exists() && candidatePrivate.length() > 0L) {
-                                        candidatePublic.delete()
-                                    }
-                                }
-                            }
-                            if (candidatePrivate.exists() && candidatePrivate.length() > 0L) {
-                                item = item.copy(vaultFilePath = candidatePrivate.absolutePath)
-                                f = candidatePrivate
-                                needsSave = true
-                            }
-                        } catch (e: Exception) {
-                            Log.w(tag, "Failed to migrate file to vaultDir: ${e.message}")
-                        }
-                    } else if (candidatePrivate.exists() && candidatePrivate.length() > 0L) {
-                        item = item.copy(vaultFilePath = candidatePrivate.absolutePath)
-                        f = candidatePrivate
+                if (resolved != null && resolved.exists() && resolved.length() > 0L) {
+                    if (resolved.absolutePath != item.vaultFilePath && !resolved.absolutePath.startsWith(item.originalFolderPath)) {
+                        item = item.copy(vaultFilePath = resolved.absolutePath)
                         needsSave = true
                     }
-                }
-
-                if (f.exists() && f.length() > 0L) {
+                    items.add(item)
+                } else {
+                    // Keep item in vault list so user can see it and attempt restore or delete
                     items.add(item)
                 }
             }
@@ -166,9 +203,9 @@ class VaultRepository(private val context: Context) {
             if (folder.exists() && folder.isDirectory) {
                 val match = folder.listFiles()?.firstOrNull { f ->
                     f.isFile && f.length() > 0L && (f.name == item.title ||
-                                 f.nameWithoutExtension == item.title ||
-                                 f.name.equals(item.title, ignoreCase = true) ||
-                                 f.nameWithoutExtension.equals(item.title, ignoreCase = true))
+                            f.nameWithoutExtension == item.title ||
+                            f.name.equals(item.title, ignoreCase = true) ||
+                            f.nameWithoutExtension.equals(item.title, ignoreCase = true))
                 }
                 if (match != null && match.exists() && match.length() > 0L) return match
             }
@@ -231,7 +268,7 @@ class VaultRepository(private val context: Context) {
 
                 var moveSuccess = false
 
-                // 1. Try instant rename if possible (same directory/mount)
+                // 1. Try instant rename if on same volume
                 if (sourceFile != null && sourceFile.exists() && sourceFile.length() > 0L) {
                     try {
                         moveSuccess = sourceFile.renameTo(destFile)
@@ -243,8 +280,12 @@ class VaultRepository(private val context: Context) {
                 // 2. If rename didn't work across boundaries, copy via stream to temp file
                 if (!moveSuccess) {
                     var bytesCopied = 0L
-                    val inputStream = context.contentResolver.openInputStream(item.uri)
-                        ?: (if (sourceFile != null && sourceFile.exists()) FileInputStream(sourceFile) else null)
+                    val inputStream = try {
+                        context.contentResolver.openInputStream(item.uri)
+                    } catch (_: Exception) { null }
+                        ?: (if (sourceFile != null && sourceFile.exists()) {
+                            try { FileInputStream(sourceFile) } catch (_: Exception) { null }
+                        } else null)
 
                     if (inputStream != null) {
                         inputStream.use { inStream ->
@@ -327,18 +368,6 @@ class VaultRepository(private val context: Context) {
      * Guaranteed complete write, IS_PENDING released, and scanned for all device players.
      */
     suspend fun restoreFromVault(item: VaultMediaItem): Boolean = withContext(Dispatchers.IO) {
-        val vaultFile = File(item.vaultFilePath)
-        val validVaultFile = if (vaultFile.exists() && vaultFile.length() > 0L) {
-            vaultFile
-        } else {
-            val candidate = File(vaultDir, vaultFile.name)
-            if (candidate.exists() && candidate.length() > 0L) candidate else null
-        }
-        if (validVaultFile == null || !validVaultFile.exists() || validVaultFile.length() == 0L) {
-            Log.e(tag, "Cannot restore: vault file is missing or 0 bytes")
-            return@withContext false
-        }
-
         return@withContext try {
             val fileName = item.originalFileName.ifEmpty {
                 val ext = when {
@@ -363,31 +392,152 @@ class VaultRepository(private val context: Context) {
                 try { origFolder.mkdirs() } catch (_: Exception) {}
             }
 
-            val relPath = getRelativePathFromFolder(item.originalFolderPath, item.isVideo)
+            val targetFile = File(origFolder, fileName)
+
+            // Exact standard MIME type (never wildcard)
+            val ext = fileName.substringAfterLast('.', "").lowercase()
+            val safeMime = when (ext) {
+                "mp4", "m4v" -> "video/mp4"
+                "mkv" -> "video/x-matroska"
+                "webm" -> "video/webm"
+                "avi" -> "video/avi"
+                "mov" -> "video/quicktime"
+                "ts" -> "video/mp2t"
+                "flv" -> "video/x-flv"
+                "3gp" -> "video/3gpp"
+                "mp3" -> "audio/mpeg"
+                "flac" -> "audio/flac"
+                "wav" -> "audio/wav"
+                "m4a", "aac" -> "audio/mp4"
+                "ogg", "opus" -> "audio/ogg"
+                else -> if (item.isVideo) "video/mp4" else "audio/mpeg"
+            }
+
+            // 1. Check if the original intact file is ALREADY in destination folder
+            if (targetFile.exists() && targetFile.length() > 0L) {
+                MediaScannerConnection.scanFile(context, arrayOf(targetFile.absolutePath), arrayOf(safeMime), null)
+                val vaultFile = findValidVaultFile(item)
+                if (vaultFile != null && vaultFile.absolutePath != targetFile.absolutePath) {
+                    try { vaultFile.delete() } catch (_: Exception) {}
+                }
+                val updated = getVaultItems().filter { it.id != item.id }
+                saveToDisk(updated)
+                return@withContext true
+            }
+
+            // 2. Remove dead 0-byte file at destination if left from earlier failed attempts
+            if (targetFile.exists() && targetFile.length() == 0L) {
+                try { targetFile.delete() } catch (_: Exception) {}
+            }
+
+            // 3. Find the valid vault file
+            val validVaultFile = findValidVaultFile(item)
+            if (validVaultFile == null || !validVaultFile.exists() || validVaultFile.length() == 0L) {
+                Log.e(tag, "Vault file missing or 0 bytes: ${item.vaultFilePath}")
+                return@withContext false
+            }
+
+            var restored = false
+
+            // Strategy 1: Instant direct rename if filesystem allows (0 ms, MX Player style)
+            if (targetFile.parentFile?.canWrite() == true) {
+                try {
+                    restored = validVaultFile.renameTo(targetFile)
+                } catch (_: Exception) {
+                    restored = false
+                }
+            }
+
+            // Strategy 2: Direct file copy via temp file if destination folder is directly writable
+            if (!restored && targetFile.parentFile?.canWrite() == true) {
+                val tempDest = File(origFolder, ".restoring_${System.currentTimeMillis()}_$fileName")
+                try {
+                    var bytes = 0L
+                    FileOutputStream(tempDest).use { out ->
+                        FileInputStream(validVaultFile).use { input ->
+                            val buf = ByteArray(512 * 1024)
+                            var r: Int
+                            while (input.read(buf).also { r = it } != -1) {
+                                out.write(buf, 0, r)
+                                bytes += r
+                            }
+                            out.flush()
+                        }
+                    }
+                    if (tempDest.exists() && bytes > 0L) {
+                        if (targetFile.exists()) targetFile.delete()
+                        if (tempDest.renameTo(targetFile) && targetFile.exists() && targetFile.length() > 0L) {
+                            restored = true
+                        }
+                    }
+                } catch (_: Exception) {
+                    restored = false
+                } finally {
+                    if (!restored && tempDest.exists()) {
+                        try { tempDest.delete() } catch (_: Exception) {}
+                    }
+                }
+            }
+
+            // If Strategy 1 or Strategy 2 succeeded, scan file and complete
+            if (restored && targetFile.exists() && targetFile.length() > 0L) {
+                MediaScannerConnection.scanFile(context, arrayOf(targetFile.absolutePath), arrayOf(safeMime), null)
+                if (validVaultFile.exists() && validVaultFile.absolutePath != targetFile.absolutePath) {
+                    try { validVaultFile.delete() } catch (_: Exception) {}
+                }
+                val updated = getVaultItems().filter { it.id != item.id }
+                saveToDisk(updated)
+                return@withContext true
+            }
+
+            // Strategy 3: Android MediaStore insert with IS_PENDING handling
             val contentResolver = context.contentResolver
-            val contentUri = if (item.isVideo) {
+            val relPath = getRelativePathFromFolder(item.originalFolderPath, item.isVideo)
+            val isDownload = relPath.startsWith("Download", ignoreCase = true)
+
+            val contentUri = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && isDownload) {
+                MediaStore.Downloads.EXTERNAL_CONTENT_URI
+            } else if (item.isVideo) {
                 MediaStore.Video.Media.EXTERNAL_CONTENT_URI
             } else {
                 MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
             }
 
-            val mime = item.mimeType.ifEmpty {
-                if (item.isVideo) "video/mp4" else "audio/mpeg"
+            val safeRelPath = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                if (contentUri == MediaStore.Video.Media.EXTERNAL_CONTENT_URI &&
+                    !relPath.startsWith("DCIM", true) && !relPath.startsWith("Movies", true) && !relPath.startsWith("Pictures", true)
+                ) {
+                    "${Environment.DIRECTORY_MOVIES}/"
+                } else if (contentUri == MediaStore.Audio.Media.EXTERNAL_CONTENT_URI &&
+                    !relPath.startsWith("Music", true) && !relPath.startsWith("Podcasts", true) && !relPath.startsWith("Ringtones", true)
+                ) {
+                    "${Environment.DIRECTORY_MUSIC}/"
+                } else {
+                    relPath
+                }
+            } else {
+                relPath
             }
 
             val values = ContentValues().apply {
                 put(MediaStore.MediaColumns.DISPLAY_NAME, fileName)
-                put(MediaStore.MediaColumns.MIME_TYPE, mime)
+                put(MediaStore.MediaColumns.MIME_TYPE, safeMime)
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                    put(MediaStore.MediaColumns.RELATIVE_PATH, relPath)
+                    put(MediaStore.MediaColumns.RELATIVE_PATH, safeRelPath)
                     put(MediaStore.MediaColumns.IS_PENDING, 1)
                 }
             }
 
-            val targetUri = contentResolver.insert(contentUri, values)
+            val targetUri = try {
+                contentResolver.insert(contentUri, values)
+            } catch (e: Exception) {
+                Log.e(tag, "contentResolver.insert failed: ${e.message}")
+                null
+            }
+
             if (targetUri != null) {
                 var bytesWritten = 0L
-                val outStream = contentResolver.openOutputStream(targetUri)
+                val outStream = contentResolver.openOutputStream(targetUri, "w")
                 if (outStream != null) {
                     outStream.use { out ->
                         FileInputStream(validVaultFile).use { inStream ->
@@ -408,11 +558,17 @@ class VaultRepository(private val context: Context) {
                         val finishValues = ContentValues().apply {
                             put(MediaStore.MediaColumns.IS_PENDING, 0)
                         }
-                        contentResolver.update(targetUri, finishValues, null, null)
+                        try {
+                            contentResolver.update(targetUri, finishValues, null, null)
+                        } catch (e: Exception) {
+                            Log.w(tag, "Failed to update IS_PENDING: ${e.message}")
+                        }
                     }
 
                     // Delete the vault file once restoration is verified
-                    validVaultFile.delete()
+                    if (validVaultFile.exists()) {
+                        try { validVaultFile.delete() } catch (_: Exception) {}
+                    }
                     val updated = getVaultItems().filter { it.id != item.id }
                     saveToDisk(updated)
 
@@ -425,7 +581,7 @@ class VaultRepository(private val context: Context) {
                                 if (dataIdx >= 0) {
                                     val restoredPath = cursor.getString(dataIdx)
                                     if (!restoredPath.isNullOrEmpty()) {
-                                        MediaScannerConnection.scanFile(context, arrayOf(restoredPath), arrayOf(mime), null)
+                                        MediaScannerConnection.scanFile(context, arrayOf(restoredPath), arrayOf(safeMime), null)
                                     }
                                 }
                             }
@@ -452,13 +608,9 @@ class VaultRepository(private val context: Context) {
      */
     suspend fun deletePermanently(item: VaultMediaItem): Boolean = withContext(Dispatchers.IO) {
         try {
-            val file = File(item.vaultFilePath)
+            val file = findValidVaultFile(item) ?: File(item.vaultFilePath)
             if (file.exists()) {
                 file.delete()
-            }
-            val inSecure = File(vaultDir, file.name)
-            if (inSecure.exists()) {
-                inSecure.delete()
             }
             val updated = getVaultItems().filter { it.id != item.id }
             saveToDisk(updated)

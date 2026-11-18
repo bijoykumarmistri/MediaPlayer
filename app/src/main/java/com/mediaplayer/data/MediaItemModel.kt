@@ -47,6 +47,7 @@ data class MediaItemModel(
         val metadata = metadataBuilder.build()
 
         val cleanMime = when {
+            uri.scheme == "file" -> null // Auto-sniff container format (MKV, MP4, AVI, WebM, TS) directly from file headers
             mimeType.isBlank() || mimeType == "video/*" || mimeType == "audio/*" -> null
             mimeType.startsWith("video/") || mimeType.startsWith("audio/") || mimeType.startsWith("application/") -> mimeType
             else -> null

@@ -1,6 +1,7 @@
 package com.mediaplayer.vault
 
 import android.net.Uri
+import android.os.Environment
 import com.mediaplayer.data.MediaItemModel
 import org.json.JSONObject
 import java.io.File
@@ -24,37 +25,18 @@ data class VaultMediaItem(
 ) {
     fun toMediaItemModel(): MediaItemModel {
         val file = File(vaultFilePath)
-        val validFile = if (file.exists() && file.canRead()) {
-            file
-        } else {
-            val parent = file.parentFile
-            val fallback = if (parent != null) File(parent, file.name) else file
-            if (fallback.exists()) fallback else file
-        }
-
-        val cleanMime = when {
-            mimeType.startsWith("video/") && mimeType != "video/*" -> mimeType
-            mimeType.startsWith("audio/") && mimeType != "audio/*" -> mimeType
-            isVideo -> {
-                when {
-                    validFile.name.endsWith(".mkv", true) -> "video/x-matroska"
-                    validFile.name.endsWith(".mp4", true) -> "video/mp4"
-                    validFile.name.endsWith(".webm", true) -> "video/webm"
-                    validFile.name.endsWith(".ts", true) -> "video/mp2t"
-                    validFile.name.endsWith(".avi", true) -> "video/avi"
-                    else -> ""
-                }
-            }
-            else -> {
-                when {
-                    validFile.name.endsWith(".mp3", true) -> "audio/mpeg"
-                    validFile.name.endsWith(".flac", true) -> "audio/flac"
-                    validFile.name.endsWith(".wav", true) -> "audio/wav"
-                    validFile.name.endsWith(".m4a", true) || validFile.name.endsWith(".aac", true) -> "audio/mp4"
-                    validFile.name.endsWith(".ogg", true) || validFile.name.endsWith(".opus", true) -> "audio/ogg"
-                    else -> ""
-                }
-            }
+        val validFile = when {
+            file.exists() && file.length() > 0L -> file
+            File(file.parentFile ?: File(""), file.name).let { it.exists() && it.length() > 0L } -> File(file.parentFile ?: File(""), file.name)
+            File(Environment.getExternalStorageDirectory(), "Android/data/com.mediaplayer/files/.secure_vault/${file.name}").let { it.exists() && it.length() > 0L } ->
+                File(Environment.getExternalStorageDirectory(), "Android/data/com.mediaplayer/files/.secure_vault/${file.name}")
+            File(Environment.getExternalStorageDirectory(), ".mediaplayer_vault/${file.name}").let { it.exists() && it.length() > 0L } ->
+                File(Environment.getExternalStorageDirectory(), ".mediaplayer_vault/${file.name}")
+            originalFolderPath.isNotEmpty() && originalFileName.isNotEmpty() && File(originalFolderPath, originalFileName).let { it.exists() && it.length() > 0L } ->
+                File(originalFolderPath, originalFileName)
+            originalFolderPath.isNotEmpty() && File(originalFolderPath, title).let { it.exists() && it.length() > 0L } ->
+                File(originalFolderPath, title)
+            else -> file
         }
 
         return MediaItemModel(
@@ -66,7 +48,7 @@ data class VaultMediaItem(
             durationMs = durationMs,
             artworkUri = null,
             isVideo = isVideo,
-            mimeType = cleanMime,
+            mimeType = "", // Keep empty for local file playback so ExoPlayer sniffs container headers automatically
             sizeBytes = if (validFile.exists()) validFile.length() else sizeBytes,
             resolution = resolution,
             folderName = "Privacy Vault",
