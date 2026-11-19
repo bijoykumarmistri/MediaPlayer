@@ -161,7 +161,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onUserLeaveHint() {
         super.onUserLeaveHint()
-        if (playerManager.isPlaying.value && playerManager.currentMediaItem.value?.isVideo == true) {
+        if (playerManager.currentMediaItem.value?.isVideo == true) {
             enterPip()
         }
     }
@@ -179,13 +179,17 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun buildPipParams(): PictureInPictureParams {
-        val videoSize = playerManager.player.videoSize
-        val rational = if (videoSize.width > 0 && videoSize.height > 0) {
-            val aspect = (videoSize.width.toFloat() / videoSize.height.toFloat()).coerceIn(0.42f, 2.38f)
-            val denom = 1000
-            val num = (aspect * denom).roundToInt()
-            Rational(num, denom)
-        } else {
+        val rational = try {
+            val videoSize = playerManager.player.videoSize
+            if (videoSize.width > 0 && videoSize.height > 0) {
+                val aspect = (videoSize.width.toFloat() / videoSize.height.toFloat()).coerceIn(0.42f, 2.38f)
+                val denom = 1000
+                val num = (aspect * denom).roundToInt()
+                Rational(num, denom)
+            } else {
+                Rational(16, 9)
+            }
+        } catch (_: Exception) {
             Rational(16, 9)
         }
 

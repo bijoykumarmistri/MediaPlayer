@@ -156,6 +156,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -430,12 +431,6 @@ fun MainMediaPlayerScreen(
             val moved = vaultRepository.moveToVault(items)
             if (moved.isNotEmpty()) {
                 repository.removeCachedItems(items)
-                val directlyDeleted = repository.deleteMediaFiles(items) { intentSender, needingConsent ->
-                    pendingConsentItems = needingConsent
-                    deleteConsentLauncher.launch(
-                        IntentSenderRequest.Builder(intentSender).build()
-                    )
-                }
                 val movedIds = items.map { it.id }.toSet()
                 val movedUris = items.map { it.uri }.toSet()
                 if (items.any { it.isVideo }) {
@@ -457,9 +452,11 @@ fun MainMediaPlayerScreen(
                     playerManager.setPlayerExpanded(false)
                 }
                 selectedMediaItems = emptySet()
-                val msg = if (items.size == 1) "${items.first().title} secured in Privacy Folder"
-                          else "${items.size} files secured in Privacy Folder"
+                val msg = if (moved.size == 1) "${moved.first().title} hidden from Gallery & Files"
+                          else "${moved.size} files hidden from Gallery & Files"
                 Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+            } else {
+                Toast.makeText(context, "Could not hide files. Please verify All Files Access permission.", Toast.LENGTH_LONG).show()
             }
             isMovingToVault = false
         }
@@ -613,6 +610,9 @@ fun MainMediaPlayerScreen(
 
     // Back navigation for expanded player (Standard back button / gesture fallback)
     BackHandler(enabled = isExpanded && !isInPipMode) {
+        if (currentItem?.isVideo == true) {
+            playerManager.stopVideo()
+        }
         playerManager.setPlayerExpanded(false)
     }
 
@@ -621,6 +621,9 @@ fun MainMediaPlayerScreen(
         try {
             progressFlow.collect { backEvent ->
                 predictiveBackProgress = backEvent.progress
+            }
+            if (currentItem?.isVideo == true) {
+                playerManager.stopVideo()
             }
             playerManager.setPlayerExpanded(false)
         } catch (_: CancellationException) {
@@ -882,7 +885,7 @@ fun MainMediaPlayerScreen(
                                             ) {
                                                 Icon(
                                                     imageVector = Icons.Rounded.Lock,
-                                                    contentDescription = "Move to Privacy Folder",
+                                                    contentDescription = "Hide in Privacy Vault",
                                                     tint = AudiophileGold,
                                                     modifier = Modifier.size(18.dp)
                                                 )
@@ -1327,9 +1330,9 @@ fun MainMediaPlayerScreen(
                         },
                         bottomBar = {
                             Column {
-                                // Persistent Mini-Player Bar
+                                // Persistent Mini-Player Bar (Audio Only)
                                 AnimatedVisibility(
-                                    visible = currentItem != null && !isExpanded,
+                                    visible = currentItem != null && !isExpanded && currentItem?.isVideo != true,
                                     enter = slideInVertically(
                                         initialOffsetY = { it },
                                         animationSpec = tween(150, easing = FastOutSlowInEasing)
@@ -1516,8 +1519,8 @@ fun MainMediaPlayerScreen(
                                             currentPlayingId = currentItem?.id,
                                             hasPermission = hasPermission,
                                             onToggleView = { isVideoGridView = !isVideoGridView },
-                                            onPlayVideo = { video, playlist ->
-                                                playerManager.playMedia(video, playlist)
+                                            onPlayVideo = { video, playlist, startPos ->
+                                                playerManager.playMedia(video, playlist, startPos)
                                                 playerManager.setPlayerExpanded(true)
                                             },
                                             onRequestPermission = {
@@ -1700,7 +1703,10 @@ fun MainMediaPlayerScreen(
                             VideoPlayerView(
                                 playerManager = playerManager,
                                 telemetry = telemetry,
-                                onBack = { playerManager.setPlayerExpanded(false) },
+                                onBack = {
+                                    playerManager.stopVideo()
+                                    playerManager.setPlayerExpanded(false)
+                                },
                                 onEnterPip = onEnterPip,
                                 onOpenDacSettings = { showDacDialog = true },
                                 isInPipMode = isInPipMode,
@@ -1818,162 +1824,8 @@ fun MainMediaPlayerScreen(
 
 // ----------------- VIDEOS TAB (FOLDER-BASED MEDIA PLAYER FORMAT) -----------------
 
-val FolderShape = GenericShape { size, _ ->
-    val w = size.width
-    val h = size.height
-    val r = 12f
-    val tabW = w * 0.44f
-    val tabH = h * 0.18f
-
-    moveTo(0f, tabH + r)
-    lineTo(0f, r)
-    quadraticTo(0f, 0f, r, 0f)
-    lineTo(tabW - r, 0f)
-    quadraticTo(tabW, 0f, tabW + 6f, tabH * 0.45f)
-    lineTo(tabW + 14f, tabH)
-    lineTo(w - r, tabH)
-    quadraticTo(w, tabH, w, tabH + r)
-    lineTo(w, h - r)
-    quadraticTo(w, h, w - r, h)
-    lineTo(r, h)
-    quadraticTo(0f, h, 0f, h - r)
-    close()
-}
-
 @Composable
 private fun FolderListItem(
-    folder: VideoFolderItem,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    val context = LocalContext.current
-    val firstVideo = remember(folder.videos) { folder.videos.firstOrNull() }
-    val imageRequest = remember(firstVideo?.artworkUri, firstVideo?.id) {
-        if (firstVideo?.artworkUri != null) {
-            ImageRequest.Builder(context)
-                .data(firstVideo.artworkUri)
-                .size(240, 160)
-                .diskCacheKey("vthumb_${firstVideo.id}")
-                .memoryCacheKey("vthumb_${firstVideo.id}")
-                .crossfade(true)
-                .build()
-        } else null
-    }
-
-    Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .padding(horizontal = 20.dp, vertical = 14.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        // Left: Folder Silhouette Thumbnail with duration & optional new badge
-        Box(
-            modifier = Modifier.size(width = 96.dp, height = 72.dp),
-            contentAlignment = Alignment.Center
-        ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .clip(FolderShape)
-                    .background(Color(0xFF1D2633))
-            ) {
-                if (imageRequest != null) {
-                    AsyncImage(
-                        model = imageRequest,
-                        contentDescription = null,
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier.fillMaxSize()
-                    )
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(
-                                Brush.verticalGradient(
-                                    listOf(Color(0x22000000), Color(0x66000000))
-                                )
-                            )
-                    )
-                }
-
-                // Duration pill badge at bottom-right
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.BottomEnd)
-                        .padding(end = 6.dp, bottom = 6.dp)
-                        .background(Color(0xD9000000), RoundedCornerShape(4.dp))
-                        .padding(horizontal = 6.dp, vertical = 2.dp)
-                ) {
-                    Text(
-                        text = formatFolderDuration(folder.totalDurationMs),
-                        color = Color.White,
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Medium,
-                        fontFamily = FontFamily.Monospace
-                    )
-                }
-            }
-
-            // New Videos indicator badge at top-right (blue circle with count)
-            if (folder.newCount > 0) {
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .offset(x = 2.dp, y = 2.dp)
-                        .size(20.dp)
-                        .background(Color(0xFF1B76BA), CircleShape),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = "${folder.newCount}",
-                        color = Color.White,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-            }
-        }
-
-        Spacer(modifier = Modifier.width(18.dp))
-
-        // Right: Title, Path, and Videos Count Badge
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = folder.name,
-                color = Color.White,
-                fontSize = 15.sp,
-                fontWeight = FontWeight.Bold,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                lineHeight = 21.sp
-            )
-            Spacer(modifier = Modifier.height(4.dp))
-            Text(
-                text = folder.path,
-                color = Color(0xFF7E8E9E),
-                fontSize = 12.sp,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis
-            )
-            Spacer(modifier = Modifier.height(6.dp))
-            Box(
-                modifier = Modifier
-                    .background(Color(0xFF1A232E), RoundedCornerShape(6.dp))
-                    .padding(horizontal = 8.dp, vertical = 3.dp)
-            ) {
-                Text(
-                    text = "${folder.videos.size} Videos",
-                    color = Color(0xFFC7D3E0),
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Medium
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun FolderGridItem(
     folder: VideoFolderItem,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
@@ -1992,78 +1844,255 @@ private fun FolderGridItem(
         } else null
     }
 
-    Card(
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(14.dp),
+        color = Color(0xFF131822),
+        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x22FFFFFF)),
         modifier = modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF131A24)),
-        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF202A38))
+            .padding(horizontal = 16.dp, vertical = 5.dp)
     ) {
-        Column(modifier = Modifier.padding(12.dp)) {
+        Row(
+            modifier = Modifier.padding(10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // 16:9 Thumbnail Box with Scrim and Badges
             Box(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .height(90.dp),
+                    .size(width = 112.dp, height = 70.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(Color(0xFF1B2330)),
                 contentAlignment = Alignment.Center
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(width = 110.dp, height = 82.dp)
-                        .clip(FolderShape)
-                        .background(Color(0xFF1D2633))
-                ) {
-                    if (imageRequest != null) {
-                        AsyncImage(
-                            model = imageRequest,
-                            contentDescription = null,
-                            contentScale = ContentScale.Crop,
-                            modifier = Modifier.fillMaxSize()
-                        )
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .background(
-                                    Brush.verticalGradient(
-                                        listOf(Color(0x22000000), Color(0x66000000))
-                                    )
-                                )
-                        )
-                    }
-
+                if (imageRequest != null) {
+                    AsyncImage(
+                        model = imageRequest,
+                        contentDescription = null,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize()
+                    )
                     Box(
                         modifier = Modifier
-                            .align(Alignment.BottomEnd)
-                            .padding(end = 6.dp, bottom = 6.dp)
-                            .background(Color(0xD9000000), RoundedCornerShape(4.dp))
-                            .padding(horizontal = 5.dp, vertical = 2.dp)
-                    ) {
-                        Text(
-                            text = formatFolderDuration(folder.totalDurationMs),
-                            color = Color.White,
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Medium,
-                            fontFamily = FontFamily.Monospace
-                        )
-                    }
+                            .fillMaxSize()
+                            .background(
+                                Brush.verticalGradient(
+                                    listOf(Color(0x22000000), Color(0x88000000))
+                                )
+                            )
+                    )
+                } else {
+                    Icon(
+                        imageVector = Icons.Rounded.Folder,
+                        contentDescription = null,
+                        tint = AudiophileCyan.copy(alpha = 0.7f),
+                        modifier = Modifier.size(36.dp)
+                    )
                 }
 
+                // Duration badge at bottom-right
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(5.dp)
+                        .background(Color(0xCC000000), RoundedCornerShape(4.dp))
+                        .padding(horizontal = 5.dp, vertical = 1.dp)
+                ) {
+                    Text(
+                        text = formatFolderDuration(folder.totalDurationMs),
+                        color = Color.White,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Medium,
+                        fontFamily = FontFamily.Monospace
+                    )
+                }
+
+                // New items indicator badge
                 if (folder.newCount > 0) {
                     Box(
                         modifier = Modifier
                             .align(Alignment.TopEnd)
-                            .offset(x = (-8).dp, y = 4.dp)
-                            .size(20.dp)
-                            .background(Color(0xFF1B76BA), CircleShape),
-                        contentAlignment = Alignment.Center
+                            .padding(4.dp)
+                            .background(Color(0xFF00E5FF), RoundedCornerShape(4.dp))
+                            .padding(horizontal = 5.dp, vertical = 1.dp)
                     ) {
                         Text(
-                            text = "${folder.newCount}",
+                            text = "${folder.newCount} NEW",
+                            color = Color.Black,
+                            fontSize = 8.sp,
+                            fontWeight = FontWeight.Black
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.width(14.dp))
+
+            // Right Column: Title, Path, Videos Count Pill
+            Column(modifier = Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Rounded.Folder,
+                        contentDescription = null,
+                        tint = AudiophileCyan,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = folder.name,
+                        color = Color.White,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                Spacer(modifier = Modifier.height(3.dp))
+                Text(
+                    text = folder.path,
+                    color = Color(0xFF7E8E9E),
+                    fontSize = 12.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                Box(
+                    modifier = Modifier
+                        .background(Color(0xFF1E2838), RoundedCornerShape(6.dp))
+                        .padding(horizontal = 8.dp, vertical = 2.dp)
+                ) {
+                    Text(
+                        text = "${folder.videos.size} Videos",
+                        color = AudiophileCyan,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun FolderGridItem(
+    folder: VideoFolderItem,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    val firstVideo = remember(folder.videos) { folder.videos.firstOrNull() }
+    val imageRequest = remember(firstVideo?.artworkUri, firstVideo?.id) {
+        if (firstVideo?.artworkUri != null) {
+            ImageRequest.Builder(context)
+                .data(firstVideo.artworkUri)
+                .size(360, 220)
+                .diskCacheKey("vthumb_${firstVideo.id}")
+                .memoryCacheKey("vthumb_${firstVideo.id}")
+                .crossfade(true)
+                .build()
+        } else null
+    }
+
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(16.dp),
+        color = Color(0xFF131822),
+        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x26FFFFFF)),
+        modifier = modifier.fillMaxWidth()
+    ) {
+        Column(modifier = Modifier.padding(10.dp)) {
+            // 16:9 Thumbnail Banner
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .aspectRatio(16f / 10f)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(Color(0xFF1A222E)),
+                contentAlignment = Alignment.Center
+            ) {
+                if (imageRequest != null) {
+                    AsyncImage(
+                        model = imageRequest,
+                        contentDescription = null,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(
+                                Brush.verticalGradient(
+                                    listOf(Color(0x33000000), Color(0x88000000))
+                                )
+                            )
+                    )
+                } else {
+                    Icon(
+                        imageVector = Icons.Rounded.Folder,
+                        contentDescription = null,
+                        tint = AudiophileCyan.copy(alpha = 0.6f),
+                        modifier = Modifier.size(42.dp)
+                    )
+                }
+
+                // Top-Left Folder Badge
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(6.dp)
+                        .background(Color(0xCC000000), RoundedCornerShape(6.dp))
+                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Rounded.Folder,
+                            contentDescription = null,
+                            tint = AudiophileCyan,
+                            modifier = Modifier.size(12.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = "${folder.videos.size}",
                             color = Color.White,
-                            fontSize = 11.sp,
+                            fontSize = 10.sp,
                             fontWeight = FontWeight.Bold
                         )
                     }
+                }
+
+                // Top-Right New Count Badge
+                if (folder.newCount > 0) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(6.dp)
+                            .background(Color(0xFF00E5FF), RoundedCornerShape(6.dp))
+                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                    ) {
+                        Text(
+                            text = "${folder.newCount} NEW",
+                            color = Color.Black,
+                            fontSize = 8.sp,
+                            fontWeight = FontWeight.Black
+                        )
+                    }
+                }
+
+                // Bottom-Right Duration Badge
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(6.dp)
+                        .background(Color(0xD9000000), RoundedCornerShape(6.dp))
+                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                ) {
+                    Text(
+                        text = formatFolderDuration(folder.totalDurationMs),
+                        color = Color.White,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Medium,
+                        fontFamily = FontFamily.Monospace
+                    )
                 }
             }
 
@@ -2074,7 +2103,7 @@ private fun FolderGridItem(
                 color = Color.White,
                 fontSize = 14.sp,
                 fontWeight = FontWeight.Bold,
-                maxLines = 2,
+                maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
             Spacer(modifier = Modifier.height(2.dp))
@@ -2085,19 +2114,6 @@ private fun FolderGridItem(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
-            Spacer(modifier = Modifier.height(6.dp))
-            Box(
-                modifier = Modifier
-                    .background(Color(0xFF19222C), RoundedCornerShape(6.dp))
-                    .padding(horizontal = 7.dp, vertical = 2.dp)
-            ) {
-                Text(
-                    text = "${folder.videos.size} Videos",
-                    color = Color(0xFFC7D3E0),
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.Medium
-                )
-            }
         }
     }
 }
@@ -2114,7 +2130,7 @@ private fun VideosTabScreen(
     currentPlayingId: Long?,
     hasPermission: Boolean,
     onToggleView: () -> Unit,
-    onPlayVideo: (MediaItemModel, List<MediaItemModel>) -> Unit,
+    onPlayVideo: (MediaItemModel, List<MediaItemModel>, Long?) -> Unit,
     onRequestPermission: () -> Unit,
     onPickFiles: () -> Unit,
     onDeleteVideo: (MediaItemModel) -> Unit = {},
@@ -2126,6 +2142,11 @@ private fun VideosTabScreen(
 ) {
     var selectedVideoForDetails by remember { mutableStateOf<MediaItemModel?>(null) }
     var selectedVideoForOptions by remember { mutableStateOf<MediaItemModel?>(null) }
+
+    // Intercept back gesture when a folder is opened
+    BackHandler(enabled = openedFolder != null) {
+        onOpenFolder(null)
+    }
 
     // Group videos by folder name & path
     val folderItems = remember(videos, searchQuery, playbackPositions, playedMediaIds) {
@@ -2161,7 +2182,15 @@ private fun VideosTabScreen(
     AnimatedContent(
         targetState = openedFolder,
         transitionSpec = {
-            EnterTransition.None togetherWith ExitTransition.None
+            if (targetState != null) {
+                (slideInHorizontally(tween(250)) { it / 3 } + fadeIn(tween(250))).togetherWith(
+                    slideOutHorizontally(tween(250)) { -it / 3 } + fadeOut(tween(250))
+                )
+            } else {
+                (slideInHorizontally(tween(250)) { -it / 3 } + fadeIn(tween(250))).togetherWith(
+                    slideOutHorizontally(tween(250)) { it / 3 } + fadeOut(tween(250))
+                )
+            }
         },
         label = "FolderNavigationTransition"
     ) { currentFolder ->
@@ -2176,6 +2205,64 @@ private fun VideosTabScreen(
             }
 
             Column(modifier = Modifier.fillMaxSize()) {
+                // Folder Navigation Header
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                ) {
+                    Surface(
+                        onClick = { onOpenFolder(null) },
+                        shape = CircleShape,
+                        color = Color(0xFF1B2330),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x33FFFFFF)),
+                        modifier = Modifier.size(38.dp)
+                    ) {
+                        Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
+                                contentDescription = "Back to folders",
+                                tint = Color.White,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.width(12.dp))
+
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = currentFolder.name,
+                            color = Color.White,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Text(
+                            text = "${sortedFolderVideos.size} Videos • ${formatFolderDuration(currentFolder.totalDurationMs)}",
+                            color = Color(0xFFA0A0B0),
+                            fontSize = 12.sp,
+                            fontFamily = FontFamily.Monospace,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+
+                    IconButton(
+                        onClick = onToggleView,
+                        modifier = Modifier.size(36.dp)
+                    ) {
+                        Icon(
+                            imageVector = if (isGridView) Icons.AutoMirrored.Rounded.ViewList else Icons.Rounded.GridView,
+                            contentDescription = "Toggle View",
+                            tint = AudiophileCyan,
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
+                }
+
                 if (sortedFolderVideos.isEmpty()) {
                     EmptyStateView(
                         title = "No videos in this folder",
@@ -2206,7 +2293,7 @@ private fun VideosTabScreen(
                                     if (isSelectionMode) {
                                         onToggleSelectItem(video)
                                     } else {
-                                        onPlayVideo(video, sortedFolderVideos)
+                                        onPlayVideo(video, sortedFolderVideos, null)
                                     }
                                 },
                                 onShowOptions = { selectedVideoForOptions = video },
@@ -2237,7 +2324,7 @@ private fun VideosTabScreen(
                                     if (isSelectionMode) {
                                         onToggleSelectItem(video)
                                     } else {
-                                        onPlayVideo(video, sortedFolderVideos)
+                                        onPlayVideo(video, sortedFolderVideos, null)
                                     }
                                 },
                                 onShowOptions = { selectedVideoForOptions = video },
@@ -2249,13 +2336,53 @@ private fun VideosTabScreen(
                 }
             }
         } else {
-            // Main Folders View (Matches screenshot format exactly)
+            // Main Videos View: Dedicated Folders View
             Column(modifier = Modifier.fillMaxSize()) {
                 if (!hasPermission) {
                     PermissionOnboardingCard(
                         onRequestPermission = onRequestPermission,
                         onPickFiles = onPickFiles
                     )
+                }
+
+                // Clean Folders Header with View Toggle
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Folder,
+                            contentDescription = null,
+                            tint = AudiophileCyan,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Folders (${folderItems.size})",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
+                    }
+
+                    // Grid / List View Toggle Button
+                    IconButton(
+                        onClick = onToggleView,
+                        modifier = Modifier.size(38.dp)
+                    ) {
+                        Icon(
+                            imageVector = if (isGridView) Icons.AutoMirrored.Rounded.ViewList else Icons.Rounded.GridView,
+                            contentDescription = "Toggle Grid/List",
+                            tint = Color.White,
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
                 }
 
                 if (folderItems.isEmpty()) {
@@ -2326,16 +2453,24 @@ private fun VideosTabScreen(
     selectedVideoForOptions?.let { video ->
         val context = LocalContext.current
         val pos = playbackPositions[video.id] ?: 0L
+        val currentPlaylist = openedFolder?.videos?.let { folderVids ->
+            when (sortOrder) {
+                1 -> folderVids.sortedBy { it.title.lowercase() }
+                2 -> folderVids.sortedByDescending { it.sizeBytes }
+                3 -> folderVids.sortedByDescending { it.durationMs }
+                else -> folderVids
+            }
+        } ?: videos
         VideoOptionsMenuDialog(
             video = video,
             savedPositionMs = pos,
             onPlay = {
                 selectedVideoForOptions = null
-                onPlayVideo(video, videos)
+                onPlayVideo(video, currentPlaylist, null)
             },
             onPlayFromBeginning = {
                 selectedVideoForOptions = null
-                onPlayVideo(video.copy(durationMs = video.durationMs), videos)
+                onPlayVideo(video, currentPlaylist, 0L)
             },
             onShowDetails = {
                 selectedVideoForOptions = null
@@ -2449,7 +2584,7 @@ private fun VideoOptionsMenuDialog(
                     Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Rounded.Lock, contentDescription = null, tint = AudiophileGold)
                         Spacer(Modifier.width(12.dp))
-                        Text("Move to Privacy Folder", color = Color.White)
+                        Text("Hide in Privacy Vault", color = Color.White)
                     }
                 }
                 TextButton(
@@ -3031,7 +3166,7 @@ private fun TrackOptionsMenuDialog(
                     Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Rounded.Lock, contentDescription = null, tint = AudiophileGold)
                         Spacer(Modifier.width(12.dp))
-                        Text("Move to Privacy Folder", color = Color.White)
+                        Text("Hide in Privacy Vault", color = Color.White)
                     }
                 }
                 TextButton(

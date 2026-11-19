@@ -114,6 +114,11 @@ class VaultRepository(private val context: Context) {
                 File(item.originalFolderPath, item.title)
             }
             if (origFile.exists() && origFile.length() > 0L) return origFile
+
+            // Check hidden dot file in original folder
+            val cleanName = if (item.originalFileName.isNotEmpty()) item.originalFileName.removePrefix(".") else item.title.removePrefix(".")
+            val hiddenFile = File(item.originalFolderPath, ".$cleanName")
+            if (hiddenFile.exists() && hiddenFile.length() > 0L) return hiddenFile
         }
 
         return if (direct.exists()) direct else null
@@ -230,8 +235,10 @@ class VaultRepository(private val context: Context) {
     }
 
     /**
-     * Moves media files into the private vault directory.
-     * Uses atomic temporary files to guarantee complete, uncorrupted files.
+     * Hides media files in-place by prepending a dot '.' to their filename in their original folder.
+     * Keeps the file in its original location (0 bytes moved, 0ms instant speed),
+     * completely hides it from Gallery (MediaStore ignores dot-prefixed files),
+     * and hides it from other File Manager apps (standard Linux/Android hidden file).
      */
     suspend fun moveToVault(
         items: List<MediaItemModel>,
@@ -263,61 +270,90 @@ class VaultRepository(private val context: Context) {
                 }
 
                 val safeId = UUID.randomUUID().toString()
-                val destFile = File(vaultDir, "${safeId}_$origFileName")
-                val tempFile = File(vaultDir, "${safeId}_temp.tmp")
 
-                var moveSuccess = false
+                // STRATEGY 1 (PRIMARY): Hide in-place in original folder without moving!
+                var hideSuccess = false
+                var finalVaultFile: File? = null
 
-                // 1. Try instant rename if on same volume
                 if (sourceFile != null && sourceFile.exists() && sourceFile.length() > 0L) {
-                    try {
-                        moveSuccess = sourceFile.renameTo(destFile)
-                    } catch (_: Exception) {
-                        moveSuccess = false
+                    val parent = sourceFile.parentFile ?: File(origFolderPath)
+                    val rawName = sourceFile.name.removePrefix(".")
+                    val hiddenFileName = ".$rawName"
+                    val hiddenFile = File(parent, hiddenFileName)
+
+                    if (sourceFile.name.startsWith(".")) {
+                        // Already hidden dot file
+                        hideSuccess = true
+                        finalVaultFile = sourceFile
+                    } else {
+                        try {
+                            hideSuccess = sourceFile.renameTo(hiddenFile)
+                            if (hideSuccess && hiddenFile.exists() && hiddenFile.length() > 0L) {
+                                finalVaultFile = hiddenFile
+                            }
+                        } catch (e: Exception) {
+                            Log.w(tag, "In-place hide failed: ${e.message}")
+                            hideSuccess = false
+                        }
                     }
                 }
 
-                // 2. If rename didn't work across boundaries, copy via stream to temp file
-                if (!moveSuccess) {
-                    var bytesCopied = 0L
-                    val inputStream = try {
-                        context.contentResolver.openInputStream(item.uri)
-                    } catch (_: Exception) { null }
-                        ?: (if (sourceFile != null && sourceFile.exists()) {
-                            try { FileInputStream(sourceFile) } catch (_: Exception) { null }
-                        } else null)
+                // STRATEGY 2 (FALLBACK): If in-place rename was not permitted on this volume,
+                // securely store in vault directory
+                if (!hideSuccess || finalVaultFile == null || !finalVaultFile.exists()) {
+                    val destFile = File(vaultDir, "${safeId}_$origFileName")
+                    val tempFile = File(vaultDir, "${safeId}_temp.tmp")
 
-                    if (inputStream != null) {
-                        inputStream.use { inStream ->
-                            FileOutputStream(tempFile).use { outStream ->
-                                val buffer = ByteArray(512 * 1024)
-                                var read: Int
-                                while (inStream.read(buffer).also { read = it } != -1) {
-                                    outStream.write(buffer, 0, read)
-                                    bytesCopied += read
+                    if (sourceFile != null && sourceFile.exists() && sourceFile.length() > 0L) {
+                        try {
+                            hideSuccess = sourceFile.renameTo(destFile)
+                            if (hideSuccess && destFile.exists() && destFile.length() > 0L) {
+                                finalVaultFile = destFile
+                            }
+                        } catch (_: Exception) {}
+                    }
+
+                    if (!hideSuccess) {
+                        var bytesCopied = 0L
+                        val inputStream = try {
+                            context.contentResolver.openInputStream(item.uri)
+                        } catch (_: Exception) { null }
+                            ?: (if (sourceFile != null && sourceFile.exists()) {
+                                try { FileInputStream(sourceFile) } catch (_: Exception) { null }
+                            } else null)
+
+                        if (inputStream != null) {
+                            inputStream.use { inStream ->
+                                FileOutputStream(tempFile).use { outStream ->
+                                    val buffer = ByteArray(512 * 1024)
+                                    var read: Int
+                                    while (inStream.read(buffer).also { read = it } != -1) {
+                                        outStream.write(buffer, 0, read)
+                                        bytesCopied += read
+                                    }
+                                    outStream.flush()
                                 }
-                                outStream.flush()
                             }
                         }
-                    }
 
-                    if (tempFile.exists() && bytesCopied > 0L) {
-                        if (destFile.exists()) destFile.delete()
-                        if (tempFile.renameTo(destFile) && destFile.length() > 0L) {
-                            moveSuccess = true
+                        if (tempFile.exists() && bytesCopied > 0L) {
+                            if (destFile.exists()) destFile.delete()
+                            if (tempFile.renameTo(destFile) && destFile.length() > 0L) {
+                                hideSuccess = true
+                                finalVaultFile = destFile
+                            }
                         }
-                    }
 
-                    if (!moveSuccess && tempFile.exists()) {
-                        tempFile.delete()
+                        if (!hideSuccess && tempFile.exists()) {
+                            tempFile.delete()
+                        }
                     }
                 }
 
-                if (moveSuccess && destFile.exists() && destFile.length() > 0L) {
-                    // Tell scanner that old file was removed from public storage so it vanishes from gallery
-                    if (sourceFile != null) {
+                if (hideSuccess && finalVaultFile != null && finalVaultFile.exists() && finalVaultFile.length() > 0L) {
+                    // Tell scanner that old unhidden file is removed from public media storage
+                    if (sourceFile != null && sourceFile.absolutePath != finalVaultFile.absolutePath) {
                         try {
-                            sourceFile.delete()
                             MediaScannerConnection.scanFile(context, arrayOf(sourceFile.absolutePath), null, null)
                         } catch (_: Exception) {}
                     }
@@ -329,20 +365,22 @@ class VaultRepository(private val context: Context) {
                         Log.w(tag, "Could not delete MediaStore entry directly: ${e.message}")
                     }
 
+                    val cleanOrigFileName = if (origFileName.startsWith(".")) origFileName.removePrefix(".") else origFileName
+
                     val vaultItem = VaultMediaItem(
                         id = safeId,
-                        title = item.title,
+                        title = item.title.removePrefix("."),
                         originalUri = item.uri.toString(),
-                        vaultFilePath = destFile.absolutePath,
+                        vaultFilePath = finalVaultFile.absolutePath,
                         isVideo = item.isVideo,
                         mimeType = item.mimeType,
                         durationMs = item.durationMs,
-                        sizeBytes = destFile.length(),
+                        sizeBytes = finalVaultFile.length(),
                         dateLocked = System.currentTimeMillis(),
                         resolution = item.resolution,
                         originalFolderName = origFolderName,
                         originalFolderPath = origFolderPath,
-                        originalFileName = origFileName,
+                        originalFileName = cleanOrigFileName,
                         artist = item.artist,
                         album = item.album
                     )
@@ -351,7 +389,7 @@ class VaultRepository(private val context: Context) {
                     currentItems.add(0, vaultItem)
                 }
             } catch (e: Exception) {
-                Log.e(tag, "Error moving item ${item.title} to vault", e)
+                Log.e(tag, "Error hiding item ${item.title}", e)
             }
             onProgress(index + 1, total)
         }
@@ -364,8 +402,8 @@ class VaultRepository(private val context: Context) {
     }
 
     /**
-     * Restores a file from the vault directly back to its original media folder location.
-     * Guaranteed complete write, IS_PENDING released, and scanned for all device players.
+     * Restores/Unhides a file from the vault directly back to its original media folder location.
+     * Instant in-place unhide if hidden as dot-file, or complete write for moved files.
      */
     suspend fun restoreFromVault(item: VaultMediaItem): Boolean = withContext(Dispatchers.IO) {
         return@withContext try {
@@ -379,7 +417,7 @@ class VaultRepository(private val context: Context) {
                     else -> "mp3"
                 }
                 if (item.title.contains('.')) item.title else "${item.title}.$ext"
-            }
+            }.removePrefix(".")
 
             val origFolder = if (item.originalFolderPath.isNotEmpty()) {
                 File(item.originalFolderPath)
@@ -411,6 +449,24 @@ class VaultRepository(private val context: Context) {
                 "m4a", "aac" -> "audio/mp4"
                 "ogg", "opus" -> "audio/ogg"
                 else -> if (item.isVideo) "video/mp4" else "audio/mpeg"
+            }
+
+            // Strategy 0: In-place unhide! If the file is hidden in-place as a dot-file (e.g. .movie.mp4)
+            val currentVaultFile = findValidVaultFile(item) ?: File(item.vaultFilePath)
+            if (currentVaultFile.exists() && currentVaultFile.name.startsWith(".")) {
+                var unhidden = false
+                try {
+                    unhidden = currentVaultFile.renameTo(targetFile)
+                } catch (e: Exception) {
+                    Log.w(tag, "In-place unhide failed: ${e.message}")
+                    unhidden = false
+                }
+                if (unhidden && targetFile.exists() && targetFile.length() > 0L) {
+                    MediaScannerConnection.scanFile(context, arrayOf(targetFile.absolutePath), arrayOf(safeMime), null)
+                    val updated = getVaultItems().filter { it.id != item.id }
+                    saveToDisk(updated)
+                    return@withContext true
+                }
             }
 
             // 1. Check if the original intact file is ALREADY in destination folder

@@ -2,7 +2,6 @@ package com.mediaplayer.player
 
 import android.content.Context
 import android.content.Intent
-import android.media.AudioTrack
 import androidx.annotation.OptIn
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
@@ -13,8 +12,6 @@ import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.audio.AudioSink
 import androidx.media3.exoplayer.audio.DefaultAudioSink
-import androidx.media3.exoplayer.audio.DefaultAudioTrackBufferSizeProvider
-import androidx.media3.exoplayer.audio.DefaultAudioTrackProvider
 import androidx.media3.session.DefaultMediaNotificationProvider
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
@@ -48,8 +45,13 @@ class UniversalMediaPlaybackService : MediaSessionService() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        val app = application as? MediaPlayerApplication
+        val currentItem = app?.playerManager?.currentMediaItem?.value
+        if (currentItem?.isVideo == true) {
+            stopSelf()
+            return START_NOT_STICKY
+        }
         if (mediaSession == null) {
-            val app = application as? MediaPlayerApplication
             if (app != null) {
                 mediaSession = app.playerManager.mediaSession
                 mediaSession?.let { addSession(it) }
@@ -108,26 +110,14 @@ class UniversalMediaPlaybackService : MediaSessionService() {
                     enableFloatOutput: Boolean,
                     enableAudioTrackPlaybackParams: Boolean
                 ): AudioSink {
-                    val bufferSizeProvider = DefaultAudioTrackBufferSizeProvider.Builder()
-                        .setMinPcmBufferDurationUs(500_000)
-                        .setMaxPcmBufferDurationUs(1_500_000)
-                        .build()
-
-                    val audioTrackProvider = object : DefaultAudioTrackProvider() {
-                        override fun customizeAudioTrackBuilder(audioTrackBuilder: AudioTrack.Builder): AudioTrack.Builder {
-                            audioTrackBuilder.setPerformanceMode(AudioTrack.PERFORMANCE_MODE_LOW_LATENCY)
-                            return audioTrackBuilder
-                        }
-                    }
-
                     return DefaultAudioSink.Builder(context)
                         .setEnableFloatOutput(true) // Enables 32-bit float output (preventing 24-bit and 32-bit PCM truncation to 16-bit)
-                        .setEnableAudioTrackPlaybackParams(false) // Direct hardware timing without software Sonic DSP resampler
-                        .setAudioTrackBufferSizeProvider(bufferSizeProvider)
-                        .setAudioTrackProvider(audioTrackProvider)
+                        .setEnableAudioTrackPlaybackParams(true) // Native OS AudioTrack timing for smooth zero-lag speed adjustments
                         .build()
                 }
-            }.setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER)
+            }.setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON)
+             .setEnableDecoderFallback(true)
+             .setAllowedVideoJoiningTimeMs(5000L) // Standard video joining window preventing frame drops
 
             val audioAttributes = AudioAttributes.Builder()
                 .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
@@ -156,15 +146,17 @@ class UniversalMediaPlaybackService : MediaSessionService() {
             val mediaSourceFactory = androidx.media3.exoplayer.source.DefaultMediaSourceFactory(upstreamDataSourceFactory, extractorsFactory)
                 .setLoadErrorHandlingPolicy(androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy(4))
 
-            // Low-latency initial playback buffer with generous maximum buffer to eliminate live stream stutter
+            // Smooth high-throughput buffer configuration:
+            // 500ms seek start threshold for fast seeks, with 15s to 50s headroom for stutter-free playback
             val loadControl = androidx.media3.exoplayer.DefaultLoadControl.Builder()
                 .setBufferDurationsMs(
                     /* minBufferMs = */ 15_000,
-                    /* maxBufferMs = */ 60_000,
-                    /* bufferForPlaybackMs = */ 1_000,
-                    /* bufferForPlaybackAfterRebufferMs = */ 2_500
+                    /* maxBufferMs = */ 50_000,
+                    /* bufferForPlaybackMs = */ 500,
+                    /* bufferForPlaybackAfterRebufferMs = */ 1_000
                 )
-                .setPrioritizeTimeOverSizeThresholds(true)
+                .setBackBuffer(/* backBufferDurationMs = */ 30_000, /* retainBackBufferFromKeyframe = */ true)
+                .setPrioritizeTimeOverSizeThresholds(false)
                 .build()
 
             val player = ExoPlayer.Builder(context, renderersFactory)
@@ -172,9 +164,10 @@ class UniversalMediaPlaybackService : MediaSessionService() {
                 .setLoadControl(loadControl)
                 .setAudioAttributes(audioAttributes, true)
                 .setHandleAudioBecomingNoisy(true)
-                .setVideoChangeFrameRateStrategy(C.VIDEO_CHANGE_FRAME_RATE_STRATEGY_OFF)
+                .setVideoChangeFrameRateStrategy(C.VIDEO_CHANGE_FRAME_RATE_STRATEGY_ONLY_IF_SEAMLESS)
                 .setSeekBackIncrementMs(10000)
                 .setSeekForwardIncrementMs(10000)
+                .setSeekParameters(androidx.media3.exoplayer.SeekParameters.CLOSEST_SYNC)
                 .build()
 
             // Wire audio device disconnect safety pause

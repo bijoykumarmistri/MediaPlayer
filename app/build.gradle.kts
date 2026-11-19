@@ -4,19 +4,23 @@ plugins {
 }
 
 base {
-    archivesName.set("MediaPlayer-v1.3")
+    archivesName.set("MediaPlayer-v1.4")
 }
 
 android {
     namespace = "com.mediaplayer"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.mediaplayer"
         minSdk = 26
         targetSdk = 35
-        versionCode = 4
-        versionName = "1.3"
+        versionCode = 5
+        versionName = "1.4"
+
+        ndk {
+            abiFilters.add("arm64-v8a")
+        }
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -45,6 +49,7 @@ android {
 }
 
 dependencies {
+    implementation(project(":player"))
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.navigation.compose)
@@ -64,7 +69,6 @@ dependencies {
     implementation(libs.androidx.media3.exoplayer.dash)
     implementation(libs.androidx.media3.exoplayer.rtsp)
     implementation(libs.androidx.media3.session)
-    implementation(libs.androidx.media3.ui)
     implementation(libs.androidx.media3.common)
     implementation(libs.androidx.media3.extractor)
     implementation(libs.jellyfin.media3.ffmpeg)

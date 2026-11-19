@@ -271,7 +271,7 @@ fun PrivacyVaultScreen(
 
             HorizontalDivider(color = Color(0x1FFFFFFF), thickness = 0.5.dp)
 
-            // Ultra-Fast Mode Banner (1ms Instant Moving & Restoring via MANAGE_EXTERNAL_STORAGE)
+            // In-Place Hiding Mode Banner (0ms Instant Hiding via MANAGE_EXTERNAL_STORAGE)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && !Environment.isExternalStorageManager()) {
                 Card(
                     modifier = Modifier
@@ -301,13 +301,13 @@ fun PrivacyVaultScreen(
                             Spacer(Modifier.width(10.dp))
                             Column {
                                 Text(
-                                    text = "Enable Instant Speed (1ms)",
+                                    text = "Enable In-Place Hiding (0ms)",
                                     style = MaterialTheme.typography.bodySmall,
                                     fontWeight = FontWeight.Bold,
                                     color = Color.White
                                 )
                                 Text(
-                                    text = "Grant All Files Access for instant moving & restoring without copying.",
+                                    text = "Grant All Files Access to hide files from Gallery & Files directly in their folder without moving.",
                                     fontSize = 11.sp,
                                     color = Color(0xFFD0D0E0),
                                     lineHeight = 14.sp
@@ -528,9 +528,9 @@ fun PrivacyVaultScreen(
                                 if (success) {
                                     refreshItems()
                                     val folderName = target.originalFolderName.ifEmpty { "original folder" }
-                                    Toast.makeText(context, "Restored back to $folderName", Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(context, "Unhidden & restored in $folderName", Toast.LENGTH_SHORT).show()
                                 } else {
-                                    Toast.makeText(context, "Failed to restore file", Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(context, "Failed to unhide file", Toast.LENGTH_SHORT).show()
                                 }
                             }
                         },
@@ -540,7 +540,7 @@ fun PrivacyVaultScreen(
                             Icon(Icons.Rounded.Restore, contentDescription = null, tint = AudiophileGold)
                             Spacer(Modifier.width(12.dp))
                             val folderInfo = if (item.originalFolderName.isNotEmpty() && item.originalFolderName != "Vault") " (${item.originalFolderName})" else ""
-                            Text("Restore to Original Folder$folderInfo", color = Color.White)
+                            Text("Unhide / Make Visible in Gallery$folderInfo", color = Color.White)
                         }
                     }
 
