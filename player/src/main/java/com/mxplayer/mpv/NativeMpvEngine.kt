@@ -578,6 +578,37 @@ class NativeMpvEngine(
         )
     }
 
+    fun setNightModeAudio(enabled: Boolean) {
+        if (isDestroyed.get() || !isInitialized.get()) return
+        if (enabled) {
+            // Apply dynamic audio normalization for speech clarity and dialog leveling
+            MPVLib.command(arrayOf("af", "set", "lavfi=[dynaudnorm=f=250:g=15:p=0.95]"))
+        } else {
+            MPVLib.command(arrayOf("af", "clr", ""))
+        }
+    }
+
+    fun setSubtitleFontSize(size: Int) {
+        if (isDestroyed.get() || !isInitialized.get()) return
+        MPVLib.setPropertyInt("sub-font-size", size.coerceIn(24, 96))
+    }
+
+    fun setSubtitleColor(colorHex: String) {
+        if (isDestroyed.get() || !isInitialized.get()) return
+        MPVLib.setPropertyString("sub-color", colorHex)
+    }
+
+    fun captureScreenshot(outputFile: File): Boolean {
+        if (isDestroyed.get() || !isInitialized.get()) return false
+        return try {
+            MPVLib.command(arrayOf("screenshot-to-file", outputFile.absolutePath, "video"))
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "Screenshot failed: ${e.message}", e)
+            false
+        }
+    }
+
     // endregion
 
     fun beginKeyframeScrub() {

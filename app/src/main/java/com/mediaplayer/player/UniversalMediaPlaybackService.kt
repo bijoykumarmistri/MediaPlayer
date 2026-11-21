@@ -179,19 +179,22 @@ class UniversalMediaPlaybackService : MediaSessionService() {
 
             // CRITICAL: Route ExoPlayer AudioTrack directly to USB DAC for bit-perfect output
             usbAudioController.onActiveUsbAudioDeviceChanged = { device ->
-                if (device != null && usbAudioController.status.value.isExclusiveBitPerfectEnabled) {
+                if (device != null) {
                     player.setPreferredAudioDevice(device)
+                    usbAudioController.applyBitPerfectMixerAttributes(usbAudioController.status.value.isExclusiveBitPerfectEnabled)
                     android.util.Log.d("UsbBitPerfect", "ExoPlayer routed to USB device: ${device.productName} (id: ${device.id})")
                 } else {
                     player.setPreferredAudioDevice(null)
+                    usbAudioController.applyBitPerfectMixerAttributes(false)
                     android.util.Log.d("UsbBitPerfect", "ExoPlayer routing restored to default audio device")
                 }
             }
 
             // Apply immediately if already connected
             val currentDevice = usbAudioController.currentUsbAudioDevice
-            if (currentDevice != null && usbAudioController.status.value.isExclusiveBitPerfectEnabled) {
+            if (currentDevice != null) {
                 player.setPreferredAudioDevice(currentDevice)
+                usbAudioController.applyBitPerfectMixerAttributes(usbAudioController.status.value.isExclusiveBitPerfectEnabled)
             }
 
             // Listen to tracks to lock USB DAC mixer attributes

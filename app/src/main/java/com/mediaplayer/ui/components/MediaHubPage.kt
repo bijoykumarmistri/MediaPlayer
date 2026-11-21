@@ -174,7 +174,7 @@ fun MediaHubPage(
                         // 1. Pick Files Tile
                         HubSourceCard(
                             title = "Browse Media Files",
-                            subtitle = "Open video, lossless FLAC, ALAC, WAV, DSD, or USB-OTG files",
+                            subtitle = "Open media files from storage or USB",
                             icon = Icons.Rounded.FileOpen,
                             iconTint = AudiophileCyan,
                             iconBg = Color(0x2600E5FF),
@@ -184,7 +184,7 @@ fun MediaHubPage(
                         // 2. Pick Folder / SD Card Tile
                         HubSourceCard(
                             title = "Scan Folder / SD Card",
-                            subtitle = "Index custom directory trees, micro-SD cards, or external drives",
+                            subtitle = "Add folders or external storage to library",
                             icon = Icons.Rounded.FolderOpen,
                             iconTint = AudiophileGold,
                             iconBg = Color(0x26FFD54F),
@@ -194,7 +194,7 @@ fun MediaHubPage(
                         // 3. Privacy Folder / Secure Vault Tile
                         HubSourceCard(
                             title = "Privacy Vault",
-                            subtitle = "Password-protected folder for sensitive video and audio files",
+                            subtitle = "Password-protected media vault",
                             icon = Icons.Rounded.Lock,
                             iconTint = AudiophileGold,
                             iconBg = Color(0x26FFD54F),
@@ -204,48 +204,13 @@ fun MediaHubPage(
                         // 4. App Updates & GitHub Tile
                         val currentVersion = remember { AppUpdateManager.getCurrentVersionName(context) }
                         HubSourceCard(
-                            title = "App Updates & Releases",
-                            subtitle = "Installed: v$currentVersion • Check for latest version on GitHub",
+                            title = "App Updates",
+                            subtitle = "v$currentVersion • Check for updates",
                             icon = Icons.Rounded.RocketLaunch,
                             iconTint = AudiophileCyan,
                             iconBg = Color(0x2600E5FF),
                             onClick = onOpenAboutDialog
                         )
-
-                        // Supported Decoders Info Pill
-                        Card(
-                            modifier = Modifier.fillMaxWidth(),
-                            colors = CardDefaults.cardColors(containerColor = Color(0xFF10121A)),
-                            shape = RoundedCornerShape(18.dp),
-                            border = BorderStroke(1.dp, Color(0x1FFFFFFF))
-                        ) {
-                            Column(modifier = Modifier.padding(16.dp)) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(8.dp)
-                                            .clip(CircleShape)
-                                            .background(AudiophileCyan)
-                                    )
-                                    Spacer(modifier = Modifier.width(10.dp))
-                                    Text(
-                                        text = "UNIVERSAL MEDIA DECODING ENGINE",
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 11.sp,
-                                        color = AudiophileCyan,
-                                        letterSpacing = 1.sp
-                                    )
-                                }
-                                Spacer(modifier = Modifier.height(8.dp))
-                                Text(
-                                    text = "Equipped with Jellyfin libffmpeg 6.0 native core and Snapdragon MediaCodec hardware accelerators. Supports direct playback of MKV, MP4, FLAC, ALAC, DSD, TrueHD, AC3, AV1, and HEVC without transcoding.",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = Color(0xFF9E9EAE),
-                                    fontSize = 12.sp,
-                                    lineHeight = 18.sp
-                                )
-                            }
-                        }
                     }
                 }
                 1 -> {

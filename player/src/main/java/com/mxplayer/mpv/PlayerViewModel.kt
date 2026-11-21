@@ -14,6 +14,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.io.File
 import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.roundToLong
@@ -51,7 +52,14 @@ data class PlayerUiState(
     val isRepeatOne: Boolean = false,
     val audioDelaySeconds: Double = 0.0,
     val subtitleDelaySeconds: Double = 0.0,
-    val mediaInfo: MediaInfo = MediaInfo()
+    val mediaInfo: MediaInfo = MediaInfo(),
+    // Enhanced Pro Features
+    val isFastForwarding: Boolean = false,
+    val isNightModeAudio: Boolean = false,
+    val abRepeatPointA: Double? = null,
+    val abRepeatPointB: Double? = null,
+    val subtitleFontSize: Int = 48,
+    val subtitleColor: String = "#FFFFFF"
 ) {
     /**
      * MX Player-style scrubbing HUD string, e.g. `01:14:22 [+00:15]` or `01:14:07 [-00:15]`.
@@ -88,6 +96,14 @@ class PlayerViewModel : ViewModel() {
         override fun onPositionChanged(seconds: Double) {
             _uiState.update { state ->
                 if (state.isScrubbing) state else state.copy(positionSeconds = seconds)
+            }
+
+            // A-B Repeat Loop Trigger
+            val a = _uiState.value.abRepeatPointA
+            val b = _uiState.value.abRepeatPointB
+            if (a != null && b != null && b > a && seconds >= b) {
+                seekTo(a)
+                return
             }
 
             val posMs = (seconds * 1000.0).roundToLong()
@@ -333,6 +349,75 @@ class PlayerViewModel : ViewModel() {
     fun refreshMediaInfo() {
         val info = engine.getMediaInfo(_uiState.value.mediaTitle)
         _uiState.update { it.copy(mediaInfo = info) }
+    }
+
+    fun startFastForward() {
+        if (_uiState.value.isFastForwarding) return
+        val currentSpeed = _uiState.value.playbackSpeed
+        engine.setPlaybackSpeed((currentSpeed * 2.0).coerceAtMost(4.0))
+        _uiState.update { it.copy(isFastForwarding = true) }
+    }
+
+    fun stopFastForward() {
+        if (!_uiState.value.isFastForwarding) return
+        val originalSpeed = _uiState.value.playbackSpeed
+        engine.setPlaybackSpeed(originalSpeed)
+        _uiState.update { it.copy(isFastForwarding = false) }
+    }
+
+    fun toggleNightModeAudio() {
+        val next = !_uiState.value.isNightModeAudio
+        engine.setNightModeAudio(next)
+        _uiState.update { it.copy(isNightModeAudio = next) }
+    }
+
+    fun setABRepeatPointA() {
+        val pos = _uiState.value.positionSeconds
+        _uiState.update { it.copy(abRepeatPointA = pos, abRepeatPointB = null) }
+    }
+
+    fun setABRepeatPointB() {
+        val currentA = _uiState.value.abRepeatPointA
+        val pos = _uiState.value.positionSeconds
+        if (currentA != null && pos > currentA) {
+            _uiState.update { it.copy(abRepeatPointB = pos) }
+        }
+    }
+
+    fun clearABRepeat() {
+        _uiState.update { it.copy(abRepeatPointA = null, abRepeatPointB = null) }
+    }
+
+    fun setSubtitleFontSize(size: Int) {
+        engine.setSubtitleFontSize(size)
+        _uiState.update { it.copy(subtitleFontSize = size) }
+    }
+
+    fun setSubtitleColor(colorHex: String) {
+        engine.setSubtitleColor(colorHex)
+        _uiState.update { it.copy(subtitleColor = colorHex) }
+    }
+
+    fun captureScreenshot(context: Context, onResult: (String?, Boolean) -> Unit) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val picturesDir = File(context.cacheDir, "screenshots")
+                if (!picturesDir.exists()) picturesDir.mkdirs()
+                val file = File(picturesDir, "Screenshot_${System.currentTimeMillis()}.jpg")
+                val success = engine.captureScreenshot(file)
+                launch(Dispatchers.Main) {
+                    if (success) {
+                        onResult(file.absolutePath, true)
+                    } else {
+                        onResult(null, false)
+                    }
+                }
+            } catch (e: Exception) {
+                launch(Dispatchers.Main) {
+                    onResult(null, false)
+                }
+            }
+        }
     }
 
     // endregion

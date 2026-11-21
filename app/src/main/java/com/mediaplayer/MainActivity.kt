@@ -22,6 +22,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableStateOf
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import com.mediaplayer.audio.UsbBitPerfectAudioController
 import com.mediaplayer.data.MediaRepository
@@ -31,6 +32,7 @@ import com.mediaplayer.ui.theme.MediaPlayerTheme
 import com.mediaplayer.util.HighRefreshRateManager
 import com.mediaplayer.vault.VaultRepository
 import com.mediaplayer.vault.VaultSecurityManager
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
@@ -94,8 +96,15 @@ class MainActivity : ComponentActivity() {
         ContextCompat.registerReceiver(this, pipReceiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
 
         lifecycleScope.launch {
-            playerManager.isPlaying.collect {
-                if (isInPictureInPictureMode) {
+            combine(
+                playerManager.isPlaying,
+                playerManager.isVideoPlaying,
+                playerManager.videoDimensions,
+                playerManager.isPlayerExpanded
+            ) { isPlaying, isVideoPlaying, dims, isExpanded ->
+                Triple(isPlaying || isVideoPlaying, dims, isExpanded)
+            }.collect {
+                if (isInPictureInPictureMode || Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                     try {
                         setPictureInPictureParams(buildPipParams())
                     } catch (e: Exception) {
@@ -156,23 +165,32 @@ class MainActivity : ComponentActivity() {
             } catch (e: Exception) {
                 e.printStackTrace()
             }
+        } else {
+            // Returned from PiP back to app - ensure player remains expanded and video keeps playing
+            playerManager.setPlayerExpanded(true)
         }
     }
 
     override fun onUserLeaveHint() {
         super.onUserLeaveHint()
-        if (playerManager.currentMediaItem.value?.isVideo == true) {
+        if (playerManager.currentMediaItem.value?.isVideo == true &&
+            playerManager.isPlayerExpanded.value &&
+            playerManager.isVideoPlaying.value
+        ) {
             enterPip()
         }
     }
 
     private fun enterPip() {
+        if (!packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)) return
         val currentItem = playerManager.currentMediaItem.value
-        if (currentItem?.isVideo == true) {
+        if (currentItem?.isVideo == true && playerManager.isPlayerExpanded.value) {
             try {
+                isInPipModeState.value = true
                 val params = buildPipParams()
                 enterPictureInPictureMode(params)
             } catch (e: Exception) {
+                isInPipModeState.value = false
                 e.printStackTrace()
             }
         }
@@ -180,9 +198,27 @@ class MainActivity : ComponentActivity() {
 
     private fun buildPipParams(): PictureInPictureParams {
         val rational = try {
-            val videoSize = playerManager.player.videoSize
-            if (videoSize.width > 0 && videoSize.height > 0) {
-                val aspect = (videoSize.width.toFloat() / videoSize.height.toFloat()).coerceIn(0.42f, 2.38f)
+            val isVideo = playerManager.currentMediaItem.value?.isVideo == true
+            val dims = playerManager.videoDimensions.value
+            val (width, height) = if (isVideo && dims != null && dims.first > 0 && dims.second > 0) {
+                dims
+            } else if (isVideo) {
+                val res = playerManager.currentMediaItem.value?.resolution.orEmpty()
+                val parts = res.split("x")
+                if (parts.size == 2) {
+                    val w = parts[0].trim().toIntOrNull() ?: 0
+                    val h = parts[1].trim().toIntOrNull() ?: 0
+                    if (w > 0 && h > 0) Pair(w, h) else Pair(0, 0)
+                } else {
+                    Pair(0, 0)
+                }
+            } else {
+                Pair(0, 0)
+            }
+
+            if (width > 0 && height > 0) {
+                // Android framework mandates PiP aspect ratio between 0.418410 and 2.390000
+                val aspect = (width.toFloat() / height.toFloat()).coerceIn(0.42f, 2.38f)
                 val denom = 1000
                 val num = (aspect * denom).roundToInt()
                 Rational(num, denom)
@@ -196,8 +232,12 @@ class MainActivity : ComponentActivity() {
         val builder = PictureInPictureParams.Builder()
             .setAspectRatio(rational)
 
+        val isVideo = playerManager.currentMediaItem.value?.isVideo == true
+        val isVideoPlaying = playerManager.isVideoPlaying.value
+        val isPlaying = if (isVideo) isVideoPlaying else playerManager.isPlaying.value
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            builder.setAutoEnterEnabled(playerManager.isPlaying.value && playerManager.currentMediaItem.value?.isVideo == true)
+            builder.setAutoEnterEnabled(isVideoPlaying && isVideo && playerManager.isPlayerExpanded.value)
             builder.setSeamlessResizeEnabled(true)
         }
 
@@ -214,7 +254,6 @@ class MainActivity : ComponentActivity() {
         actions.add(RemoteAction(replayIcon, "Rewind 10s", "Rewind 10s", replayIntent))
 
         // 2. Play / Pause
-        val isPlaying = playerManager.isPlaying.value
         val playPauseIntent = PendingIntent.getBroadcast(
             this,
             2,
@@ -261,6 +300,13 @@ class MainActivity : ComponentActivity() {
     override fun onPause() {
         super.onPause()
         (application as? MediaPlayerApplication)?.vaultSecurityManager?.lock()
+    }
+
+    override fun onStop() {
+        super.onStop()
+        if (!isInPictureInPictureMode) {
+            playerManager.pause()
+        }
     }
 
     override fun onDestroy() {

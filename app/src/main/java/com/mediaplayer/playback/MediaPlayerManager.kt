@@ -360,12 +360,29 @@ class MediaPlayerManager(
 
     var onToggleVideoPlayPause: (() -> Unit)? = null
     var onPauseVideo: (() -> Unit)? = null
+    var onSeekVideoRelative: ((deltaSeconds: Double) -> Unit)? = null
+
+    private val _isVideoPlaying = MutableStateFlow(false)
+    val isVideoPlaying: StateFlow<Boolean> = _isVideoPlaying.asStateFlow()
+
+    private val _videoDimensions = MutableStateFlow<Pair<Int, Int>?>(null)
+    val videoDimensions: StateFlow<Pair<Int, Int>?> = _videoDimensions.asStateFlow()
+
+    fun setVideoPlaying(playing: Boolean) {
+        _isVideoPlaying.value = playing
+    }
+
+    fun setVideoDimensions(width: Int, height: Int) {
+        _videoDimensions.value = Pair(width, height)
+    }
 
     fun stopVideo() {
         if (_currentMediaItem.value?.isVideo == true) {
             onPauseVideo?.invoke()
             _currentMediaItem.value = null
             _isPlaying.value = false
+            _isVideoPlaying.value = false
+            _videoDimensions.value = null
             _isPlayerExpanded.value = false
         }
     }
@@ -444,11 +461,19 @@ class MediaPlayerManager(
     }
 
     fun seekForward(deltaMs: Long = 10000L) {
+        if (_currentMediaItem.value?.isVideo == true) {
+            onSeekVideoRelative?.invoke(deltaMs / 1000.0)
+            return
+        }
         val target = (player.currentPosition + deltaMs).coerceAtMost(player.duration.coerceAtLeast(0L))
         seekTo(target)
     }
 
     fun seekBackward(deltaMs: Long = 10000L) {
+        if (_currentMediaItem.value?.isVideo == true) {
+            onSeekVideoRelative?.invoke(-(deltaMs / 1000.0))
+            return
+        }
         val target = (player.currentPosition - deltaMs).coerceAtLeast(0L)
         seekTo(target)
     }

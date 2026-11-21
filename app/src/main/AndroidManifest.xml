@@ -83,15 +83,6 @@
             </intent-filter>
         </service>
 
-        <receiver
-            android:name=".audio.UsbDeviceReceiver"
-            android:exported="false">
-            <intent-filter>
-                <action android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED" />
-                <action android:name="android.hardware.usb.action.USB_DEVICE_DETACHED" />
-            </intent-filter>
-        </receiver>
-
     </application>
 
 </manifest>

@@ -4,7 +4,7 @@ plugins {
 }
 
 base {
-    archivesName.set("MediaPlayer-v1.4")
+    archivesName.set("MediaPlayer-v1.5")
 }
 
 android {
@@ -15,14 +15,39 @@ android {
         applicationId = "com.mediaplayer"
         minSdk = 26
         targetSdk = 35
-        versionCode = 5
-        versionName = "1.4"
+        versionCode = 6
+        versionName = "1.5"
 
         ndk {
             abiFilters.add("arm64-v8a")
         }
 
+        externalNativeBuild {
+            cmake {
+                cppFlags += listOf(
+                    "-std=c++17",
+                    "-O3",
+                    "-fexceptions",
+                    "-frtti",
+                    "-Wall",
+                    "-Wextra",
+                    "-Wno-unused-parameter"
+                )
+                arguments += listOf(
+                    "-DANDROID_STL=c++_shared",
+                    "-DANDROID_PLATFORM=android-26"
+                )
+            }
+        }
+
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    }
+
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
+            version = "3.22.1"
+        }
     }
 
     buildTypes {

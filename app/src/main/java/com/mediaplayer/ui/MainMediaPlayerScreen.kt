@@ -1,6 +1,7 @@
 package com.mediaplayer.ui
 
 import android.Manifest
+import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -201,8 +202,11 @@ import com.mediaplayer.ui.components.DeveloperSupportCard
 import com.mediaplayer.ui.components.MediaHubPage
 import com.mediaplayer.ui.components.UsbDacSettingsDialog
 import com.mediaplayer.ui.components.UsbTelemetryPill
+import com.mediaplayer.ui.components.VideoCustomizationDialog
 import com.mediaplayer.util.AppReleaseInfo
+import com.mediaplayer.util.AppSettingsManager
 import com.mediaplayer.util.AppUpdateManager
+import com.mediaplayer.util.HighRefreshRateManager
 import com.mediaplayer.vault.PrivacyVaultScreen
 import com.mediaplayer.vault.VaultMediaItem
 import com.mediaplayer.vault.VaultPinDialog
@@ -284,6 +288,8 @@ fun MainMediaPlayerScreen(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val activity = context as? Activity
+    val inPip = isInPipMode || (activity?.isInPictureInPictureMode == true)
     val scope = rememberCoroutineScope()
 
     val telemetry by usbController.status.collectAsState()
@@ -303,6 +309,11 @@ fun MainMediaPlayerScreen(
     var videoList by remember { mutableStateOf(repository.getCachedVideosFast()) }
     var searchQuery by remember { mutableStateOf("") }
     var isSearchActive by remember { mutableStateOf(false) }
+
+    val settingsManager = remember { AppSettingsManager(context) }
+    var showVideoSettingsDialog by remember { mutableStateOf(false) }
+    var settingsVersion by remember { mutableIntStateOf(0) }
+    val highRefreshRateManager = remember(activity) { activity?.let { HighRefreshRateManager(it) } }
 
     var showDacDialog by remember { mutableStateOf(false) }
     var showAboutDialog by remember { mutableStateOf(false) }
@@ -609,7 +620,7 @@ fun MainMediaPlayerScreen(
     }
 
     // Back navigation for expanded player (Standard back button / gesture fallback)
-    BackHandler(enabled = isExpanded && !isInPipMode) {
+    BackHandler(enabled = isExpanded && !inPip) {
         if (currentItem?.isVideo == true) {
             playerManager.stopVideo()
         }
@@ -617,7 +628,7 @@ fun MainMediaPlayerScreen(
     }
 
     // Predictive Back Gesture Animation Handler
-    PredictiveBackHandler(enabled = isExpanded && !isInPipMode) { progressFlow ->
+    PredictiveBackHandler(enabled = isExpanded && !inPip) { progressFlow ->
         try {
             progressFlow.collect { backEvent ->
                 predictiveBackProgress = backEvent.progress
@@ -643,12 +654,21 @@ fun MainMediaPlayerScreen(
     )
 
     // Filtered Video List
-    val videoFolders = remember(videoList) {
-        listOf("All Folders") + videoList.map { it.folderName.ifEmpty { "Videos" } }.distinct()
+    val activeVideoList = remember(videoList, settingsManager.hideShortVideos, settingsVersion) {
+        if (settingsManager.hideShortVideos) {
+            val minDurationMs = settingsManager.minVideoDurationSec * 1000L
+            videoList.filter { it.durationMs >= minDurationMs }
+        } else {
+            videoList
+        }
     }
 
-    val filteredVideo = remember(videoList, searchQuery, selectedVideoFolder) {
-        videoList.filter { video ->
+    val videoFolders = remember(activeVideoList) {
+        listOf("All Folders") + activeVideoList.map { it.folderName.ifEmpty { "Videos" } }.distinct()
+    }
+
+    val filteredVideo = remember(activeVideoList, searchQuery, selectedVideoFolder) {
+        activeVideoList.filter { video ->
             val matchesFolder = selectedVideoFolder == "All Folders" || (video.folderName.ifEmpty { "Videos" } == selectedVideoFolder)
             val matchesQuery = searchQuery.isBlank() || video.title.contains(searchQuery, ignoreCase = true) || video.artist.contains(searchQuery, ignoreCase = true)
             matchesFolder && matchesQuery
@@ -668,21 +688,11 @@ fun MainMediaPlayerScreen(
         modifier = modifier.fillMaxSize(),
         color = OledSurface
     ) {
-        if (isInPipMode && currentItem?.isVideo == true) {
-            VideoPlayerView(
-                playerManager = playerManager,
-                telemetry = telemetry,
-                onBack = {},
-                onEnterPip = {},
-                onOpenDacSettings = {},
-                isInPipMode = true,
-                modifier = Modifier.fillMaxSize()
-            )
-        } else {
-            val configuration = LocalConfiguration.current
-            val isWideScreen = configuration.screenWidthDp >= 640
+        val configuration = LocalConfiguration.current
+        val isWideScreen = configuration.screenWidthDp >= 640
 
-            Box(modifier = Modifier.fillMaxSize()) {
+        Box(modifier = Modifier.fillMaxSize()) {
+            if (!inPip) {
                 Row(modifier = Modifier.fillMaxSize()) {
                     // Navigation Rail on Tablets / Landscape
                     if (isWideScreen) {
@@ -1048,7 +1058,7 @@ fun MainMediaPlayerScreen(
                                         ) {
                                             Column {
                                                 Text(
-                                                    text = "Media Player",
+                                                    text = "Videos",
                                                     style = MaterialTheme.typography.titleLarge,
                                                     fontWeight = FontWeight.ExtraBold,
                                                     color = Color.White,
@@ -1100,13 +1110,13 @@ fun MainMediaPlayerScreen(
                                                     )
                                                 }
 
-                                                // Settings / DAC dialog
+                                                // Settings / Customization dialog
                                                 Box(
                                                     modifier = Modifier
                                                         .size(38.dp)
                                                         .clip(CircleShape)
                                                         .background(Color(0x1AFFFFFF))
-                                                        .clickable { showDacDialog = true },
+                                                        .clickable { showVideoSettingsDialog = true },
                                                     contentAlignment = Alignment.Center
                                                 ) {
                                                     Icon(
@@ -1244,8 +1254,7 @@ fun MainMediaPlayerScreen(
                                         modifier = Modifier
                                             .fillMaxWidth()
                                             .padding(horizontal = 20.dp, vertical = 12.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.SpaceBetween
+                                        verticalAlignment = Alignment.CenterVertically
                                     ) {
                                         Column {
                                             Text(
@@ -1254,38 +1263,11 @@ fun MainMediaPlayerScreen(
                                                 fontWeight = FontWeight.Bold,
                                                 color = Color.White
                                             )
-                                            Spacer(modifier = Modifier.height(3.dp))
-                                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                                Box(
-                                                    modifier = Modifier
-                                                        .size(7.dp)
-                                                        .clip(CircleShape)
-                                                        .background(AudiophileCyan)
-                                                )
-                                                Spacer(modifier = Modifier.width(6.dp))
-                                                Text(
-                                                    text = "STORAGE, USB-OTG & NETWORK STREAMS",
-                                                    style = MaterialTheme.typography.labelSmall,
-                                                    fontWeight = FontWeight.SemiBold,
-                                                    color = AudiophileCyan,
-                                                    letterSpacing = 0.5.sp
-                                                )
-                                            }
-                                        }
-
-                                        Box(
-                                            modifier = Modifier
-                                                .size(38.dp)
-                                                .clip(CircleShape)
-                                                .background(Color(0x1AFFFFFF))
-                                                .clickable { showAboutDialog = true },
-                                            contentAlignment = Alignment.Center
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Rounded.Info,
-                                                contentDescription = "About & Updates",
-                                                tint = Color.White,
-                                                modifier = Modifier.size(18.dp)
+                                            Spacer(modifier = Modifier.height(2.dp))
+                                            Text(
+                                                text = "Storage & Streams",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = Color(0xFF9E9EAE)
                                             )
                                         }
                                     }
@@ -1612,7 +1594,8 @@ fun MainMediaPlayerScreen(
                                                 if (context is android.app.Activity) {
                                                     usbController.requestUsbPermission(context)
                                                 }
-                                            }
+                                            },
+                                            controller = usbController
                                         )
                                     }
                                     3 -> {
@@ -1671,24 +1654,26 @@ fun MainMediaPlayerScreen(
                         }
                     )
                 }
+            }
 
-                // Full-Screen Player with Predictive Back Morphing (Hardware accelerated via graphicsLayer)
-                AnimatedVisibility(
-                    visible = isExpanded && currentItem != null,
-                    enter = slideInVertically(
-                        initialOffsetY = { fullHeight -> fullHeight },
-                        animationSpec = tween(durationMillis = 160, easing = FastOutSlowInEasing)
-                    ) + fadeIn(animationSpec = tween(durationMillis = 120, easing = LinearOutSlowInEasing)),
-                    exit = slideOutVertically(
-                        targetOffsetY = { fullHeight -> fullHeight },
-                        animationSpec = tween(durationMillis = 140, easing = FastOutLinearInEasing)
-                    ) + fadeOut(animationSpec = tween(durationMillis = 100, easing = FastOutLinearInEasing)),
-                    modifier = Modifier.fillMaxSize()
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .graphicsLayer {
+            // Full-Screen Player with Predictive Back Morphing (Hardware accelerated via graphicsLayer)
+            AnimatedVisibility(
+                visible = (isExpanded || inPip) && currentItem != null,
+                enter = if (inPip) EnterTransition.None else (slideInVertically(
+                    initialOffsetY = { fullHeight -> fullHeight },
+                    animationSpec = tween(durationMillis = 160, easing = FastOutSlowInEasing)
+                ) + fadeIn(animationSpec = tween(durationMillis = 120, easing = LinearOutSlowInEasing))),
+                exit = if (inPip) ExitTransition.None else (slideOutVertically(
+                    targetOffsetY = { fullHeight -> fullHeight },
+                    animationSpec = tween(durationMillis = 140, easing = FastOutLinearInEasing)
+                ) + fadeOut(animationSpec = tween(durationMillis = 100, easing = FastOutLinearInEasing))),
+                modifier = Modifier.fillMaxSize()
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .graphicsLayer {
+                            if (!inPip) {
                                 scaleX = animatedScale
                                 scaleY = animatedScale
                                 translationY = predictiveBackProgress * 260.dp.toPx()
@@ -1697,30 +1682,47 @@ fun MainMediaPlayerScreen(
                                     shape = RoundedCornerShape(animatedCornerRadius)
                                 }
                             }
-                            .background(Color.Black)
-                    ) {
-                        if (currentItem?.isVideo == true) {
-                            VideoPlayerView(
-                                playerManager = playerManager,
-                                telemetry = telemetry,
-                                onBack = {
-                                    playerManager.stopVideo()
-                                    playerManager.setPlayerExpanded(false)
-                                },
-                                onEnterPip = onEnterPip,
-                                onOpenDacSettings = { showDacDialog = true },
-                                isInPipMode = isInPipMode,
-                                modifier = Modifier.fillMaxSize()
-                            )
-                        } else {
-                            MusicNowPlayingScreen(
-                                playerManager = playerManager,
-                                telemetry = telemetry,
-                                onCollapse = { playerManager.setPlayerExpanded(false) },
-                                onOpenDacSettings = { showDacDialog = true }
-                            )
                         }
+                        .background(Color.Black)
+                ) {
+                    if (currentItem?.isVideo == true) {
+                        VideoPlayerView(
+                            playerManager = playerManager,
+                            telemetry = telemetry,
+                            onBack = {
+                                playerManager.stopVideo()
+                                playerManager.setPlayerExpanded(false)
+                            },
+                            onEnterPip = onEnterPip,
+                            onOpenDacSettings = { showDacDialog = true },
+                            isInPipMode = inPip,
+                            settingsManager = settingsManager,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    } else if (!inPip) {
+                        MusicNowPlayingScreen(
+                            playerManager = playerManager,
+                            telemetry = telemetry,
+                            onCollapse = { playerManager.setPlayerExpanded(false) },
+                            onOpenDacSettings = { showDacDialog = true }
+                        )
                     }
+                }
+            }
+
+            if (!inPip) {
+                // Video & Playback Customization Dialog
+                if (showVideoSettingsDialog) {
+                    VideoCustomizationDialog(
+                        settingsManager = settingsManager,
+                        onDismiss = { showVideoSettingsDialog = false },
+                        onSettingsChanged = {
+                            settingsVersion++
+                            if (settingsManager.highRefreshRateEnabled) {
+                                highRefreshRateManager?.applyOptimalRefreshRate()
+                            }
+                        }
+                    )
                 }
 
                 // Bit-Perfect Control Dialog
@@ -1731,7 +1733,6 @@ fun MainMediaPlayerScreen(
                         onDismiss = { showDacDialog = false }
                     )
                 }
-
 
                 // About Developer & Support Dialog
                 if (showAboutDialog) {
@@ -2205,64 +2206,6 @@ private fun VideosTabScreen(
             }
 
             Column(modifier = Modifier.fillMaxSize()) {
-                // Folder Navigation Header
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 8.dp)
-                ) {
-                    Surface(
-                        onClick = { onOpenFolder(null) },
-                        shape = CircleShape,
-                        color = Color(0xFF1B2330),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x33FFFFFF)),
-                        modifier = Modifier.size(38.dp)
-                    ) {
-                        Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
-                            Icon(
-                                imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
-                                contentDescription = "Back to folders",
-                                tint = Color.White,
-                                modifier = Modifier.size(20.dp)
-                            )
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.width(12.dp))
-
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = currentFolder.name,
-                            color = Color.White,
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        Text(
-                            text = "${sortedFolderVideos.size} Videos • ${formatFolderDuration(currentFolder.totalDurationMs)}",
-                            color = Color(0xFFA0A0B0),
-                            fontSize = 12.sp,
-                            fontFamily = FontFamily.Monospace,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-
-                    IconButton(
-                        onClick = onToggleView,
-                        modifier = Modifier.size(36.dp)
-                    ) {
-                        Icon(
-                            imageVector = if (isGridView) Icons.AutoMirrored.Rounded.ViewList else Icons.Rounded.GridView,
-                            contentDescription = "Toggle View",
-                            tint = AudiophileCyan,
-                            modifier = Modifier.size(22.dp)
-                        )
-                    }
-                }
-
                 if (sortedFolderVideos.isEmpty()) {
                     EmptyStateView(
                         title = "No videos in this folder",
@@ -3770,15 +3713,17 @@ private fun AudioDacLabScreen(
     decoderMode: String,
     onSetBitPerfect: (Boolean) -> Unit,
     onSetDecoderMode: (String) -> Unit,
-    onRequestUsbPermission: () -> Unit
+    onRequestUsbPermission: () -> Unit,
+    controller: UsbBitPerfectAudioController? = null
 ) {
     Column(
         modifier = Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
-            .padding(16.dp)
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        // 1. Unified Audiophile Studio Master Console & Signal Deck
+        // 1. Hero Audio Master Console
         Card(
             modifier = Modifier.fillMaxWidth(),
             colors = CardDefaults.cardColors(
@@ -3787,11 +3732,11 @@ private fun AudioDacLabScreen(
             shape = RoundedCornerShape(22.dp),
             border = androidx.compose.foundation.BorderStroke(
                 1.dp,
-                if (telemetry.isMixerBypassActive) AudiophileGold.copy(alpha = 0.7f) else Color(0x2AFFFFFF)
+                if (telemetry.isMixerBypassActive) AudiophileGold.copy(alpha = 0.7f) else Color(0x22FFFFFF)
             )
         ) {
             Column(modifier = Modifier.padding(18.dp)) {
-                // Header Row: GraphicEq Icon + Title + Status Pill + Switch
+                // Status Header
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
@@ -3803,15 +3748,15 @@ private fun AudioDacLabScreen(
                     ) {
                         Box(
                             modifier = Modifier
-                                .size(46.dp)
-                                .clip(RoundedCornerShape(14.dp))
+                                .size(44.dp)
+                                .clip(RoundedCornerShape(12.dp))
                                 .background(
                                     if (telemetry.isMixerBypassActive) Color(0x33FFD54F) else Color(0x2200E5FF)
                                 )
                                 .border(
                                     1.dp,
                                     if (telemetry.isMixerBypassActive) AudiophileGold.copy(alpha = 0.6f) else Color(0x3300E5FF),
-                                    RoundedCornerShape(14.dp)
+                                    RoundedCornerShape(12.dp)
                                 ),
                             contentAlignment = Alignment.Center
                         ) {
@@ -3824,13 +3769,6 @@ private fun AudioDacLabScreen(
                         }
                         Spacer(modifier = Modifier.width(12.dp))
                         Column {
-                            Text(
-                                text = "Bit-Perfect Audio Bypass",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = Color.White
-                            )
-                            Spacer(modifier = Modifier.height(2.dp))
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Box(
                                     modifier = Modifier
@@ -3842,11 +3780,11 @@ private fun AudioDacLabScreen(
                                             else Color(0xFF888899)
                                         )
                                 )
-                                Spacer(modifier = Modifier.width(5.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
                                 Text(
                                     text = if (telemetry.isMixerBypassActive) "BIT-PERFECT HAL LOCKED"
-                                    else if (telemetry.isUsbDacConnected) "USB DAC DIRECT READY"
-                                    else "SYSTEM MIXER STANDBY",
+                                    else if (telemetry.isUsbDacConnected) "USB-C DIRECT READY"
+                                    else "SYSTEM MIXER",
                                     fontSize = 10.sp,
                                     fontWeight = FontWeight.Bold,
                                     fontFamily = FontFamily.Monospace,
@@ -3856,6 +3794,15 @@ private fun AudioDacLabScreen(
                                     else Color(0xFF8E8E9E)
                                 )
                             }
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = telemetry.dacName,
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
                         }
                     }
 
@@ -3873,14 +3820,14 @@ private fun AudioDacLabScreen(
 
                 Spacer(modifier = Modifier.height(14.dp))
 
-                // Integrated Elegant Signal Path Flow
+                // Interactive Signal Path Flow
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(14.dp))
+                        .clip(RoundedCornerShape(12.dp))
                         .background(Color(0x0DFFFFFF))
-                        .border(1.dp, Color(0x14FFFFFF), RoundedCornerShape(14.dp))
-                        .padding(horizontal = 10.dp, vertical = 10.dp)
+                        .border(1.dp, Color(0x14FFFFFF), RoundedCornerShape(12.dp))
+                        .padding(horizontal = 12.dp, vertical = 10.dp)
                 ) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -3895,12 +3842,12 @@ private fun AudioDacLabScreen(
                         SignalArrow(active = true)
                         SignalNode(
                             label = "Decoder",
-                            value = if (decoderMode.contains("FFmpeg")) "FFmpeg 6" else "MediaCodec",
+                            value = if (decoderMode.contains("FFmpeg")) "Bit-Accurate" else "MediaCodec",
                             active = true
                         )
                         SignalArrow(active = true)
                         SignalNode(
-                            label = "Bypass",
+                            label = "Pipeline",
                             value = if (telemetry.isMixerBypassActive) "DIRECT" else "Flinger",
                             active = telemetry.isMixerBypassActive,
                             highlightGold = true
@@ -3917,9 +3864,9 @@ private fun AudioDacLabScreen(
                 Spacer(modifier = Modifier.height(10.dp))
                 Text(
                     text = if (telemetry.isMixerBypassActive)
-                        "Direct hardware HAL bypass active. AudioFlinger 48kHz resampler and DSP limiters are completely bypassed."
+                        "Hardware bit-perfect output active. Resamplers and volume limiters are completely bypassed."
                     else
-                        "Directly bypasses the Android 48kHz mixer and DSP limiters on Android 14+ (API 34+) when a USB DAC is connected.",
+                        "Connect a USB Type-C DAC to bypass system resampling for pure bit-perfect output.",
                     style = MaterialTheme.typography.bodySmall,
                     color = Color(0xFF9E9EAE),
                     fontSize = 11.sp
@@ -3927,169 +3874,245 @@ private fun AudioDacLabScreen(
             }
         }
 
-        Spacer(modifier = Modifier.height(14.dp))
-
-        // 3. Hardware USB DAC Telemetry HUD (2x2 Grid)
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = OledSurfaceVariant),
-            shape = RoundedCornerShape(20.dp),
-            border = androidx.compose.foundation.BorderStroke(1.dp, OledBorder)
-        ) {
-            Column(modifier = Modifier.padding(18.dp)) {
-                Text(
-                    text = "HARDWARE TELEMETRY & ROUTE",
-                    style = MaterialTheme.typography.labelSmall,
-                    fontWeight = FontWeight.Bold,
-                    color = AudiophileCyan,
-                    letterSpacing = 1.sp
+        // 2. Hardware Telemetry Grouped Card
+        Column(modifier = Modifier.fillMaxWidth()) {
+            Text(
+                text = "HARDWARE SPECIFICATIONS",
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Bold,
+                color = Color(0xFF6B7280),
+                letterSpacing = 1.2.sp,
+                modifier = Modifier.padding(start = 4.dp, bottom = 6.dp)
+            )
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(18.dp))
+                    .background(OledSurfaceVariant)
+                    .border(1.dp, OledBorder, RoundedCornerShape(18.dp))
+            ) {
+                DacInfoRow(
+                    label = "DAC Device",
+                    value = telemetry.dacName,
+                    highlight = telemetry.isUsbDacConnected
                 )
-                Spacer(modifier = Modifier.height(12.dp))
-
-                // 2x2 Telemetry Grid
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    TelemetryCard(
-                        title = "DAC Device",
-                        value = telemetry.dacName,
-                        highlight = telemetry.isUsbDacConnected,
-                        modifier = Modifier.weight(1f)
-                    )
-                    TelemetryCard(
-                        title = "Connection",
-                        value = if (telemetry.isUsbDacConnected) "USB-C Direct OTG" else "Internal Bus",
-                        highlight = telemetry.isUsbDacConnected,
-                        modifier = Modifier.weight(1f)
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    TelemetryCard(
-                        title = "Mixer Pipeline",
-                        value = telemetry.mixerBehavior,
-                        highlight = telemetry.isMixerBypassActive,
-                        modifier = Modifier.weight(1f)
-                    )
-                    TelemetryCard(
-                        title = "Active Stream",
-                        value = telemetry.sourceFormatText,
-                        highlight = true,
-                        modifier = Modifier.weight(1f)
-                    )
-                }
+                DacDivider()
+                DacInfoRow(
+                    label = "Interface Route",
+                    value = if (telemetry.isUsbDacConnected) "USB-C Direct OTG" else "Internal Audio Bus",
+                    highlight = telemetry.isUsbDacConnected
+                )
+                DacDivider()
+                DacInfoRow(
+                    label = "Mixer Pipeline",
+                    value = if (telemetry.isMixerBypassActive) "Bit-Perfect Direct Bypass" else "System Audio Mixer",
+                    highlight = telemetry.isMixerBypassActive
+                )
+                DacDivider()
+                DacInfoRow(
+                    label = "Active Stream",
+                    value = telemetry.sourceFormatText,
+                    highlight = true
+                )
 
                 if (telemetry.supportedSampleRates.isNotEmpty()) {
-                    Spacer(modifier = Modifier.height(14.dp))
-                    Text("Supported Hardware Sample Rates:", style = MaterialTheme.typography.bodySmall, color = Color(0xFF8E8E9E))
-                    Spacer(modifier = Modifier.height(6.dp))
-                    LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        items(telemetry.supportedSampleRates) { rate ->
-                            Text(
-                                text = UsbAudioStatus.formatSampleRate(rate),
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = AudiophileGold,
-                                fontFamily = FontFamily.Monospace,
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(6.dp))
-                                    .background(Color(0x22FFD54F))
-                                    .padding(horizontal = 7.dp, vertical = 3.dp)
-                            )
+                    DacDivider()
+                    Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+                        Text(
+                            text = "Supported Sample Rates",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = Color.White
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            items(telemetry.supportedSampleRates) { rate ->
+                                Text(
+                                    text = UsbAudioStatus.formatSampleRate(rate),
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = AudiophileGold,
+                                    fontFamily = FontFamily.Monospace,
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(Color(0x22FFD54F))
+                                        .border(1.dp, Color(0x33FFD54F), RoundedCornerShape(8.dp))
+                                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                                )
+                            }
                         }
                     }
                 }
 
                 if (telemetry.isUsbDacConnected && !telemetry.hasUsbPermission) {
-                    Spacer(modifier = Modifier.height(14.dp))
-                    Button(
-                        onClick = onRequestUsbPermission,
-                        colors = ButtonDefaults.buttonColors(containerColor = AudiophileCyan),
-                        shape = RoundedCornerShape(10.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Icon(Icons.Rounded.Warning, contentDescription = null, tint = Color.Black, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("Grant Direct USB Hardware Access", color = Color.Black, fontWeight = FontWeight.Bold)
+                    DacDivider()
+                    Box(modifier = Modifier.padding(14.dp)) {
+                        Button(
+                            onClick = onRequestUsbPermission,
+                            colors = ButtonDefaults.buttonColors(containerColor = AudiophileCyan),
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Icon(Icons.Rounded.Warning, contentDescription = null, tint = Color.Black, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Grant USB Hardware Access", color = Color.Black, fontWeight = FontWeight.Bold)
+                        }
                     }
                 }
             }
         }
 
-        Spacer(modifier = Modifier.height(14.dp))
-
-        // 4. Audio Decoder Preference Selector
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = OledSurfaceVariant),
-            shape = RoundedCornerShape(20.dp),
-            border = androidx.compose.foundation.BorderStroke(1.dp, OledBorder)
-        ) {
-            Column(modifier = Modifier.padding(18.dp)) {
+        // 3. Audio Engine Architecture & Driver Selection
+        if (controller != null && telemetry.isExclusiveBitPerfectEnabled) {
+            Column(modifier = Modifier.fillMaxWidth()) {
                 Text(
-                    text = "AUDIO / VIDEO DECODER ARCHITECTURE",
+                    text = "ENGINE ARCHITECTURE",
                     style = MaterialTheme.typography.labelSmall,
                     fontWeight = FontWeight.Bold,
-                    color = AudiophileGold,
-                    letterSpacing = 1.sp
+                    color = Color(0xFF6B7280),
+                    letterSpacing = 1.2.sp,
+                    modifier = Modifier.padding(start = 4.dp, bottom = 6.dp)
                 )
-                Spacer(modifier = Modifier.height(12.dp))
-
-                // Decoder Option 1: FFmpeg Native
-                val isFfmpeg = decoderMode.contains("FFmpeg")
-                Box(
+                Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(14.dp))
-                        .background(if (isFfmpeg) Color(0x1F00E5FF) else Color(0x0AFFFFFF))
-                        .border(1.dp, if (isFfmpeg) AudiophileCyan else Color(0x1AFFFFFF), RoundedCornerShape(14.dp))
-                        .clickable { onSetDecoderMode("FFmpeg Extension (Universal)") }
-                        .padding(14.dp)
+                        .clip(RoundedCornerShape(18.dp))
+                        .background(OledSurfaceVariant)
+                        .border(1.dp, OledBorder, RoundedCornerShape(18.dp))
                 ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        RadioButton(
-                            selected = isFfmpeg,
-                            onClick = { onSetDecoderMode("FFmpeg Extension (Universal)") },
-                            colors = RadioButtonDefaults.colors(selectedColor = AudiophileCyan)
+                    // Driver Engine Segmented Bar
+                    val isLibusb = controller.engine.backendMode == com.bitperfect.usb.BitPerfectEngine.BackendMode.EXCLUSIVE_USB_LIBUSB
+                    Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+                        Text(
+                            text = "Driver Engine",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = Color.White
                         )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Column {
-                            Text("FFmpeg Native Core (Bit-Accurate)", fontWeight = FontWeight.Bold, color = Color.White)
-                            Text("Jellyfin libffmpeg 6.0: FLAC, ALAC, DTS, TrueHD, AC3, DSD bit-accurate decoding.", style = MaterialTheme.typography.bodySmall, color = Color(0xFF9E9EAE))
-                        }
+                        Spacer(modifier = Modifier.height(8.dp))
+                        DacSegmentedBar(
+                            items = listOf("Direct USB (C++)", "Android 14+ HAL"),
+                            selectedItem = if (isLibusb) "Direct USB (C++)" else "Android 14+ HAL",
+                            onSelect = { selected ->
+                                if (selected == "Direct USB (C++)") {
+                                    controller.setBackendMode(com.bitperfect.usb.BitPerfectEngine.BackendMode.EXCLUSIVE_USB_LIBUSB)
+                                } else {
+                                    controller.setBackendMode(com.bitperfect.usb.BitPerfectEngine.BackendMode.ANDROID_14_NATIVE_BIT_PERFECT)
+                                }
+                            }
+                        )
                     }
-                }
 
-                Spacer(modifier = Modifier.height(8.dp))
+                    DacDivider()
 
-                // Decoder Option 2: MediaCodec Hardware
-                val isMediaCodec = decoderMode.contains("MediaCodec")
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(14.dp))
-                        .background(if (isMediaCodec) Color(0x1F00E5FF) else Color(0x0AFFFFFF))
-                        .border(1.dp, if (isMediaCodec) AudiophileCyan else Color(0x1AFFFFFF), RoundedCornerShape(14.dp))
-                        .clickable { onSetDecoderMode("MediaCodec Hardware") }
-                        .padding(14.dp)
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        RadioButton(
-                            selected = isMediaCodec,
-                            onClick = { onSetDecoderMode("MediaCodec Hardware") },
-                            colors = RadioButtonDefaults.colors(selectedColor = AudiophileCyan)
+                    // Decoder Core Segmented Bar
+                    val isFfmpeg = decoderMode.contains("FFmpeg")
+                    Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+                        Text(
+                            text = "Decoder Core",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = Color.White
                         )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Column {
-                            Text("Android MediaCodec (Hardware DSP)", fontWeight = FontWeight.Bold, color = Color.White)
-                            Text("Snapdragon silicon hardware decoders for ultra-low power playback.", style = MaterialTheme.typography.bodySmall, color = Color(0xFF9E9EAE))
-                        }
+                        Spacer(modifier = Modifier.height(8.dp))
+                        DacSegmentedBar(
+                            items = listOf("Universal Bit-Accurate", "Hardware DSP"),
+                            selectedItem = if (isFfmpeg) "Universal Bit-Accurate" else "Hardware DSP",
+                            onSelect = { selected ->
+                                if (selected == "Universal Bit-Accurate") {
+                                    onSetDecoderMode("FFmpeg Extension (Universal)")
+                                } else {
+                                    onSetDecoderMode("MediaCodec Hardware")
+                                }
+                            }
+                        )
                     }
                 }
             }
         }
 
-        Spacer(modifier = Modifier.height(40.dp))
+        Spacer(modifier = Modifier.height(30.dp))
+    }
+}
+
+@Composable
+private fun DacInfoRow(
+    label: String,
+    value: String,
+    highlight: Boolean
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 13.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodyMedium,
+            color = Color(0xFF9E9EAE)
+        )
+        Text(
+            text = value,
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.SemiBold,
+            color = if (highlight) Color.White else Color(0xFF6B7280),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
+}
+
+@Composable
+private fun DacDivider() {
+    HorizontalDivider(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+        thickness = 0.5.dp,
+        color = Color(0x14FFFFFF)
+    )
+}
+
+@Composable
+private fun DacSegmentedBar(
+    items: List<String>,
+    selectedItem: String,
+    onSelect: (String) -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp))
+            .background(Color(0xFF0C0E14))
+            .border(1.dp, Color(0x14FFFFFF), RoundedCornerShape(10.dp))
+            .padding(3.dp),
+        horizontalArrangement = Arrangement.spacedBy(3.dp)
+    ) {
+        items.forEach { item ->
+            val isSelected = item.equals(selectedItem, ignoreCase = true)
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(if (isSelected) AudiophileCyan.copy(alpha = 0.22f) else Color.Transparent)
+                    .border(
+                        1.dp,
+                        if (isSelected) AudiophileCyan.copy(alpha = 0.6f) else Color.Transparent,
+                        RoundedCornerShape(8.dp)
+                    )
+                    .clickable { onSelect(item) }
+                    .padding(vertical = 7.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = item,
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                    color = if (isSelected) AudiophileCyan else Color(0xFF9E9EAE),
+                    maxLines = 1
+                )
+            }
+        }
     }
 }
 
@@ -4126,42 +4149,6 @@ private fun SignalArrow(active: Boolean) {
         color = if (active) AudiophileCyan else Color(0xFF445566),
         fontWeight = FontWeight.Bold
     )
-}
-
-@Composable
-private fun TelemetryCard(
-    title: String,
-    value: String,
-    highlight: Boolean,
-    modifier: Modifier = Modifier
-) {
-    Box(
-        modifier = modifier
-            .clip(RoundedCornerShape(12.dp))
-            .background(Color(0x14FFFFFF))
-            .border(1.dp, if (highlight) AudiophileCyan.copy(alpha = 0.3f) else Color(0x0DFFFFFF), RoundedCornerShape(12.dp))
-            .padding(12.dp)
-    ) {
-        Column {
-            Text(
-                text = title.uppercase(),
-                fontSize = 9.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = Color(0xFF7E8A9A),
-                letterSpacing = 0.5.sp
-            )
-            Spacer(modifier = Modifier.height(4.dp))
-            Text(
-                text = value,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Bold,
-                fontFamily = FontFamily.Monospace,
-                color = if (highlight) Color.White else Color(0xFFAAAAAA),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-        }
-    }
 }
 
 @Composable

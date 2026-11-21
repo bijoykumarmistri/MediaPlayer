@@ -3,6 +3,7 @@ package com.mediaplayer.ui.components
 import android.app.Activity
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -33,11 +34,14 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.RadioButton
+import androidx.compose.material3.RadioButtonDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import com.bitperfect.usb.BitPerfectEngine
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -169,6 +173,73 @@ fun UsbDacSettingsDialog(
                                 uncheckedTrackColor = Color(0x33888888)
                             )
                         )
+                    }
+                }
+
+                if (telemetry.isExclusiveRequested) {
+                    Spacer(modifier = Modifier.height(14.dp))
+                    // Backend Engine Selection Card
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(containerColor = OledSurfaceVariant),
+                        shape = RoundedCornerShape(16.dp)
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Text(
+                                text = "BIT-PERFECT ENGINE DRIVER",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = AudiophileGold,
+                                letterSpacing = 1.sp
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            val isLibusb = controller.engine.backendMode == BitPerfectEngine.BackendMode.EXCLUSIVE_USB_LIBUSB
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(if (isLibusb) Color(0x1F00E5FF) else Color.Transparent)
+                                    .clickable { controller.setBackendMode(BitPerfectEngine.BackendMode.EXCLUSIVE_USB_LIBUSB) }
+                                    .padding(8.dp)
+                            ) {
+                                RadioButton(
+                                    selected = isLibusb,
+                                    onClick = { controller.setBackendMode(BitPerfectEngine.BackendMode.EXCLUSIVE_USB_LIBUSB) },
+                                    colors = RadioButtonDefaults.colors(selectedColor = AudiophileCyan)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Column {
+                                    Text("Direct USB libusb Core (Isochronous C++)", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 13.sp)
+                                    Text("Exclusive hardware control. Completely bypasses AudioFlinger, ALSA, and Android mixer.", style = MaterialTheme.typography.bodySmall, color = Color(0xFFB0B0C0), fontSize = 11.sp)
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(4.dp))
+
+                            val isAndroid14 = controller.engine.backendMode == BitPerfectEngine.BackendMode.ANDROID_14_NATIVE_BIT_PERFECT
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(if (isAndroid14) Color(0x1F00E5FF) else Color.Transparent)
+                                    .clickable { controller.setBackendMode(BitPerfectEngine.BackendMode.ANDROID_14_NATIVE_BIT_PERFECT) }
+                                    .padding(8.dp)
+                            ) {
+                                RadioButton(
+                                    selected = isAndroid14,
+                                    onClick = { controller.setBackendMode(BitPerfectEngine.BackendMode.ANDROID_14_NATIVE_BIT_PERFECT) },
+                                    colors = RadioButtonDefaults.colors(selectedColor = AudiophileCyan)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Column {
+                                    Text("Android 14+ Native Bit-Perfect", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 13.sp)
+                                    Text("AudioMixerAttributes HAL bypass via OS AudioTrack.", style = MaterialTheme.typography.bodySmall, color = Color(0xFFB0B0C0), fontSize = 11.sp)
+                                }
+                            }
+                        }
                     }
                 }
 
