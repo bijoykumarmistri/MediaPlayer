@@ -307,6 +307,7 @@ class MediaPlayerManager(
             player.pause()
             player.stop()
             player.clearMediaItems()
+            _isVideoPlaying.value = true
             _isPlaying.value = true
 
             // Keep background audio playback service running for background video playback
@@ -438,6 +439,9 @@ class MediaPlayerManager(
 
     fun playPause() {
         if (_currentMediaItem.value?.isVideo == true) {
+            val nextPlaying = !_isVideoPlaying.value
+            _isVideoPlaying.value = nextPlaying
+            _isPlaying.value = nextPlaying
             onToggleVideoPlayPause?.invoke()
             return
         }
@@ -473,8 +477,9 @@ class MediaPlayerManager(
 
     fun pause() {
         if (_currentMediaItem.value?.isVideo == true) {
-            onPauseVideo?.invoke()
+            _isVideoPlaying.value = false
             _isPlaying.value = false
+            onPauseVideo?.invoke()
             return
         }
         val p = _player ?: return

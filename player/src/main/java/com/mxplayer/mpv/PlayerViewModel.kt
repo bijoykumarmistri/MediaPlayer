@@ -90,7 +90,12 @@ class PlayerViewModel : ViewModel() {
     private var hasTriggeredEofForCurrentMedia = false
 
     var onPositionUpdate: ((posMs: Long, durMs: Long) -> Unit)? = null
+    var onProgressUpdate: ((posMs: Long, durMs: Long) -> Unit)? = null
+    var onIsPlayingChanged: ((Boolean) -> Unit)? = null
     var onEndOfFileReached: (() -> Unit)? = null
+
+    var currentLoadedUri: Uri? = null
+        private set
 
     private val engineListener = object : MpvEngineListener {
         override fun onPositionChanged(seconds: Double) {
@@ -109,6 +114,7 @@ class PlayerViewModel : ViewModel() {
             val posMs = (seconds * 1000.0).roundToLong()
             val durMs = (_uiState.value.durationSeconds * 1000.0).roundToLong()
             if (durMs > 0 && posMs >= 0) {
+                onProgressUpdate?.invoke(posMs, durMs)
                 val now = SystemClock.elapsedRealtime()
                 if (now - lastPositionPersistMs >= 2000L) {
                     lastPositionPersistMs = now
@@ -118,11 +124,18 @@ class PlayerViewModel : ViewModel() {
         }
 
         override fun onDurationChanged(seconds: Double) {
-            _uiState.update { it.copy(durationSeconds = seconds.coerceAtLeast(0.0)) }
+            val dur = seconds.coerceAtLeast(0.0)
+            _uiState.update { it.copy(durationSeconds = dur) }
+            val posMs = (_uiState.value.positionSeconds * 1000.0).roundToLong()
+            val durMs = (dur * 1000.0).roundToLong()
+            if (durMs > 0) {
+                onProgressUpdate?.invoke(posMs, durMs)
+            }
         }
 
         override fun onPausedChanged(paused: Boolean) {
             _uiState.update { it.copy(isPlaying = !paused) }
+            onIsPlayingChanged?.invoke(!paused)
         }
 
         override fun onBufferingChanged(buffering: Boolean) {
@@ -168,6 +181,7 @@ class PlayerViewModel : ViewModel() {
                     errorMessage = null
                 )
             }
+            onIsPlayingChanged?.invoke(true)
             refreshTracks()
             refreshMediaInfo()
         }
@@ -183,6 +197,7 @@ class PlayerViewModel : ViewModel() {
             ) {
                 hasTriggeredEofForCurrentMedia = true
                 _uiState.update { it.copy(isPlaying = false, isBuffering = false) }
+                onIsPlayingChanged?.invoke(false)
                 onEndOfFileReached?.invoke()
             }
         }
@@ -196,6 +211,10 @@ class PlayerViewModel : ViewModel() {
     private var openDocumentJob: Job? = null
 
     fun openDocument(context: Context, uri: Uri, titleHint: String? = null, startPositionMs: Long = 0L) {
+        if (currentLoadedUri == uri && _uiState.value.hasMediaLoaded) {
+            return
+        }
+        currentLoadedUri = uri
         openDocumentJob?.cancel()
         hasTriggeredEofForCurrentMedia = false
         val displayName = titleHint?.ifBlank { null } ?: resolveDisplayName(context, uri)
@@ -217,16 +236,20 @@ class PlayerViewModel : ViewModel() {
     fun togglePlayPause() {
         val nextPlaying = !_uiState.value.isPlaying
         _uiState.update { it.copy(isPlaying = nextPlaying) }
+        onIsPlayingChanged?.invoke(nextPlaying)
         engine.setPaused(!nextPlaying)
     }
 
     fun pausePlayback() {
         _uiState.update { it.copy(isPlaying = false) }
+        onIsPlayingChanged?.invoke(false)
         engine.setPaused(true)
     }
 
     fun stopPlayback() {
+        currentLoadedUri = null
         _uiState.update { it.copy(isPlaying = false, hasMediaLoaded = false) }
+        onIsPlayingChanged?.invoke(false)
         engine.stop()
     }
 

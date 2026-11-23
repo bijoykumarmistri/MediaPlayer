@@ -27,13 +27,13 @@ fun VideoPlayerView(
     modifier: Modifier = Modifier,
     isInPipMode: Boolean = false,
     settingsManager: AppSettingsManager? = null,
+    videoViewModel: PlayerViewModel = viewModel(),
 ) {
     val context = LocalContext.current
     val currentSettings = remember(context, settingsManager) { settingsManager ?: AppSettingsManager(context) }
     val currentItem by playerManager.currentMediaItem.collectAsState()
     val playlist by playerManager.playlist.collectAsState()
     val currentIndex by playerManager.currentIndex.collectAsState()
-    val videoViewModel: PlayerViewModel = viewModel()
     val uiState by videoViewModel.uiState.collectAsState()
 
     // Sync libmpv playback status and video dimensions to MediaPlayerManager for PiP

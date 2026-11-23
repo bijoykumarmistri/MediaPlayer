@@ -102,6 +102,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -162,6 +163,8 @@ import com.mediaplayer.vault.VaultSecurityManager
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.mxplayer.mpv.PlayerViewModel
 import kotlinx.coroutines.withContext
 
 @Composable
@@ -178,6 +181,29 @@ fun MainMediaPlayerScreen(
     val activity = context as? Activity
     val inPip = isInPipMode || (activity?.isInPictureInPictureMode == true)
     val scope = rememberCoroutineScope()
+
+    val videoViewModel: PlayerViewModel = viewModel()
+
+    // Keep playerManager and videoViewModel synchronized across all screens & bottom mini player
+    DisposableEffect(videoViewModel) {
+        videoViewModel.onIsPlayingChanged = { playing ->
+            playerManager.setVideoPlaying(playing)
+        }
+        videoViewModel.onProgressUpdate = { posMs, durMs ->
+            playerManager.updateVideoPosition(posMs, durMs)
+        }
+        playerManager.onToggleVideoPlayPause = { videoViewModel.togglePlayPause() }
+        playerManager.onPauseVideo = { videoViewModel.pausePlayback() }
+        playerManager.onStopVideo = {
+            videoViewModel.stopPlayback()
+            playerManager.clearVideoCallbacks()
+            playerManager.setVideoPlaying(false)
+        }
+        playerManager.onSeekVideoRelative = { deltaSec -> videoViewModel.seekRelative(deltaSec) }
+        onDispose {
+            playerManager.clearVideoCallbacks()
+        }
+    }
 
     val currentItem by playerManager.currentMediaItem.collectAsState()
     val isExpanded by playerManager.isPlayerExpanded.collectAsState()
@@ -1710,6 +1736,7 @@ fun MainMediaPlayerScreen(
                     if (currentItem?.isVideo == true) {
                         VideoPlayerView(
                             playerManager = playerManager,
+                            videoViewModel = videoViewModel,
                             onBack = {
                                 playerManager.setPlayerExpanded(false)
                             },

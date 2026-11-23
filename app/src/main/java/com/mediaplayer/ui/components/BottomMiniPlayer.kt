@@ -1,8 +1,13 @@
 package com.mediaplayer.ui.components
 
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.layout.Box
@@ -57,11 +62,13 @@ fun BottomMiniPlayer(
 ) {
     val context = LocalContext.current
     val currentItem by playerManager.currentMediaItem.collectAsState()
-    val isPlaying by playerManager.isPlaying.collectAsState()
+    val isPlayingState by playerManager.isPlaying.collectAsState()
+    val isVideoPlayingState by playerManager.isVideoPlaying.collectAsState()
 
     if (currentItem == null) return
     val item = currentItem!!
     val isVideo = item.isVideo
+    val isPlaying = if (isVideo) isVideoPlayingState else isPlayingState
 
     val accentColor = if (isVideo) AudiophileGold else AudiophileCyan
 
@@ -227,12 +234,21 @@ fun BottomMiniPlayer(
                         .clip(CircleShape)
                         .background(accentColor)
                 ) {
-                    Icon(
-                        imageVector = if (isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
-                        contentDescription = if (isPlaying) "Pause" else "Play",
-                        tint = Color.Black,
-                        modifier = Modifier.size(22.dp)
-                    )
+                    AnimatedContent(
+                        targetState = isPlaying,
+                        transitionSpec = {
+                            (fadeIn(animationSpec = tween(140)) + scaleIn(initialScale = 0.7f, animationSpec = tween(140)))
+                                .togetherWith(fadeOut(animationSpec = tween(140)) + scaleOut(targetScale = 0.7f, animationSpec = tween(140)))
+                        },
+                        label = "miniPlayerPlayPauseAnimation"
+                    ) { playing ->
+                        Icon(
+                            imageVector = if (playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
+                            contentDescription = if (playing) "Pause" else "Play",
+                            tint = Color.Black,
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
                 }
 
                 // Next

@@ -424,10 +424,9 @@ fun VideoPlayerScreen(
         }
     }
 
-    // Restore portrait orientation and pause video engine on leaving player screen
+    // Restore portrait orientation on leaving player screen
     DisposableEffect(Unit) {
         onDispose {
-            viewModel.pausePlayback()
             activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_USER_PORTRAIT
         }
     }
