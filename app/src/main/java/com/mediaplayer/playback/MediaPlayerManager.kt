@@ -6,13 +6,19 @@ import android.content.Intent
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.os.PowerManager
+import android.os.SystemClock
 import androidx.core.net.toUri
 import androidx.media3.common.C
+import androidx.media3.common.ForwardingSimpleBasePlayer
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
+import androidx.media3.common.SimpleBasePlayer
 import androidx.media3.common.Tracks
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.session.MediaSession
+import com.google.common.util.concurrent.Futures
+import com.google.common.util.concurrent.ListenableFuture
 import com.mediaplayer.MainActivity
 import com.mediaplayer.data.MediaItemModel
 import com.mediaplayer.player.UniversalMediaPlaybackService
@@ -134,6 +140,155 @@ class MediaPlayerManager(
         _decoderMode.value = mode
     }
 
+    private var forwardingPlayer: UniversalForwardingPlayer? = null
+    private var wakeLock: PowerManager.WakeLock? = null
+
+    private fun acquireWakeLock() {
+        try {
+            if (wakeLock == null) {
+                val pm = appContext.getSystemService(Context.POWER_SERVICE) as? PowerManager
+                wakeLock = pm?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "MediaPlayer:VideoPlaybackWakeLock")?.apply {
+                    setReferenceCounted(false)
+                }
+            }
+            wakeLock?.acquire(30 * 60 * 1000L)
+        } catch (_: Exception) {}
+    }
+
+    private fun releaseWakeLock() {
+        try {
+            if (wakeLock?.isHeld == true) {
+                wakeLock?.release()
+            }
+        } catch (_: Exception) {}
+    }
+
+    inner class UniversalForwardingPlayer(player: Player) : ForwardingSimpleBasePlayer(player) {
+        fun notifyStateChanged() {
+            if (Looper.myLooper() == Looper.getMainLooper()) {
+                invalidateState()
+            } else {
+                Handler(Looper.getMainLooper()).post { invalidateState() }
+            }
+        }
+
+        override fun getState(): State {
+            val currentItem = _currentMediaItem.value
+            if (currentItem != null && currentItem.isVideo) {
+                val isPlaying = _isVideoPlaying.value
+                val durationMs = if (_durationMs.value > 0) _durationMs.value else (if (currentItem.durationMs > 0) currentItem.durationMs else C.TIME_UNSET)
+                val durationUs = if (durationMs > 0) durationMs * 1000L else C.TIME_UNSET
+                val posMs = _currentPositionMs.value
+                val media3Item = currentItem.toMedia3Item()
+
+                val videoCommands = Player.Commands.Builder()
+                    .addAll(
+                        Player.COMMAND_PLAY_PAUSE,
+                        Player.COMMAND_PREPARE,
+                        Player.COMMAND_STOP,
+                        Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM,
+                        Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM,
+                        Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM,
+                        Player.COMMAND_SEEK_TO_NEXT,
+                        Player.COMMAND_SEEK_TO_PREVIOUS,
+                        Player.COMMAND_SEEK_BACK,
+                        Player.COMMAND_SEEK_FORWARD,
+                        Player.COMMAND_GET_CURRENT_MEDIA_ITEM,
+                        Player.COMMAND_GET_TIMELINE,
+                        Player.COMMAND_GET_METADATA,
+                        Player.COMMAND_GET_TRACKS
+                    )
+                    .build()
+
+                val mediaItemData = SimpleBasePlayer.MediaItemData.Builder(currentItem.id)
+                    .setMediaItem(media3Item)
+                    .setTracks(Tracks.EMPTY)
+                    .setDurationUs(durationUs)
+                    .build()
+
+                return State.Builder()
+                    .setAvailableCommands(videoCommands)
+                    .setPlayWhenReady(isPlaying, Player.PLAY_WHEN_READY_CHANGE_REASON_USER_REQUEST)
+                    .setPlaybackState(if (isPlaying) Player.STATE_READY else Player.STATE_READY)
+                    .setPlaylist(listOf(mediaItemData))
+                    .setCurrentMediaItemIndex(0)
+                    .setContentPositionMs(posMs)
+                    .setPlaylistMetadata(media3Item.mediaMetadata)
+                    .setIsLoading(false)
+                    .setSeekBackIncrementMs(10000L)
+                    .setSeekForwardIncrementMs(10000L)
+                    .build()
+            }
+            return super.getState()
+        }
+
+        override fun handleSetPlayWhenReady(playWhenReady: Boolean): ListenableFuture<*> {
+            if (_currentMediaItem.value?.isVideo == true) {
+                if (playWhenReady != _isVideoPlaying.value) {
+                    _isVideoPlaying.value = playWhenReady
+                    _isPlaying.value = playWhenReady
+                    if (playWhenReady) {
+                        acquireWakeLock()
+                    } else {
+                        releaseWakeLock()
+                    }
+                    onToggleVideoPlayPause?.invoke()
+                }
+                invalidateState()
+                return Futures.immediateVoidFuture()
+            }
+            return super.handleSetPlayWhenReady(playWhenReady)
+        }
+
+        override fun handlePrepare(): ListenableFuture<*> {
+            if (_currentMediaItem.value?.isVideo == true) {
+                return Futures.immediateVoidFuture()
+            }
+            return super.handlePrepare()
+        }
+
+        override fun handleStop(): ListenableFuture<*> {
+            if (_currentMediaItem.value?.isVideo == true) {
+                stopVideo()
+                return Futures.immediateVoidFuture()
+            }
+            return super.handleStop()
+        }
+
+        override fun handleSeek(
+            mediaItemIndex: Int,
+            positionMs: Long,
+            @Player.Command seekCommand: Int
+        ): ListenableFuture<*> {
+            if (_currentMediaItem.value?.isVideo == true) {
+                when (seekCommand) {
+                    Player.COMMAND_SEEK_TO_NEXT,
+                    Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM -> {
+                        playNextVideo()
+                    }
+                    Player.COMMAND_SEEK_TO_PREVIOUS,
+                    Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM -> {
+                        playPreviousVideo()
+                    }
+                    Player.COMMAND_SEEK_BACK -> {
+                        onSeekVideoRelative?.invoke(-10.0)
+                    }
+                    Player.COMMAND_SEEK_FORWARD -> {
+                        onSeekVideoRelative?.invoke(10.0)
+                    }
+                    Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM -> {
+                        if (positionMs >= 0) {
+                            onSeekVideoAbsolute?.invoke(positionMs)
+                        }
+                    }
+                }
+                invalidateState()
+                return Futures.immediateVoidFuture()
+            }
+            return super.handleSeek(mediaItemIndex, positionMs, seekCommand)
+        }
+    }
+
     fun ensureInitialized() {
         if (_player != null && _mediaSession != null) return
         synchronized(this) {
@@ -149,6 +304,9 @@ class MediaPlayerManager(
 
         val exo = UniversalMediaPlaybackService.createExoPlayer(appContext)
         _player = exo
+
+        val universalPlayer = UniversalForwardingPlayer(exo)
+        forwardingPlayer = universalPlayer
 
         val sessionActivityIntent = Intent(appContext, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
@@ -180,7 +338,7 @@ class MediaPlayerManager(
                             android.view.KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE,
                             android.view.KeyEvent.KEYCODE_HEADSETHOOK
                             -> {
-                                onToggleVideoPlayPause?.invoke()
+                                playPause()
                                 return true
                             }
                             android.view.KeyEvent.KEYCODE_MEDIA_NEXT -> {
@@ -199,7 +357,7 @@ class MediaPlayerManager(
             }
         }
 
-        _mediaSession = MediaSession.Builder(appContext, exo)
+        _mediaSession = MediaSession.Builder(appContext, universalPlayer)
             .setSessionActivity(sessionActivityPendingIntent)
             .setCallback(sessionCallback)
             .build()
@@ -309,16 +467,19 @@ class MediaPlayerManager(
             player.clearMediaItems()
             _isVideoPlaying.value = true
             _isPlaying.value = true
+            acquireWakeLock()
 
             // Keep background audio playback service running for background video playback
             try {
                 val serviceIntent = Intent(appContext, UniversalMediaPlaybackService::class.java)
                 appContext.startService(serviceIntent)
             } catch (_: Exception) {}
+            forwardingPlayer?.notifyStateChanged()
             return
         }
 
         // Stop video playback completely to eliminate any audio overlapping
+        releaseWakeLock()
         onStopVideo?.invoke() ?: onPauseVideo?.invoke()
         _isVideoPlaying.value = false
         _videoDimensions.value = null
@@ -354,6 +515,7 @@ class MediaPlayerManager(
         player.setMediaItems(mediaItems, index, resumePos)
         player.prepare()
         player.play()
+        forwardingPlayer?.notifyStateChanged()
     }
 
     fun restoreLastPlayedMedia(allMedia: List<MediaItemModel>) {
@@ -391,6 +553,7 @@ class MediaPlayerManager(
     var onPauseVideo: (() -> Unit)? = null
     var onStopVideo: (() -> Unit)? = null
     var onSeekVideoRelative: ((deltaSeconds: Double) -> Unit)? = null
+    var onSeekVideoAbsolute: ((positionMs: Long) -> Unit)? = null
 
     private val _isVideoPlaying = MutableStateFlow(false)
     val isVideoPlaying: StateFlow<Boolean> = _isVideoPlaying.asStateFlow()
@@ -398,11 +561,19 @@ class MediaPlayerManager(
     private val _videoDimensions = MutableStateFlow<Pair<Int, Int>?>(null)
     val videoDimensions: StateFlow<Pair<Int, Int>?> = _videoDimensions.asStateFlow()
 
+    private var lastNotificationPositionUpdateMs = 0L
+
     fun setVideoPlaying(playing: Boolean) {
         _isVideoPlaying.value = playing
         if (_currentMediaItem.value?.isVideo == true) {
             _isPlaying.value = playing
+            if (playing) {
+                acquireWakeLock()
+            } else {
+                releaseWakeLock()
+            }
         }
+        forwardingPlayer?.notifyStateChanged()
     }
 
     fun updateVideoPosition(positionMs: Long, durationMs: Long) {
@@ -410,6 +581,11 @@ class MediaPlayerManager(
             _currentPositionMs.value = positionMs
             if (durationMs > 0) {
                 _durationMs.value = durationMs
+            }
+            val now = SystemClock.elapsedRealtime()
+            if (now - lastNotificationPositionUpdateMs >= 1000L) {
+                lastNotificationPositionUpdateMs = now
+                forwardingPlayer?.notifyStateChanged()
             }
         }
     }
@@ -423,10 +599,12 @@ class MediaPlayerManager(
         onPauseVideo = null
         onStopVideo = null
         onSeekVideoRelative = null
+        onSeekVideoAbsolute = null
     }
 
     fun stopVideo() {
         if (_currentMediaItem.value?.isVideo == true) {
+            releaseWakeLock()
             onStopVideo?.invoke() ?: onPauseVideo?.invoke()
             clearVideoCallbacks()
             _currentMediaItem.value = null
@@ -434,6 +612,7 @@ class MediaPlayerManager(
             _isVideoPlaying.value = false
             _videoDimensions.value = null
             _isPlayerExpanded.value = false
+            forwardingPlayer?.notifyStateChanged()
         }
     }
 
@@ -442,44 +621,69 @@ class MediaPlayerManager(
             val nextPlaying = !_isVideoPlaying.value
             _isVideoPlaying.value = nextPlaying
             _isPlaying.value = nextPlaying
+            if (nextPlaying) {
+                acquireWakeLock()
+            } else {
+                releaseWakeLock()
+            }
             onToggleVideoPlayPause?.invoke()
+            forwardingPlayer?.notifyStateChanged()
             return
         }
         val p = player
         if (p.playWhenReady && p.playbackState != Player.STATE_ENDED) {
             pause()
         } else {
-            if (_isVideoPlaying.value) {
-                onStopVideo?.invoke() ?: onPauseVideo?.invoke()
-                _isVideoPlaying.value = false
-                _videoDimensions.value = null
-                clearVideoCallbacks()
-            }
-            try {
-                val serviceIntent = Intent(appContext, UniversalMediaPlaybackService::class.java)
-                appContext.startService(serviceIntent)
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
-            if (p.mediaItemCount == 0 && _currentMediaItem.value != null) {
-                val item = _currentMediaItem.value!!
-                val pos = _currentPositionMs.value
-                val media3Item = item.toMedia3Item()
-                p.setMediaItem(media3Item, pos)
-            }
-            if (p.playbackState == Player.STATE_IDLE || p.playbackState == Player.STATE_ENDED) {
-                p.prepare()
-            }
-            p.play()
-            _isPlaying.value = true
+            play()
         }
+    }
+
+    fun play() {
+        if (_currentMediaItem.value?.isVideo == true) {
+            if (!_isVideoPlaying.value) {
+                _isVideoPlaying.value = true
+                _isPlaying.value = true
+                acquireWakeLock()
+                onToggleVideoPlayPause?.invoke()
+                forwardingPlayer?.notifyStateChanged()
+            }
+            return
+        }
+        val p = player
+        if (_isVideoPlaying.value) {
+            releaseWakeLock()
+            onStopVideo?.invoke() ?: onPauseVideo?.invoke()
+            _isVideoPlaying.value = false
+            _videoDimensions.value = null
+            clearVideoCallbacks()
+        }
+        try {
+            val serviceIntent = Intent(appContext, UniversalMediaPlaybackService::class.java)
+            appContext.startService(serviceIntent)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        if (p.mediaItemCount == 0 && _currentMediaItem.value != null) {
+            val item = _currentMediaItem.value!!
+            val pos = _currentPositionMs.value
+            val media3Item = item.toMedia3Item()
+            p.setMediaItem(media3Item, pos)
+        }
+        if (p.playbackState == Player.STATE_IDLE || p.playbackState == Player.STATE_ENDED) {
+            p.prepare()
+        }
+        p.play()
+        _isPlaying.value = true
+        forwardingPlayer?.notifyStateChanged()
     }
 
     fun pause() {
         if (_currentMediaItem.value?.isVideo == true) {
             _isVideoPlaying.value = false
             _isPlaying.value = false
+            releaseWakeLock()
             onPauseVideo?.invoke()
+            forwardingPlayer?.notifyStateChanged()
             return
         }
         val p = _player ?: return
@@ -492,6 +696,7 @@ class MediaPlayerManager(
         }
         p.pause()
         _isPlaying.value = false
+        forwardingPlayer?.notifyStateChanged()
     }
 
     fun stop() {
@@ -504,12 +709,18 @@ class MediaPlayerManager(
         _isPlaying.value = false
         _currentPositionMs.value = 0L
         clearVideoCallbacks()
+        forwardingPlayer?.notifyStateChanged()
     }
 
     @Suppress("UsePropertyAccessSyntax")
     fun seekTo(positionMs: Long) {
         val safePos = positionMs.coerceIn(0L, _durationMs.value.coerceAtLeast(0L))
         _currentPositionMs.value = safePos
+        if (_currentMediaItem.value?.isVideo == true) {
+            onSeekVideoAbsolute?.invoke(safePos)
+            forwardingPlayer?.notifyStateChanged()
+            return
+        }
         player.setSeekParameters(androidx.media3.exoplayer.SeekParameters.CLOSEST_SYNC)
         player.seekTo(safePos)
     }
@@ -737,6 +948,7 @@ class MediaPlayerManager(
     }
 
     fun release() {
+        releaseWakeLock()
         stopProgressPolling()
         clearVideoCallbacks()
         playerListener?.let {

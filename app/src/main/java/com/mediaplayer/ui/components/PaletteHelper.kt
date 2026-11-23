@@ -44,7 +44,7 @@ fun rememberDominantColors(uri: Uri?): DominantColors {
             return@LaunchedEffect
         }
 
-        withContext(Dispatchers.IO) {
+        val extracted = withContext(Dispatchers.IO) {
             try {
                 val loader = context.imageLoader
                 val request = ImageRequest.Builder(context)
@@ -66,18 +66,21 @@ fun rememberDominantColors(uri: Uri?): DominantColors {
                         val accentColor = vibrantRgb?.let { Color(it) } ?: Color(0xFF00E5FF)
                         val darkBgColor = darkRgb?.let { Color(it) } ?: Color(0xFF0A0B0E)
 
-                        val extracted = DominantColors(
+                        val colors = DominantColors(
                             dominant = dominantColor,
                             accent = accentColor,
                             darkBackground = darkBgColor,
                         )
-                        dominantColorsCache.put(uri, extracted)
-                        dominantColors = extracted
-                    }
-                }
+                        dominantColorsCache.put(uri, colors)
+                        colors
+                    } else null
+                } else null
             } catch (_: Exception) {
-                // fallback to default
+                null
             }
+        }
+        if (extracted != null) {
+            dominantColors = extracted
         }
     }
 

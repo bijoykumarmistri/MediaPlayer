@@ -66,6 +66,7 @@ fun VideoPlayerView(
             playerManager.setVideoPlaying(false)
         }
         playerManager.onSeekVideoRelative = { deltaSec -> videoViewModel.seekRelative(deltaSec) }
+        playerManager.onSeekVideoAbsolute = { posMs -> videoViewModel.seekTo(posMs / 1000.0) }
         onDispose {
             // Allow video audio to continue playing in background when collapsed to floating mini player
         }
@@ -111,6 +112,7 @@ fun VideoPlayerView(
         swipeGesturesEnabled = currentSettings.swipeGesturesEnabled,
         fastScrubEnabled = currentSettings.fastScrubEnabled,
         hold2xSpeedEnabled = currentSettings.hold2xSpeedEnabled,
+        backgroundPlaybackEnabled = currentSettings.backgroundPlayback,
         defaultDecoderMode = currentSettings.defaultDecoderMode,
         defaultResizeMode = currentSettings.defaultResizeMode,
         subtitleSize = currentSettings.subtitleSize,

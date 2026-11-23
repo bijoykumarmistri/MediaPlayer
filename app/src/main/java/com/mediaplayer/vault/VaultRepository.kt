@@ -16,9 +16,10 @@ import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.util.UUID
 
-class VaultRepository(private val context: Context) {
+class VaultRepository(context: Context) {
 
     private val tag = "VaultRepository"
+    private val context: Context = context.applicationContext
 
     val vaultDir: File
         get() {

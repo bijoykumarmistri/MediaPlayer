@@ -74,9 +74,10 @@ class UniversalMediaPlaybackService : MediaSessionService() {
         val currentItem = app?.playerManager?.currentMediaItem?.value
         val isVideo = currentItem?.isVideo == true
         val player = mediaSession?.player
+        val backgroundPlayback = app?.let { com.mediaplayer.util.AppSettingsManager(it).backgroundPlayback } ?: true
 
-        if (isVideo) {
-            // Video playback stops when the app is removed from the minimization/recents window
+        if (isVideo && !backgroundPlayback) {
+            // Video playback stops when the app is removed from the recents window if background playback disabled
             player?.pause()
             player?.stop()
             try {
@@ -84,7 +85,7 @@ class UniversalMediaPlaybackService : MediaSessionService() {
             } catch (_: Exception) {}
             stopSelf()
         } else {
-            // Audio/music playback continues running seamlessly in background
+            // Audio/music playback and background video continue running seamlessly in background
             if ((player == null) || (!player.playWhenReady) || (player.playbackState == Player.STATE_ENDED) || (player.mediaItemCount == 0)) {
                 stopSelf()
             }

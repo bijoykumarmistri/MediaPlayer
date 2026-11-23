@@ -200,6 +200,7 @@ fun MainMediaPlayerScreen(
             playerManager.setVideoPlaying(false)
         }
         playerManager.onSeekVideoRelative = { deltaSec -> videoViewModel.seekRelative(deltaSec) }
+        playerManager.onSeekVideoAbsolute = { posMs -> videoViewModel.seekTo(posMs / 1000.0) }
         onDispose {
             playerManager.clearVideoCallbacks()
         }
@@ -231,7 +232,6 @@ fun MainMediaPlayerScreen(
     val settingsManager = remember { AppSettingsManager(context) }
     var showVideoSettingsDialog by remember { mutableStateOf(false) }
     var settingsVersion by remember { mutableIntStateOf(0) }
-    val highRefreshRateManager = remember(activity) { activity?.let { HighRefreshRateManager(it) } }
 
     var appReleaseInfo by remember { mutableStateOf<AppReleaseInfo?>(null) }
     var showAutoUpdateDialog by remember { mutableStateOf(false) }
@@ -511,15 +511,19 @@ fun MainMediaPlayerScreen(
             val newAudios = repository.getAudioList()
             val newVideos = repository.getVideoList()
             var changed = false
-            if (newAudios.size != audioList.size || (newAudios.isNotEmpty() && newAudios.first().id != audioList.first().id)) {
-                audioList = newAudios
-                repository.saveCachedAudios(newAudios)
-                changed = true
+            withContext(Dispatchers.Main) {
+                if (newAudios.size != audioList.size || (newAudios.isNotEmpty() && newAudios.first().id != audioList.first().id)) {
+                    audioList = newAudios
+                    changed = true
+                }
+                if (newVideos.size != videoList.size || (newVideos.isNotEmpty() && newVideos.first().id != videoList.first().id)) {
+                    videoList = newVideos
+                    changed = true
+                }
             }
-            if (newVideos.size != videoList.size || (newVideos.isNotEmpty() && newVideos.first().id != videoList.first().id)) {
-                videoList = newVideos
+            if (changed) {
+                repository.saveCachedAudios(newAudios)
                 repository.saveCachedVideos(newVideos)
-                changed = true
             }
             if (changed || playerManager.currentMediaItem.value == null) {
                 playerManager.restoreLastPlayedMedia(newVideos + newAudios)
@@ -528,6 +532,14 @@ fun MainMediaPlayerScreen(
     }
 
     LaunchedEffect(Unit) {
+        // Preload memory cache asynchronously off main thread if cold start
+        if (videoList.isEmpty() || audioList.isEmpty()) {
+            withContext(Dispatchers.IO) {
+                repository.preloadCache()
+            }
+            videoList = repository.getCachedVideosFast()
+            audioList = repository.getCachedAudiosFast()
+        }
         // Immediately restore last played media in paused state from persistent cache without re-querying
         if (playerManager.currentMediaItem.value == null) {
             playerManager.restoreLastPlayedMedia(videoList + audioList)
@@ -1763,7 +1775,7 @@ fun MainMediaPlayerScreen(
                         onSettingsChanged = {
                             settingsVersion++
                             if (settingsManager.highRefreshRateEnabled) {
-                                highRefreshRateManager?.applyOptimalRefreshRate()
+                                activity?.let { HighRefreshRateManager(it).applyOptimalRefreshRate() }
                             }
                         }
                     )

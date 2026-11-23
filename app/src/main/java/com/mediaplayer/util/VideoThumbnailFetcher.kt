@@ -150,8 +150,11 @@ class VideoThumbnailFetcher(
                 retriever.setDataSource(context, uri)
                 bitmap = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
                     retriever.getScaledFrameAtTime(0L, MediaMetadataRetriever.OPTION_PREVIOUS_SYNC, targetW, targetH)
+                        ?: retriever.getScaledFrameAtTime(-1L, MediaMetadataRetriever.OPTION_CLOSEST_SYNC, targetW, targetH)
+                        ?: retriever.getFrameAtTime(-1L)
                 } else {
                     retriever.getFrameAtTime(0L, MediaMetadataRetriever.OPTION_PREVIOUS_SYNC)
+                        ?: retriever.getFrameAtTime(-1L)
                 }
             } catch (_: Throwable) {
                 // Negative cache handles missing/unreadable videos
@@ -187,9 +190,8 @@ class VideoThumbnailFetcher(
                 data.path?.let { p ->
                     p.endsWith(".mp4", ignoreCase = true) || p.endsWith(".mkv", ignoreCase = true) || p.endsWith(".webm", ignoreCase = true) ||
                     p.endsWith(".avi", ignoreCase = true) || p.endsWith(".mov", ignoreCase = true) || p.endsWith(".ts", ignoreCase = true) ||
-                    p.endsWith(".m4v", ignoreCase = true)
-                } == true ||
-                (data.scheme == "content" && runCatching { context.contentResolver.getType(data)?.startsWith("video") }.getOrNull() == true)
+                    p.endsWith(".m4v", ignoreCase = true) || p.endsWith(".3gp", ignoreCase = true) || p.endsWith(".flv", ignoreCase = true)
+                } == true
 
             if (!isVideo) return null
             return VideoThumbnailFetcher(context, data, options)

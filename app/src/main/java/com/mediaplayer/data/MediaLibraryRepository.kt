@@ -15,12 +15,13 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 
-class MediaLibraryRepository(private val context: Context) {
+class MediaLibraryRepository(context: Context) {
 
     private val tag = "MediaLibraryRepository"
+    private val context: Context = context.applicationContext
 
-    private val videosCacheFile = File(context.filesDir, "cached_videos.json")
-    private val audioCacheFile = File(context.filesDir, "cached_audio.json")
+    private val videosCacheFile = File(this.context.filesDir, "cached_videos.json")
+    private val audioCacheFile = File(this.context.filesDir, "cached_audio.json")
 
     @Volatile
     private var inMemoryVideos: List<MediaItemModel>? = null
@@ -30,19 +31,21 @@ class MediaLibraryRepository(private val context: Context) {
 
     fun preloadCache() {
         if (inMemoryVideos == null) {
-            inMemoryVideos = readCacheFromFile(videosCacheFile)
+            val vids = readCacheFromFile(videosCacheFile)
+            if (inMemoryVideos == null) inMemoryVideos = vids
         }
         if (inMemoryAudios == null) {
-            inMemoryAudios = readCacheFromFile(audioCacheFile)
+            val auds = readCacheFromFile(audioCacheFile)
+            if (inMemoryAudios == null) inMemoryAudios = auds
         }
     }
 
     fun getCachedVideosFast(): List<MediaItemModel> {
-        return inMemoryVideos ?: getCachedVideos()
+        return inMemoryVideos ?: emptyList()
     }
 
     fun getCachedAudiosFast(): List<MediaItemModel> {
-        return inMemoryAudios ?: getCachedAudios()
+        return inMemoryAudios ?: emptyList()
     }
 
     fun getCachedVideos(): List<MediaItemModel> {
@@ -473,8 +476,8 @@ class MediaLibraryRepository(private val context: Context) {
     }
 
     suspend fun importSafSingleFile(uri: Uri): MediaItemModel? = withContext(Dispatchers.IO) {
+        val retriever = MediaMetadataRetriever()
         try {
-            val retriever = MediaMetadataRetriever()
             retriever.setDataSource(context, uri)
 
             val isVideo = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_HAS_VIDEO) != null
@@ -492,8 +495,6 @@ class MediaLibraryRepository(private val context: Context) {
             val height = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)?.toIntOrNull() ?: 0
             val resolution = if (isVideo) formatVideoResolution(width, height) else ""
 
-            retriever.release()
-
             MediaItemModel(
                 id = System.currentTimeMillis(),
                 uri = uri,
@@ -510,6 +511,10 @@ class MediaLibraryRepository(private val context: Context) {
         } catch (e: Exception) {
             Log.e(tag, "Error importing SAF document", e)
             null
+        } finally {
+            try {
+                retriever.release()
+            } catch (_: Throwable) {}
         }
     }
 

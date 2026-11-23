@@ -300,8 +300,9 @@ class MainActivity : ComponentActivity() {
 
     override fun onStop() {
         super.onStop()
-        // Only pause video playback if not in PiP mode; allow audio/music playback to continue seamlessly in the background
-        if (!isInPictureInPictureMode && playerManager.currentMediaItem.value?.isVideo == true) {
+        val backgroundPlayback = com.mediaplayer.util.AppSettingsManager(this).backgroundPlayback
+        // Only pause video playback if background playback is disabled and not in PiP mode
+        if (!backgroundPlayback && !isInPictureInPictureMode && playerManager.currentMediaItem.value?.isVideo == true) {
             playerManager.pause()
         }
     }
@@ -311,7 +312,8 @@ class MainActivity : ComponentActivity() {
         try {
             unregisterReceiver(pipReceiver)
         } catch (_: Exception) {}
-        if (isFinishing && playerManager.currentMediaItem.value?.isVideo == true) {
+        val backgroundPlayback = com.mediaplayer.util.AppSettingsManager(this).backgroundPlayback
+        if (!backgroundPlayback && isFinishing && playerManager.currentMediaItem.value?.isVideo == true) {
             playerManager.pause()
         }
         super.onDestroy()

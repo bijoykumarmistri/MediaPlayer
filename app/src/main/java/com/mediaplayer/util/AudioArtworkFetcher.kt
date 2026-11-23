@@ -203,13 +203,16 @@ class AudioArtworkFetcher(
         override fun create(data: Uri, options: Options, imageLoader: ImageLoader): Fetcher? {
             val uriStr = data.toString()
             val isAudio = uriStr.contains("audio", ignoreCase = true) ||
+                uriStr.endsWith(".mp3", ignoreCase = true) || uriStr.endsWith(".flac", ignoreCase = true) ||
+                uriStr.endsWith(".m4a", ignoreCase = true) || uriStr.endsWith(".wav", ignoreCase = true) ||
+                uriStr.endsWith(".ogg", ignoreCase = true) || uriStr.endsWith(".opus", ignoreCase = true) ||
+                uriStr.endsWith(".aac", ignoreCase = true) ||
                 data.path?.let { p ->
                     p.endsWith(".mp3", ignoreCase = true) || p.endsWith(".flac", ignoreCase = true) || p.endsWith(".m4a", ignoreCase = true) ||
                     p.endsWith(".wav", ignoreCase = true) || p.endsWith(".ogg", ignoreCase = true) || p.endsWith(".opus", ignoreCase = true) ||
                     p.endsWith(".aac", ignoreCase = true) || p.endsWith(".dsd", ignoreCase = true) || p.endsWith(".dff", ignoreCase = true) ||
                     p.endsWith(".dsf", ignoreCase = true)
-                } == true ||
-                (data.scheme == "content" && runCatching { context.contentResolver.getType(data)?.startsWith("audio") }.getOrNull() == true)
+                } == true
 
             if (!isAudio) return null
             return AudioArtworkFetcher(context, data, options)

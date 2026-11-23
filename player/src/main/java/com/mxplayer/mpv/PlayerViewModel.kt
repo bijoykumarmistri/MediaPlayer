@@ -66,7 +66,8 @@ data class PlayerUiState(
      */
     val scrubOverlayText: String
         get() {
-            val targetFormatted = formatTimestamp(scrubPreviewSeconds)
+            val showHours = durationSeconds >= 3600.0
+            val targetFormatted = formatTimestamp(scrubPreviewSeconds, forceHours = showHours)
             val sign = if (scrubDeltaSeconds >= 0.0) "+" else "-"
             val deltaFormatted = formatDelta(abs(scrubDeltaSeconds))
             return "$targetFormatted [$sign$deltaFormatted]"
@@ -88,6 +89,7 @@ class PlayerViewModel : ViewModel() {
     private var lastPositionPersistMs: Long = 0L
     private var bufferingDebounceJob: Job? = null
     private var hasTriggeredEofForCurrentMedia = false
+    private var isAudioDisabled = false
 
     var onPositionUpdate: ((posMs: Long, durMs: Long) -> Unit)? = null
     var onProgressUpdate: ((posMs: Long, durMs: Long) -> Unit)? = null
@@ -173,6 +175,7 @@ class PlayerViewModel : ViewModel() {
 
         override fun onFileLoaded() {
             hasTriggeredEofForCurrentMedia = false
+            isAudioDisabled = false
             _uiState.update {
                 it.copy(
                     hasMediaLoaded = true,
@@ -301,7 +304,7 @@ class PlayerViewModel : ViewModel() {
         val audios = allTracks.filter { it.type == "audio" }
         val subs = allTracks.filter { it.type == "sub" }
         val videos = allTracks.filter { it.type == "video" }
-        val selAudio = audios.firstOrNull { it.isSelected }?.id ?: audios.firstOrNull()?.id
+        val selAudio = if (isAudioDisabled) null else (audios.firstOrNull { it.isSelected }?.id ?: audios.firstOrNull()?.id)
         val selSub = subs.firstOrNull { it.isSelected }?.id
         val selVideo = videos.firstOrNull { it.isSelected }?.id ?: videos.firstOrNull()?.id
 
@@ -310,8 +313,8 @@ class PlayerViewModel : ViewModel() {
             selVideo?.let { engine.selectTrack("video", it) }
         }
 
-        // Auto-select audio track if not already active
-        if (audios.isNotEmpty() && allTracks.none { it.type == "audio" && it.isSelected }) {
+        // Auto-select audio track if not already active and audio is not explicitly muted
+        if (!isAudioDisabled && audios.isNotEmpty() && allTracks.none { it.type == "audio" && it.isSelected }) {
             selAudio?.let { engine.selectTrack("audio", it) }
         }
 
@@ -328,12 +331,14 @@ class PlayerViewModel : ViewModel() {
     }
 
     fun selectAudioTrack(id: Int) {
+        isAudioDisabled = false
         engine.selectTrack("audio", id)
         _uiState.update { it.copy(selectedAudioTrackId = id) }
         refreshTracks()
     }
 
     fun disableAudio() {
+        isAudioDisabled = true
         engine.disableTrack("audio")
         _uiState.update { it.copy(selectedAudioTrackId = null) }
         refreshTracks()
@@ -360,8 +365,9 @@ class PlayerViewModel : ViewModel() {
     }
 
     fun setPlaybackSpeed(speed: Double) {
-        engine.setPlaybackSpeed(speed)
-        _uiState.update { it.copy(playbackSpeed = speed) }
+        val rounded = (kotlin.math.round(speed * 100.0) / 100.0).coerceIn(0.25, 4.0)
+        engine.setPlaybackSpeed(rounded)
+        _uiState.update { it.copy(playbackSpeed = rounded) }
     }
 
     fun setResizeMode(mode: ResizeMode) {
@@ -630,12 +636,16 @@ class PlayerViewModel : ViewModel() {
     }
 }
 
-fun formatTimestamp(totalSeconds: Double): String {
+fun formatTimestamp(totalSeconds: Double, forceHours: Boolean = false): String {
     val safeSeconds = totalSeconds.coerceAtLeast(0.0).roundToLong()
     val hours = safeSeconds / 3600
     val minutes = (safeSeconds % 3600) / 60
     val seconds = safeSeconds % 60
-    return String.format(Locale.US, "%02d:%02d:%02d", hours, minutes, seconds)
+    return if (hours > 0 || forceHours) {
+        String.format(Locale.US, "%02d:%02d:%02d", hours, minutes, seconds)
+    } else {
+        String.format(Locale.US, "%02d:%02d", minutes, seconds)
+    }
 }
 
 fun formatDelta(absSeconds: Double): String {
