@@ -10,7 +10,7 @@ class AudioVideoMathTest {
 
     @Test
     fun testVolumeBoostTanhSoftSaturation() {
-        // At unity or below, gain is 1.0 (no distortion, 100% bit-perfect)
+        // At unity or below, gain is 1.0 (no distortion, unscaled unity gain)
         val unityGain = calculateGain(1.0f)
         assertEquals(1.0f, unityGain, 0.001f)
 

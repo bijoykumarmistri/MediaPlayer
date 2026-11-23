@@ -9,7 +9,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.mediaplayer.audio.UsbAudioStatus
 import com.mediaplayer.playback.MediaPlayerManager
 import com.mediaplayer.util.AppSettingsManager
 import com.mxplayer.mpv.PlayerViewModel
@@ -19,16 +18,15 @@ import com.mxplayer.mpv.VideoPlayerScreen as MpvVideoPlayerScreen
  * High-performance video player interface powered 100% by the C++ Core (libmpv HW+) native engine.
  * ExoPlayer video playback has been completely wiped out.
  */
+@androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 @Composable
 fun VideoPlayerView(
     playerManager: MediaPlayerManager,
-    telemetry: UsbAudioStatus,
     onBack: () -> Unit,
     onEnterPip: () -> Unit,
-    onOpenDacSettings: () -> Unit,
+    modifier: Modifier = Modifier,
     isInPipMode: Boolean = false,
     settingsManager: AppSettingsManager? = null,
-    modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
     val currentSettings = remember(context, settingsManager) { settingsManager ?: AppSettingsManager(context) }
@@ -44,27 +42,32 @@ fun VideoPlayerView(
     }
 
     LaunchedEffect(uiState.videoWidth, uiState.videoHeight) {
-        if (uiState.videoWidth > 0 && uiState.videoHeight > 0) {
+        if ((uiState.videoWidth > 0) && (uiState.videoHeight > 0)) {
             playerManager.setVideoDimensions(uiState.videoWidth, uiState.videoHeight)
         }
     }
 
-    // Ensure ExoPlayer is paused and cleared so video decoders and audio sinks are 100% dedicated to C++ Core
+    // Ensure ExoPlayer is stopped for video
     LaunchedEffect(Unit) {
-        playerManager.player.pause()
+        if (playerManager.isPlayerInitialized) {
+            playerManager.player.pause()
+            playerManager.player.stop()
+            playerManager.player.clearMediaItems()
+        }
     }
 
-    // Connect playerManager pause/play/seek controls to libmpv engine, and ensure video pauses on exit
+    // Connect playerManager pause/play/seek controls to libmpv engine, enabling background audio playback
     DisposableEffect(videoViewModel) {
         playerManager.onToggleVideoPlayPause = { videoViewModel.togglePlayPause() }
         playerManager.onPauseVideo = { videoViewModel.pausePlayback() }
+        playerManager.onStopVideo = {
+            videoViewModel.stopPlayback()
+            playerManager.clearVideoCallbacks()
+            playerManager.setVideoPlaying(false)
+        }
         playerManager.onSeekVideoRelative = { deltaSec -> videoViewModel.seekRelative(deltaSec) }
         onDispose {
-            videoViewModel.pausePlayback()
-            playerManager.onToggleVideoPlayPause = null
-            playerManager.onPauseVideo = null
-            playerManager.onSeekVideoRelative = null
-            playerManager.setVideoPlaying(false)
+            // Allow video audio to continue playing in background when collapsed to floating mini player
         }
     }
 
@@ -95,6 +98,7 @@ fun VideoPlayerView(
         onPrevious = { playerManager.playPreviousVideo() },
         onNext = { playerManager.playNextVideo() },
         onPositionUpdate = { posMs, durMs ->
+            playerManager.updateVideoPosition(posMs, durMs)
             currentItem?.id?.let { mediaId ->
                 playerManager.saveVideoPlaybackPosition(mediaId, posMs, durMs)
             }

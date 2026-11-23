@@ -193,8 +193,10 @@ class PlayerViewModel : ViewModel() {
     }
 
     val engine: NativeMpvEngine = NativeMpvEngine(engineListener)
+    private var openDocumentJob: Job? = null
 
     fun openDocument(context: Context, uri: Uri, titleHint: String? = null, startPositionMs: Long = 0L) {
+        openDocumentJob?.cancel()
         hasTriggeredEofForCurrentMedia = false
         val displayName = titleHint?.ifBlank { null } ?: resolveDisplayName(context, uri)
         _uiState.update {
@@ -207,7 +209,7 @@ class PlayerViewModel : ViewModel() {
                 isBuffering = true
             )
         }
-        viewModelScope.launch(Dispatchers.IO) {
+        openDocumentJob = viewModelScope.launch(Dispatchers.IO) {
             engine.openContentUri(context, uri, startPositionMs)
         }
     }
@@ -223,6 +225,11 @@ class PlayerViewModel : ViewModel() {
         engine.setPaused(true)
     }
 
+    fun stopPlayback() {
+        _uiState.update { it.copy(isPlaying = false, hasMediaLoaded = false) }
+        engine.stop()
+    }
+
     fun selectDecoderMode(mode: DecoderMode) {
         engine.setDecoderMode(mode)
         _uiState.update { it.copy(decoderMode = mode) }
@@ -231,6 +238,7 @@ class PlayerViewModel : ViewModel() {
     fun cycleDecoderMode() {
         selectDecoderMode(_uiState.value.decoderMode.next())
     }
+
 
     fun seekRelative(deltaSeconds: Double) {
         val current = _uiState.value
@@ -269,8 +277,20 @@ class PlayerViewModel : ViewModel() {
         val allTracks = engine.queryTracks()
         val audios = allTracks.filter { it.type == "audio" }
         val subs = allTracks.filter { it.type == "sub" }
-        val selAudio = audios.firstOrNull { it.isSelected }?.id
+        val videos = allTracks.filter { it.type == "video" }
+        val selAudio = audios.firstOrNull { it.isSelected }?.id ?: audios.firstOrNull()?.id
         val selSub = subs.firstOrNull { it.isSelected }?.id
+        val selVideo = videos.firstOrNull { it.isSelected }?.id ?: videos.firstOrNull()?.id
+
+        // Auto-select video track if not already active
+        if (videos.isNotEmpty() && allTracks.none { it.type == "video" && it.isSelected }) {
+            selVideo?.let { engine.selectTrack("video", it) }
+        }
+
+        // Auto-select audio track if not already active
+        if (audios.isNotEmpty() && allTracks.none { it.type == "audio" && it.isSelected }) {
+            selAudio?.let { engine.selectTrack("audio", it) }
+        }
 
         _uiState.update {
             it.copy(

@@ -11,6 +11,8 @@ import android.os.PowerManager
 import android.util.Log
 import android.view.Display
 
+import androidx.core.content.ContextCompat
+
 /**
  * Manages display refresh rate matching for high refresh rate screens (90Hz, 120Hz, 144Hz, etc.)
  * Dynamically adapts to system display configuration changes and battery saver states.
@@ -29,7 +31,7 @@ class HighRefreshRateManager(private val activity: Activity) {
         override fun onDisplayRemoved(displayId: Int) {}
         override fun onDisplayChanged(displayId: Int) {
             val currentDisplayId = getTargetDisplay()?.displayId ?: Display.DEFAULT_DISPLAY
-            if (displayId == currentDisplayId || displayId == Display.DEFAULT_DISPLAY) {
+            if ((displayId == currentDisplayId) || (displayId == Display.DEFAULT_DISPLAY)) {
                 applyOptimalRefreshRate()
             }
         }
@@ -50,13 +52,16 @@ class HighRefreshRateManager(private val activity: Activity) {
             try {
                 displayManager?.registerDisplayListener(displayListener, null)
                 val filter = IntentFilter(PowerManager.ACTION_POWER_SAVE_MODE_CHANGED)
-                activity.registerReceiver(powerSaveReceiver, filter)
+                ContextCompat.registerReceiver(activity, powerSaveReceiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
                 isListening = true
             } catch (e: Exception) {
                 Log.w(TAG, "Error registering refresh rate listeners: ${e.message}")
             }
         }
-        applyOptimalRefreshRate()
+        // Asynchronously post optimal refresh rate so window creation and cold start are not delayed
+        activity.window?.decorView?.post {
+            applyOptimalRefreshRate()
+        }
     }
 
     fun stop() {
@@ -82,7 +87,7 @@ class HighRefreshRateManager(private val activity: Activity) {
                     layoutParams.preferredDisplayModeId = 0
                     changed = true
                 }
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && layoutParams.preferredRefreshRate != 0f) {
+                if ((Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) && (layoutParams.preferredRefreshRate != 0f)) {
                     layoutParams.preferredRefreshRate = 0f
                     changed = true
                 }
@@ -103,7 +108,7 @@ class HighRefreshRateManager(private val activity: Activity) {
             val matchingModes = supportedModes.filter { mode ->
                 val (mW, mH) = minOf(mode.physicalWidth, mode.physicalHeight) to
                         maxOf(mode.physicalWidth, mode.physicalHeight)
-                mW == curW && mH == curH
+                (mW == curW) && (mH == curH)
             }
 
             // Pick the mode with highest refresh rate (e.g. 144Hz, 120Hz, 90Hz)
@@ -113,13 +118,13 @@ class HighRefreshRateManager(private val activity: Activity) {
             var changed = false
 
             // 1. Set preferred display mode ID (essential for Motorola, Xiaomi, etc. to unlock high Hz)
-            if (highestMode.modeId > 0 && layoutParams.preferredDisplayModeId != highestMode.modeId) {
+            if ((highestMode.modeId > 0) && (layoutParams.preferredDisplayModeId != highestMode.modeId)) {
                 layoutParams.preferredDisplayModeId = highestMode.modeId
                 changed = true
             }
 
             // 2. Set preferred refresh rates for API 30+ (Android 11+)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && layoutParams.preferredRefreshRate != maxFps) {
+            if ((Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) && (layoutParams.preferredRefreshRate != maxFps)) {
                 layoutParams.preferredRefreshRate = maxFps
                 changed = true
             }
@@ -127,7 +132,9 @@ class HighRefreshRateManager(private val activity: Activity) {
             // 3. Android 15+ Adaptive Refresh Rate optimizations
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM) {
                 try {
+                    @Suppress("UsePropertyAccessSyntax")
                     window.setFrameRateBoostOnTouchEnabled(true)
+                    @Suppress("UsePropertyAccessSyntax")
                     window.setFrameRatePowerSavingsBalanced(true)
                 } catch (_: Throwable) {}
             }

@@ -11,7 +11,6 @@ import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.content.res.Configuration
 import android.graphics.drawable.Icon
-import android.hardware.usb.UsbManager
 import android.os.Build
 import android.os.Bundle
 import android.util.Rational
@@ -19,13 +18,12 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableStateOf
 import androidx.core.content.ContextCompat
-import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
-import com.mediaplayer.audio.UsbBitPerfectAudioController
-import com.mediaplayer.data.MediaRepository
+import com.mediaplayer.data.MediaLibraryRepository
 import com.mediaplayer.playback.MediaPlayerManager
 import com.mediaplayer.ui.MainMediaPlayerScreen
 import com.mediaplayer.ui.theme.MediaPlayerTheme
@@ -47,14 +45,13 @@ class MainActivity : ComponentActivity() {
     }
 
     private lateinit var playerManager: MediaPlayerManager
-    private lateinit var usbController: UsbBitPerfectAudioController
-    private lateinit var repository: MediaRepository
+    private lateinit var repository: MediaLibraryRepository
     private lateinit var highRefreshRateManager: HighRefreshRateManager
 
-    private val isInPipModeState = mutableStateOf(false)
+    private val isInPipModeState = mutableStateOf(value = false)
 
     private val notificationPermissionLauncher = registerForActivityResult(
-        ActivityResultContracts.RequestPermission()
+        ActivityResultContracts.RequestPermission(),
     ) { /* Notification permission response handled */ }
 
     private val pipReceiver = object : BroadcastReceiver() {
@@ -77,17 +74,19 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        installSplashScreen()
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
         highRefreshRateManager = HighRefreshRateManager(this)
         highRefreshRateManager.start()
 
-        requestNotificationPermission()
+        window?.decorView?.post {
+            requestNotificationPermission()
+        }
 
         val app = application as MediaPlayerApplication
         playerManager = app.playerManager
-        usbController = app.usbAudioController
         repository = app.repository
         val vaultRepository = app.vaultRepository
         val vaultSecurityManager = app.vaultSecurityManager
@@ -100,11 +99,11 @@ class MainActivity : ComponentActivity() {
                 playerManager.isPlaying,
                 playerManager.isVideoPlaying,
                 playerManager.videoDimensions,
-                playerManager.isPlayerExpanded
+                playerManager.isPlayerExpanded,
             ) { isPlaying, isVideoPlaying, dims, isExpanded ->
                 Triple(isPlaying || isVideoPlaying, dims, isExpanded)
-            }.collect {
-                if (isInPictureInPictureMode || Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            }.collect { (isPlayingOrVideo, _, isExpanded) ->
+                if (isInPictureInPictureMode || (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && isPlayingOrVideo && isExpanded)) {
                     try {
                         setPictureInPictureParams(buildPipParams())
                     } catch (e: Exception) {
@@ -121,9 +120,8 @@ class MainActivity : ComponentActivity() {
                     vaultRepository = vaultRepository,
                     vaultSecurityManager = vaultSecurityManager,
                     playerManager = playerManager,
-                    usbController = usbController,
                     isInPipMode = isInPipModeState.value,
-                    onEnterPip = { enterPip() }
+                    onEnterPip = ::enterPip,
                 )
             }
         }
@@ -139,17 +137,15 @@ class MainActivity : ComponentActivity() {
 
     private fun handleIncomingIntent(intent: Intent?) {
         val action = intent?.action ?: return
-        if (action == Intent.ACTION_VIEW && intent.data != null) {
+        if ((action == Intent.ACTION_VIEW) && (intent.data != null)) {
             val uri = intent.data ?: return
             lifecycleScope.launch {
                 val item = repository.importSafSingleFile(uri)
                 if (item != null) {
                     playerManager.playMedia(item)
-                    playerManager.setPlayerExpanded(true)
+                    playerManager.setPlayerExpanded(expanded = true)
                 }
             }
-        } else if (action == UsbManager.ACTION_USB_DEVICE_ATTACHED) {
-            usbController.scanAudioDevices()
         }
     }
 
@@ -304,13 +300,13 @@ class MainActivity : ComponentActivity() {
 
     override fun onStop() {
         super.onStop()
-        if (!isInPictureInPictureMode) {
+        // Only pause video playback if not in PiP mode; allow audio/music playback to continue seamlessly in the background
+        if (!isInPictureInPictureMode && playerManager.currentMediaItem.value?.isVideo == true) {
             playerManager.pause()
         }
     }
 
     override fun onDestroy() {
-        super.onDestroy()
         highRefreshRateManager.stop()
         try {
             unregisterReceiver(pipReceiver)
@@ -318,16 +314,16 @@ class MainActivity : ComponentActivity() {
         if (isFinishing && playerManager.currentMediaItem.value?.isVideo == true) {
             playerManager.pause()
         }
+        super.onDestroy()
     }
 }
 
 @Composable
 fun MainContent(
-    repository: MediaRepository,
+    repository: MediaLibraryRepository,
     vaultRepository: VaultRepository,
     vaultSecurityManager: VaultSecurityManager,
     playerManager: MediaPlayerManager,
-    usbController: UsbBitPerfectAudioController,
     isInPipMode: Boolean,
     onEnterPip: () -> Unit
 ) {
@@ -336,7 +332,6 @@ fun MainContent(
         vaultRepository = vaultRepository,
         vaultSecurityManager = vaultSecurityManager,
         playerManager = playerManager,
-        usbController = usbController,
         isInPipMode = isInPipMode,
         onEnterPip = onEnterPip
     )

@@ -21,12 +21,12 @@ data class VaultMediaItem(
     val originalFolderPath: String = "",
     val originalFileName: String = "",
     val artist: String = "Unknown Artist",
-    val album: String = "Privacy Vault"
+    val album: String = "Privacy Vault",
 ) {
     fun toMediaItemModel(): MediaItemModel {
         val file = File(vaultFilePath)
         val validFile = when {
-            file.exists() && file.length() > 0L -> file
+            (file.exists() && (file.length() > 0L)) -> file
             File(file.parentFile ?: File(""), file.name).let { it.exists() && it.length() > 0L } -> File(file.parentFile ?: File(""), file.name)
             File(Environment.getExternalStorageDirectory(), "Android/data/com.mediaplayer/files/.secure_vault/${file.name}").let { it.exists() && it.length() > 0L } ->
                 File(Environment.getExternalStorageDirectory(), "Android/data/com.mediaplayer/files/.secure_vault/${file.name}")

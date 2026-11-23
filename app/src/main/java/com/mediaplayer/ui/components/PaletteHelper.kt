@@ -1,6 +1,5 @@
 package com.mediaplayer.ui.components
 
-import android.graphics.Bitmap
 import android.graphics.drawable.BitmapDrawable
 import android.net.Uri
 import androidx.compose.runtime.Composable
@@ -21,7 +20,7 @@ import kotlinx.coroutines.withContext
 data class DominantColors(
     val dominant: Color = Color(0xFF1E202B),
     val accent: Color = Color(0xFF00E5FF),
-    val darkBackground: Color = Color(0xFF0A0B0E)
+    val darkBackground: Color = Color(0xFF0A0B0E),
 )
 
 private val dominantColorsCache = androidx.collection.LruCache<Uri, DominantColors>(64)
@@ -50,7 +49,7 @@ fun rememberDominantColors(uri: Uri?): DominantColors {
                 val loader = context.imageLoader
                 val request = ImageRequest.Builder(context)
                     .data(uri)
-                    .allowHardware(false)
+                    .allowHardware(enable = false)
                     .size(256)
                     .build()
 
@@ -70,13 +69,13 @@ fun rememberDominantColors(uri: Uri?): DominantColors {
                         val extracted = DominantColors(
                             dominant = dominantColor,
                             accent = accentColor,
-                            darkBackground = darkBgColor
+                            darkBackground = darkBgColor,
                         )
                         dominantColorsCache.put(uri, extracted)
                         dominantColors = extracted
                     }
                 }
-            } catch (e: Exception) {
+            } catch (_: Exception) {
                 // fallback to default
             }
         }

@@ -1,6 +1,6 @@
 # Media Player Android App
 
-A modern, high-performance Android media player built with **Jetpack Compose** and **Kotlin**, featuring audiophile-grade **USB Bit-Perfect Audio** output, seamless music/video playback, and a fast **Privacy Vault**.
+A modern, high-performance Android media player built with **Jetpack Compose** and **Kotlin**, featuring high-fidelity media playback, seamless music/video controls, and a fast **Privacy Vault**.
 
 [![Download APK](https://img.shields.io/badge/Download%20APK-v1.4-blue?logo=android&style=for-the-badge)](https://github.com/bijoykumarmistri/MediaPlayer/releases/latest/download/MediaPlayer-v1.4.apk)
 [![Latest Release](https://img.shields.io/github/v/release/bijoykumarmistri/MediaPlayer?style=for-the-badge)](https://github.com/bijoykumarmistri/MediaPlayer/releases/latest)
@@ -24,7 +24,7 @@ Anyone can download and install the latest APK directly on their Android device:
 - **Multi-File Batch Selection, Sharing & Deletion**: Select multiple audio tracks or videos at once with long-press or menu actions to share via external apps or permanently delete from device storage with Scoped Storage consent.
 - **Pinch-to-Zoom & Pan Video Playback**: Smooth hardware-accelerated pinch-to-zoom (1.0x to 5.0x) with pan repositioning, real-time zoom HUD percentage, and double-tap to reset.
 - **Universal Media Playback**: Supports both local music and video playback with smooth playback controls.
-- **Audiophile USB Bit-Perfect Audio**: Direct USB DAC hardware access and real-time audio telemetry (sample rate, bit depth, format).
+- **High-Fidelity Audio Playback**: Direct audio routing via Android system mixer supporting high-resolution FLAC, ALAC, DSD, and MP3 formats.
 - **Modern Jetpack Compose UI**: Clean, expressive Material 3 design with dynamic palette-based theming.
 - **Floating Mini Player & Media Hub**: Persistent background playback with intuitive bottom mini-player controls.
 - **High Refresh Rate Support**: Fluid navigation optimized for 90Hz / 120Hz displays.
@@ -36,7 +36,7 @@ Anyone can download and install the latest APK directly on their Android device:
 - **Language**: Kotlin
 - **UI Toolkit**: Jetpack Compose (Material 3)
 - **Media Engine**: ExoPlayer / Android Media3
-- **Audio Routing**: Custom USB Bit-Perfect Audio & USB Host Service
+- **Audio Routing**: Android System Audio Mixer & ExoPlayer Default AudioTrack
 - **Build System**: Gradle Kotlin DSL (`build.gradle.kts`)
 
 ---

@@ -5,7 +5,6 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -26,7 +25,6 @@ import androidx.compose.material.icons.automirrored.rounded.Backspace
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Lock
-import androidx.compose.material.icons.rounded.LockOpen
 import androidx.compose.material.icons.rounded.Security
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -38,7 +36,6 @@ import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
@@ -57,7 +54,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mediaplayer.ui.theme.AudiophileCyan
@@ -70,7 +66,7 @@ import com.mediaplayer.ui.theme.OledSurfaceVariant
 fun VaultPinDialog(
     securityManager: VaultSecurityManager,
     onSuccess: () -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
 ) {
     val context = LocalContext.current
     val isPinAlreadySet = remember { securityManager.isPinSet() }
@@ -80,13 +76,13 @@ fun VaultPinDialog(
 
     var enteredPin by remember { mutableStateOf("") }
     var firstEnteredPin by remember { mutableStateOf("") }
-    var pinError by remember { mutableStateOf(false) }
+    var pinError by remember { mutableStateOf(value = false) }
 
     // Security Question state
     var selectedQuestion by remember { mutableStateOf(VaultSecurityManager.DEFAULT_SECURITY_QUESTIONS.first()) }
-    var questionExpanded by remember { mutableStateOf(false) }
+    var questionExpanded by remember { mutableStateOf(value = false) }
     var securityAnswerInput by remember { mutableStateOf("") }
-    var recoveryError by remember { mutableStateOf(false) }
+    var recoveryError by remember { mutableStateOf(value = false) }
 
     fun onNumberClick(num: String) {
         if (enteredPin.length < 4) {
@@ -217,7 +213,8 @@ fun VaultPinDialog(
                 transitionSpec = { fadeIn() togetherWith fadeOut() },
                 label = "PinStageAnimation"
             ) { currentStage ->
-                if (currentStage == 3) {
+                when (currentStage) {
+                    3 -> {
                     // Security Question Setup
                     Column(
                         modifier = Modifier.fillMaxWidth(),
@@ -309,7 +306,8 @@ fun VaultPinDialog(
                             Text("Save & Open Vault", color = Color.Black, fontWeight = FontWeight.Bold)
                         }
                     }
-                } else if (currentStage == 4) {
+                }
+                4 -> {
                     // Forgot PIN Recovery
                     Column(
                         modifier = Modifier.fillMaxWidth(),
@@ -376,7 +374,8 @@ fun VaultPinDialog(
                             Text("Back to PIN entry", color = Color(0xFFA0A0B0), fontSize = 12.sp)
                         }
                     }
-                } else {
+                }
+                else -> {
                     // Keypad PIN Entry (Stage 0, 1, 2, 5)
                     Column(
                         modifier = Modifier.fillMaxWidth(),
@@ -491,7 +490,8 @@ fun VaultPinDialog(
                     }
                 }
             }
-        },
-        confirmButton = {}
-    )
+        }
+    },
+    confirmButton = {}
+)
 }

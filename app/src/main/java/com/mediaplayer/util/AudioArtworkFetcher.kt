@@ -3,7 +3,6 @@ package com.mediaplayer.util
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
-import android.graphics.drawable.BitmapDrawable
 import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.Build
@@ -20,11 +19,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import android.graphics.Color
-import android.graphics.drawable.ColorDrawable
 import android.provider.MediaStore
-import java.util.concurrent.ConcurrentHashMap
+import androidx.core.graphics.drawable.toDrawable
 
-private val emptyArtworkDrawable = ColorDrawable(Color.TRANSPARENT)
+private val emptyArtworkDrawable = Color.TRANSPARENT.toDrawable()
 
 /**
  * High-performance audio album artwork fetcher.
@@ -35,14 +33,54 @@ private val emptyArtworkDrawable = ColorDrawable(Color.TRANSPARENT)
 class AudioArtworkFetcher(
     private val context: Context,
     private val uri: Uri,
-    private val options: Options
+    private val options: Options,
 ) : Fetcher {
 
     companion object {
-        // Fast in-memory bitmap cache for visible tracks (128 items = ~8 MB at 144x144)
-        val memoryCache = LruCache<Uri, Bitmap>(128)
-        // Negative cache: tracks that don't have artwork skip immediately without disk/IPC query
-        val noArtworkCache: MutableSet<Uri> = ConcurrentHashMap.newKeySet<Uri>()
+        private val maxMemory = (Runtime.getRuntime().maxMemory() / 1024).toInt() // KB
+        private val cacheSize = (maxMemory / 32).coerceIn(4096, 32768) // 4MB - 32MB in KB
+
+        // In-memory bitmap cache sized by actual byte count to prevent OutOfMemoryError
+        val memoryCache = object : LruCache<Uri, Bitmap>(cacheSize) {
+            override fun sizeOf(key: Uri, value: Bitmap): Int {
+                return (value.byteCount / 1024).coerceAtLeast(1)
+            }
+        }
+
+        // Bounded negative cache (max 500 items) to prevent unbounded memory growth
+        private val noArtworkLru = LruCache<Uri, Boolean>(500)
+
+        val noArtworkCache = object : MutableSet<Uri> {
+            override val size: Int get() = noArtworkLru.size()
+            override fun clear() = noArtworkLru.evictAll()
+            override fun isEmpty(): Boolean = noArtworkLru.size() == 0
+            override fun iterator(): MutableIterator<Uri> = noArtworkLru.snapshot().keys.toMutableList().iterator()
+            override fun contains(element: Uri): Boolean = noArtworkLru[element] == true
+            override fun containsAll(elements: Collection<Uri>): Boolean = elements.all { contains(it) }
+            override fun add(element: Uri): Boolean {
+                noArtworkLru.put(element, true)
+                return true
+            }
+            override fun addAll(elements: Collection<Uri>): Boolean {
+                elements.forEach { add(it) }
+                return true
+            }
+            override fun remove(element: Uri): Boolean {
+                return noArtworkLru.remove(element) != null
+            }
+            override fun removeAll(elements: Collection<Uri>): Boolean = elements.any { remove(it) }
+            override fun retainAll(elements: Collection<Uri>): Boolean {
+                val toRemove = noArtworkLru.snapshot().keys - elements.toSet()
+                toRemove.forEach { noArtworkLru.remove(it) }
+                return toRemove.isNotEmpty()
+            }
+        }
+
+        fun clearMemoryCache() {
+            memoryCache.evictAll()
+            noArtworkLru.evictAll()
+        }
+
         // Concurrency limiter to prevent CPU starvation and frame skipping during list scrolling
         private val extractionSemaphore = kotlinx.coroutines.sync.Semaphore(2)
     }
@@ -59,9 +97,9 @@ class AudioArtworkFetcher(
 
         // 2. Check in-memory bitmap cache
         val cachedBitmap = memoryCache.get(uri)
-        if (cachedBitmap != null && !cachedBitmap.isRecycled) {
+        if ((cachedBitmap != null) && (!cachedBitmap.isRecycled)) {
             return@withContext DrawableResult(
-                drawable = BitmapDrawable(context.resources, cachedBitmap),
+                drawable = cachedBitmap.toDrawable(context.resources),
                 isSampled = false,
                 dataSource = DataSource.MEMORY
             )
@@ -71,12 +109,12 @@ class AudioArtworkFetcher(
         val targetH = (options.size.height as? Dimension.Pixels)?.px?.coerceIn(96, 512) ?: 144
 
         // 3. Ultra-fast MediaStore thumbnail query on API 29+ (sub-millisecond check via system MediaProvider)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && uri.authority == MediaStore.AUTHORITY) {
+        if ((Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) && (uri.authority == MediaStore.AUTHORITY)) {
             try {
                 val thumb = context.contentResolver.loadThumbnail(uri, Size(targetW, targetH), null)
                 memoryCache.put(uri, thumb)
                 return@withContext DrawableResult(
-                    drawable = BitmapDrawable(context.resources, thumb),
+                    drawable = thumb.toDrawable(context.resources),
                     isSampled = true,
                     dataSource = DataSource.DISK
                 )
@@ -103,9 +141,9 @@ class AudioArtworkFetcher(
                 )
             }
             val cachedAfterWait = memoryCache.get(uri)
-            if (cachedAfterWait != null && !cachedAfterWait.isRecycled) {
+            if ((cachedAfterWait != null) && (!cachedAfterWait.isRecycled)) {
                 return@withPermit DrawableResult(
-                    drawable = BitmapDrawable(context.resources, cachedAfterWait),
+                    drawable = cachedAfterWait.toDrawable(context.resources),
                     isSampled = false,
                     dataSource = DataSource.MEMORY
                 )
@@ -118,7 +156,7 @@ class AudioArtworkFetcher(
             try {
                 retriever.setDataSource(context, uri)
                 val rawBytes = retriever.embeddedPicture
-                if (rawBytes != null && rawBytes.isNotEmpty()) {
+                if ((rawBytes != null) && rawBytes.isNotEmpty()) {
                     val opts = BitmapFactory.Options().apply {
                         inJustDecodeBounds = true
                     }
@@ -145,7 +183,7 @@ class AudioArtworkFetcher(
             if (bitmap != null) {
                 memoryCache.put(uri, bitmap)
                 DrawableResult(
-                    drawable = BitmapDrawable(context.resources, bitmap),
+                    drawable = bitmap.toDrawable(context.resources),
                     isSampled = true,
                     dataSource = DataSource.DISK
                 )
@@ -166,10 +204,10 @@ class AudioArtworkFetcher(
             val uriStr = data.toString()
             val isAudio = uriStr.contains("audio", ignoreCase = true) ||
                 data.path?.let { p ->
-                    p.endsWith(".mp3", true) || p.endsWith(".flac", true) || p.endsWith(".m4a", true) ||
-                    p.endsWith(".wav", true) || p.endsWith(".ogg", true) || p.endsWith(".opus", true) ||
-                    p.endsWith(".aac", true) || p.endsWith(".dsd", true) || p.endsWith(".dff", true) ||
-                    p.endsWith(".dsf", true)
+                    p.endsWith(".mp3", ignoreCase = true) || p.endsWith(".flac", ignoreCase = true) || p.endsWith(".m4a", ignoreCase = true) ||
+                    p.endsWith(".wav", ignoreCase = true) || p.endsWith(".ogg", ignoreCase = true) || p.endsWith(".opus", ignoreCase = true) ||
+                    p.endsWith(".aac", ignoreCase = true) || p.endsWith(".dsd", ignoreCase = true) || p.endsWith(".dff", ignoreCase = true) ||
+                    p.endsWith(".dsf", ignoreCase = true)
                 } == true ||
                 (data.scheme == "content" && runCatching { context.contentResolver.getType(data)?.startsWith("audio") }.getOrNull() == true)
 

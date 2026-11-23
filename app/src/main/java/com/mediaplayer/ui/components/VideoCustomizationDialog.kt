@@ -33,7 +33,7 @@ import com.mediaplayer.util.AppSettingsManager
 fun VideoCustomizationDialog(
     settingsManager: AppSettingsManager,
     onDismiss: () -> Unit,
-    onSettingsChanged: () -> Unit = {}
+    onSettingsChanged: () -> Unit = {},
 ) {
     var defaultDecoder by remember { mutableStateOf(settingsManager.defaultDecoderMode) }
     var doubleTapSeek by remember { mutableIntStateOf(settingsManager.doubleTapSeekSeconds) }
@@ -120,12 +120,11 @@ fun VideoCustomizationDialog(
                             SegmentedBar(
                                 items = listOf("HW+", "HW", "SW"),
                                 selectedItem = defaultDecoder,
-                                onSelect = { mode ->
-                                    defaultDecoder = mode
-                                    settingsManager.defaultDecoderMode = mode
-                                    onSettingsChanged()
-                                }
-                            )
+                            ) { mode ->
+                                defaultDecoder = mode
+                                settingsManager.defaultDecoderMode = mode
+                                onSettingsChanged()
+                            }
                         }
 
                         GroupDivider()
@@ -142,13 +141,12 @@ fun VideoCustomizationDialog(
                             SegmentedBar(
                                 items = listOf("5s", "10s", "15s", "30s"),
                                 selectedItem = "${doubleTapSeek}s",
-                                onSelect = { item ->
-                                    val sec = item.removeSuffix("s").toIntOrNull() ?: 10
-                                    doubleTapSeek = sec
-                                    settingsManager.doubleTapSeekSeconds = sec
-                                    onSettingsChanged()
-                                }
-                            )
+                            ) { item ->
+                                val sec = item.removeSuffix("s").toIntOrNull() ?: 10
+                                doubleTapSeek = sec
+                                settingsManager.doubleTapSeekSeconds = sec
+                                onSettingsChanged()
+                            }
                         }
 
                         GroupDivider()
@@ -185,19 +183,18 @@ fun VideoCustomizationDialog(
                                     "STRETCH" -> "Stretch"
                                     else -> "Fit"
                                 },
-                                onSelect = { label ->
-                                    val mode = when (label) {
-                                        "Fill" -> "CROP"
-                                        "16:9" -> "16:9"
-                                        "4:3" -> "4:3"
-                                        "Stretch" -> "STRETCH"
-                                        else -> "FIT"
-                                    }
-                                    defaultResize = mode
-                                    settingsManager.defaultResizeMode = mode
-                                    onSettingsChanged()
+                            ) { label ->
+                                val mode = when (label) {
+                                    "Fill" -> "CROP"
+                                    "16:9" -> "16:9"
+                                    "4:3" -> "4:3"
+                                    "Stretch" -> "STRETCH"
+                                    else -> "FIT"
                                 }
-                            )
+                                defaultResize = mode
+                                settingsManager.defaultResizeMode = mode
+                                onSettingsChanged()
+                            }
                         }
                     }
 
@@ -259,18 +256,17 @@ fun VideoCustomizationDialog(
                                     72 -> "Huge"
                                     else -> "Normal"
                                 },
-                                onSelect = { label ->
-                                    val size = when (label) {
-                                        "Small" -> 36
-                                        "Large" -> 60
-                                        "Huge" -> 72
-                                        else -> 48
-                                    }
-                                    subtitleSize = size
-                                    settingsManager.subtitleSize = size
-                                    onSettingsChanged()
+                            ) { label ->
+                                val size = when (label) {
+                                    "Small" -> 36
+                                    "Large" -> 60
+                                    "Huge" -> 72
+                                    else -> 48
                                 }
-                            )
+                                subtitleSize = size
+                                settingsManager.subtitleSize = size
+                                onSettingsChanged()
+                            }
                         }
 
                         GroupDivider()

@@ -19,26 +19,23 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.ArrowForward
 import androidx.compose.material.icons.automirrored.rounded.Launch
+import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.CloudDownload
-import androidx.compose.material.icons.rounded.RocketLaunch
+import androidx.compose.material.icons.rounded.Verified
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
@@ -46,70 +43,119 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mediaplayer.ui.theme.AudiophileCyan
-import com.mediaplayer.ui.theme.AudiophileGold
 import com.mediaplayer.ui.theme.AudiophileGreen
-import com.mediaplayer.ui.theme.OledBorder
-import com.mediaplayer.ui.theme.OledSurfaceVariant
 import com.mediaplayer.util.AppReleaseInfo
 import com.mediaplayer.util.AppUpdateManager
 
 @Composable
 fun AppUpdateDialog(
     releaseInfo: AppReleaseInfo,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
 ) {
     val context = LocalContext.current
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        containerColor = OledSurfaceVariant,
+        containerColor = Color(0xFF13151F),
+        shape = RoundedCornerShape(24.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(BorderStroke(1.dp, Color(0x3300E5FF)), RoundedCornerShape(24.dp)),
         title = {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f)
+                ) {
                     Box(
                         modifier = Modifier
-                            .size(36.dp)
-                            .clip(CircleShape)
+                            .size(42.dp)
+                            .clip(RoundedCornerShape(12.dp))
                             .background(
-                                Brush.linearGradient(
-                                    listOf(AudiophileCyan.copy(alpha = 0.2f), AudiophileGold.copy(alpha = 0.2f))
-                                )
+                                if (releaseInfo.isUpdateAvailable) Color(0x2600E5FF) else Color(0x2600E676)
                             )
-                            .border(1.dp, AudiophileCyan.copy(alpha = 0.5f), CircleShape),
+                            .border(
+                                1.dp,
+                                if (releaseInfo.isUpdateAvailable) Color(0x6600E5FF) else Color(0x6600E676),
+                                RoundedCornerShape(12.dp)
+                            ),
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
-                            imageVector = Icons.Rounded.RocketLaunch,
+                            imageVector = if (releaseInfo.isUpdateAvailable) Icons.Rounded.CloudDownload else Icons.Rounded.CheckCircle,
                             contentDescription = null,
-                            tint = AudiophileCyan,
-                            modifier = Modifier.size(20.dp)
+                            tint = if (releaseInfo.isUpdateAvailable) AudiophileCyan else AudiophileGreen,
+                            modifier = Modifier.size(24.dp)
                         )
                     }
-                    Spacer(modifier = Modifier.width(10.dp))
+
+                    Spacer(modifier = Modifier.width(12.dp))
+
                     Column {
                         Text(
-                            text = if (releaseInfo.isUpdateAvailable) "Update Available!" else "App is Up to Date",
+                            text = if (releaseInfo.isUpdateAvailable) "Update Available" else "App is Up to Date",
                             fontWeight = FontWeight.Bold,
                             color = Color.White,
-                            fontSize = 18.sp
+                            fontSize = 17.sp
                         )
-                        Text(
-                            text = "GitHub Release Channel",
-                            fontSize = 11.sp,
-                            color = Color(0xFF9E9EAE)
-                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        if (releaseInfo.isUpdateAvailable) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = "v${releaseInfo.currentVersionName}",
+                                    fontSize = 12.sp,
+                                    color = Color(0xFF8E8E9E),
+                                    fontFamily = FontFamily.Monospace
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Rounded.ArrowForward,
+                                    contentDescription = null,
+                                    tint = AudiophileCyan,
+                                    modifier = Modifier.size(12.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = releaseInfo.tagName,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = AudiophileCyan,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                            }
+                        } else {
+                            Text(
+                                text = "v${releaseInfo.currentVersionName} • Latest version",
+                                fontSize = 12.sp,
+                                color = AudiophileGreen,
+                                fontFamily = FontFamily.Monospace
+                            )
+                        }
                     }
                 }
-                IconButton(onClick = onDismiss) {
-                    Icon(
-                        imageVector = Icons.Rounded.Close,
-                        contentDescription = "Close",
-                        tint = Color(0xFF9E9EAE)
-                    )
+
+                Box(
+                    modifier = Modifier
+                        .size(32.dp)
+                        .clip(CircleShape)
+                        .background(Color(0x1AFFFFFF)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    IconButton(
+                        onClick = onDismiss,
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Close,
+                            contentDescription = "Close",
+                            tint = Color.White,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
                 }
             }
         },
@@ -119,109 +165,97 @@ fun AppUpdateDialog(
                     .fillMaxWidth()
                     .padding(vertical = 4.dp)
             ) {
-                // Version comparison badge
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(14.dp))
-                        .background(Color(0xFF0F111A))
-                        .border(
-                            1.dp,
-                            if (releaseInfo.isUpdateAvailable) AudiophileGold.copy(alpha = 0.4f) else Color(0x33FFFFFF),
-                            RoundedCornerShape(14.dp)
-                        )
-                        .padding(horizontal = 14.dp, vertical = 10.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
+                if (releaseInfo.isUpdateAvailable) {
+                    // Release title & Changelog card
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(Color(0xFF181B26))
+                            .border(1.dp, Color(0x22FFFFFF), RoundedCornerShape(14.dp))
+                            .padding(14.dp)
                     ) {
                         Column {
                             Text(
-                                text = "Installed",
+                                text = "WHAT'S NEW",
                                 fontSize = 10.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = Color(0xFFA0A0B0)
+                                color = AudiophileCyan,
+                                letterSpacing = 1.sp
                             )
-                            Text(
-                                text = "v${releaseInfo.currentVersionName}",
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Color.White,
-                                fontFamily = FontFamily.Monospace
-                            )
-                        }
+                            if (releaseInfo.releaseTitle.isNotBlank() && releaseInfo.releaseTitle != releaseInfo.tagName) {
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = releaseInfo.releaseTitle,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = Color.White
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(6.dp))
 
-                        Icon(
-                            imageVector = Icons.Rounded.RocketLaunch,
-                            contentDescription = null,
-                            tint = if (releaseInfo.isUpdateAvailable) AudiophileGold else AudiophileGreen,
-                            modifier = Modifier.size(18.dp)
-                        )
-
-                        Column(horizontalAlignment = Alignment.End) {
-                            Text(
-                                text = "Latest Release",
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = if (releaseInfo.isUpdateAvailable) AudiophileGold else AudiophileGreen
-                            )
-                            Text(
-                                text = releaseInfo.tagName,
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = if (releaseInfo.isUpdateAvailable) AudiophileGold else AudiophileGreen,
-                                fontFamily = FontFamily.Monospace
-                            )
+                            val scrollState = rememberScrollState()
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(max = 150.dp)
+                                    .verticalScroll(scrollState)
+                            ) {
+                                Text(
+                                    text = releaseInfo.releaseNotes.trim().ifBlank { "Performance improvements and bug fixes." },
+                                    fontSize = 12.sp,
+                                    color = Color(0xFFC8CCDC),
+                                    lineHeight = 17.sp
+                                )
+                            }
                         }
                     }
-                }
 
-                Spacer(modifier = Modifier.height(14.dp))
+                    Spacer(modifier = Modifier.height(10.dp))
 
-                // Release Title & Changelog
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(containerColor = Color(0x1F12131A)),
-                    shape = RoundedCornerShape(14.dp),
-                    border = BorderStroke(1.dp, OledBorder)
-                ) {
-                    Column(modifier = Modifier.padding(14.dp)) {
-                        Text(
-                            text = if (releaseInfo.releaseTitle.isNotBlank()) releaseInfo.releaseTitle else releaseInfo.tagName,
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = AudiophileCyan
+                    // Verified badge row
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Verified,
+                            contentDescription = null,
+                            tint = Color(0xFF00E676),
+                            modifier = Modifier.size(14.dp)
                         )
-                        Spacer(modifier = Modifier.height(6.dp))
-                        HorizontalDivider(color = Color(0x22FFFFFF))
-                        Spacer(modifier = Modifier.height(6.dp))
-
-                        val scrollState = rememberScrollState()
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .heightIn(max = 160.dp)
-                                .verticalScroll(scrollState)
-                        ) {
-                            Text(
-                                text = if (releaseInfo.releaseNotes.isNotBlank()) releaseInfo.releaseNotes else "No changelog notes provided.",
-                                fontSize = 12.sp,
-                                color = Color(0xFFD0D0E0),
-                                lineHeight = 16.sp
-                            )
-                        }
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "Verified GitHub Release • Direct APK Install",
+                            fontSize = 11.sp,
+                            color = Color(0xFF8E8E9E)
+                        )
+                    }
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(Color(0xFF181B26))
+                            .border(1.dp, Color(0x22FFFFFF), RoundedCornerShape(14.dp))
+                            .padding(16.dp)
+                    ) {
+                        Text(
+                            text = "You are running the newest release of Media Player with the latest playback features, codecs, and optimizations.",
+                            fontSize = 12.sp,
+                            color = Color(0xFFA0A5B5),
+                            lineHeight = 18.sp
+                        )
                     }
                 }
             }
         },
         confirmButton = {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                if (releaseInfo.isUpdateAvailable) {
+            if (releaseInfo.isUpdateAvailable) {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
                     Button(
                         onClick = {
                             val targetUrl = releaseInfo.downloadUrl ?: releaseInfo.releaseUrl
@@ -229,61 +263,84 @@ fun AppUpdateDialog(
                             onDismiss()
                         },
                         colors = ButtonDefaults.buttonColors(
-                            containerColor = AudiophileGold,
+                            containerColor = AudiophileCyan,
                             contentColor = Color.Black
                         ),
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier.weight(1f)
+                        shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(44.dp)
                     ) {
                         Icon(
                             imageVector = Icons.Rounded.CloudDownload,
                             contentDescription = null,
                             tint = Color.Black,
-                            modifier = Modifier.size(16.dp)
+                            modifier = Modifier.size(18.dp)
                         )
-                        Spacer(modifier = Modifier.width(6.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "Download & Update",
+                            text = "Download & Install",
                             fontWeight = FontWeight.Bold,
-                            fontSize = 12.sp
+                            fontSize = 13.sp,
+                            color = Color.Black
                         )
                     }
-                } else {
-                    OutlinedButton(
-                        onClick = {
-                            AppUpdateManager.openUrl(context, releaseInfo.releaseUrl)
-                            onDismiss()
-                        },
-                        shape = RoundedCornerShape(12.dp),
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = AudiophileCyan),
-                        border = BorderStroke(1.dp, AudiophileCyan),
-                        modifier = Modifier.weight(1f)
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Rounded.Launch,
-                            contentDescription = null,
-                            tint = AudiophileCyan,
-                            modifier = Modifier.size(15.dp)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = "View on GitHub",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 12.sp
-                        )
+                        TextButton(
+                            onClick = {
+                                AppUpdateManager.openUrl(context, releaseInfo.releaseUrl)
+                                onDismiss()
+                            }
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Rounded.Launch,
+                                contentDescription = null,
+                                tint = Color(0xFFA0A5B5),
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = "GitHub Release",
+                                color = Color(0xFFA0A5B5),
+                                fontSize = 11.sp
+                            )
+                        }
+
+                        TextButton(onClick = onDismiss) {
+                            Text(
+                                text = "Later",
+                                color = Color.White,
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 12.sp
+                            )
+                        }
                     }
                 }
-
-                TextButton(
-                    onClick = onDismiss,
-                    shape = RoundedCornerShape(12.dp)
+            } else {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End
                 ) {
-                    Text(
-                        text = "Close",
-                        color = Color.White,
-                        fontWeight = FontWeight.SemiBold,
-                        fontSize = 12.sp
-                    )
+                    Button(
+                        onClick = onDismiss,
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color(0x22FFFFFF),
+                            contentColor = Color.White
+                        )
+                    ) {
+                        Text(
+                            text = "Done",
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 12.sp
+                        )
+                    }
                 }
             }
         }

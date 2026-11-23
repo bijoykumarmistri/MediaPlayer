@@ -6,8 +6,7 @@ import coil.ImageLoaderFactory
 import coil.decode.VideoFrameDecoder
 import coil.disk.DiskCache
 import coil.memory.MemoryCache
-import com.mediaplayer.audio.UsbBitPerfectAudioController
-import com.mediaplayer.data.MediaRepository
+import com.mediaplayer.data.MediaLibraryRepository
 import com.mediaplayer.playback.MediaPlayerManager
 
 import com.mediaplayer.vault.VaultRepository
@@ -22,10 +21,7 @@ class MediaPlayerApplication : Application(), ImageLoaderFactory {
     lateinit var playerManager: MediaPlayerManager
         private set
 
-    lateinit var usbAudioController: UsbBitPerfectAudioController
-        private set
-
-    lateinit var repository: MediaRepository
+    lateinit var repository: MediaLibraryRepository
         private set
 
     lateinit var vaultRepository: VaultRepository
@@ -37,12 +33,12 @@ class MediaPlayerApplication : Application(), ImageLoaderFactory {
     override fun onCreate() {
         super.onCreate()
         instance = this
-        usbAudioController = UsbBitPerfectAudioController(this)
-        repository = MediaRepository(this)
+        repository = MediaLibraryRepository(this)
         vaultRepository = VaultRepository(this)
         vaultSecurityManager = VaultSecurityManager(this)
-        playerManager = MediaPlayerManager(this, usbAudioController)
-        playerManager.initialize()
+        playerManager = MediaPlayerManager(this)
+        // Note: playerManager initializes ExoPlayer and MediaSession lazily on-demand
+        // to ensure zero main-thread blocking during cold application startup.
 
         // Asynchronously warm up the media file cache off the main thread for zero startup lag
         CoroutineScope(Dispatchers.IO).launch {
@@ -60,7 +56,7 @@ class MediaPlayerApplication : Application(), ImageLoaderFactory {
             .memoryCache {
                 MemoryCache.Builder(this)
                     .maxSizePercent(0.25)
-                    .strongReferencesEnabled(true)
+                    .strongReferencesEnabled(enable = true)
                     .build()
             }
             .diskCache {
@@ -72,6 +68,18 @@ class MediaPlayerApplication : Application(), ImageLoaderFactory {
             .respectCacheHeaders(false)
             .crossfade(true)
             .build()
+    }
+
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        com.mediaplayer.util.AudioArtworkFetcher.clearMemoryCache()
+        com.mediaplayer.util.VideoThumbnailFetcher.clearMemoryCache()
+    }
+
+    override fun onLowMemory() {
+        super.onLowMemory()
+        com.mediaplayer.util.AudioArtworkFetcher.clearMemoryCache()
+        com.mediaplayer.util.VideoThumbnailFetcher.clearMemoryCache()
     }
 
     companion object {

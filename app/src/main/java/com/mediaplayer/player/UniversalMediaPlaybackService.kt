@@ -6,18 +6,14 @@ import androidx.annotation.OptIn
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.Player
-import androidx.media3.common.Tracks
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.exoplayer.audio.AudioSink
-import androidx.media3.exoplayer.audio.DefaultAudioSink
 import androidx.media3.session.DefaultMediaNotificationProvider
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 import com.mediaplayer.MediaPlayerApplication
 import com.mediaplayer.R
-import com.mediaplayer.audio.UsbBitPerfectAudioController
 
 @OptIn(UnstableApi::class)
 class UniversalMediaPlaybackService : MediaSessionService() {
@@ -45,12 +41,14 @@ class UniversalMediaPlaybackService : MediaSessionService() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        val app = application as? MediaPlayerApplication
-        val currentItem = app?.playerManager?.currentMediaItem?.value
-        if (currentItem?.isVideo == true) {
+        if (intent?.action == ACTION_STOP) {
+            try {
+                stopForeground(STOP_FOREGROUND_REMOVE)
+            } catch (_: Exception) {}
             stopSelf()
             return START_NOT_STICKY
         }
+        val app = application as? MediaPlayerApplication
         if (mediaSession == null) {
             if (app != null) {
                 mediaSession = app.playerManager.mediaSession
@@ -87,37 +85,32 @@ class UniversalMediaPlaybackService : MediaSessionService() {
             stopSelf()
         } else {
             // Audio/music playback continues running seamlessly in background
-            if (player == null || !player.playWhenReady || player.mediaItemCount == 0) {
+            if ((player == null) || (!player.playWhenReady) || (player.playbackState == Player.STATE_ENDED) || (player.mediaItemCount == 0)) {
                 stopSelf()
             }
         }
     }
 
     override fun onDestroy() {
+        mediaSession?.let {
+            try {
+                removeSession(it)
+            } catch (_: Exception) {}
+        }
         mediaSession = null
         super.onDestroy()
     }
 
     companion object {
+        const val ACTION_STOP = "com.mediaplayer.action.STOP_SERVICE"
+
         @OptIn(UnstableApi::class)
-        fun createExoPlayer(
-            context: Context,
-            usbAudioController: UsbBitPerfectAudioController
-        ): ExoPlayer {
-            val renderersFactory = object : DefaultRenderersFactory(context) {
-                override fun buildAudioSink(
-                    context: Context,
-                    enableFloatOutput: Boolean,
-                    enableAudioTrackPlaybackParams: Boolean
-                ): AudioSink {
-                    return DefaultAudioSink.Builder(context)
-                        .setEnableFloatOutput(true) // Enables 32-bit float output (preventing 24-bit and 32-bit PCM truncation to 16-bit)
-                        .setEnableAudioTrackPlaybackParams(true) // Native OS AudioTrack timing for smooth zero-lag speed adjustments
-                        .build()
-                }
-            }.setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON)
-             .setEnableDecoderFallback(true)
-             .setAllowedVideoJoiningTimeMs(5000L) // Standard video joining window preventing frame drops
+        fun createExoPlayer(context: Context): ExoPlayer {
+            val appContext = context.applicationContext
+            val renderersFactory = DefaultRenderersFactory(appContext)
+                .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON)
+                .setEnableDecoderFallback(true)
+                .setAllowedVideoJoiningTimeMs(5000L)
 
             val audioAttributes = AudioAttributes.Builder()
                 .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
@@ -138,7 +131,7 @@ class UniversalMediaPlaybackService : MediaSessionService() {
                     )
                 )
 
-            val upstreamDataSourceFactory = androidx.media3.datasource.DefaultDataSource.Factory(context, httpDataSourceFactory)
+            val upstreamDataSourceFactory = androidx.media3.datasource.DefaultDataSource.Factory(appContext, httpDataSourceFactory)
 
             val extractorsFactory = androidx.media3.extractor.DefaultExtractorsFactory()
                 .setConstantBitrateSeekingEnabled(true)
@@ -159,65 +152,17 @@ class UniversalMediaPlaybackService : MediaSessionService() {
                 .setPrioritizeTimeOverSizeThresholds(false)
                 .build()
 
-            val player = ExoPlayer.Builder(context, renderersFactory)
+            return ExoPlayer.Builder(appContext, renderersFactory)
                 .setMediaSourceFactory(mediaSourceFactory)
                 .setLoadControl(loadControl)
                 .setAudioAttributes(audioAttributes, true)
                 .setHandleAudioBecomingNoisy(true)
+                .setWakeMode(C.WAKE_MODE_NETWORK)
                 .setVideoChangeFrameRateStrategy(C.VIDEO_CHANGE_FRAME_RATE_STRATEGY_ONLY_IF_SEAMLESS)
                 .setSeekBackIncrementMs(10000)
                 .setSeekForwardIncrementMs(10000)
                 .setSeekParameters(androidx.media3.exoplayer.SeekParameters.CLOSEST_SYNC)
                 .build()
-
-            // Wire audio device disconnect safety pause
-            usbAudioController.onPlaybackPauseRequested = {
-                if (player.isPlaying) {
-                    player.pause()
-                }
-            }
-
-            // CRITICAL: Route ExoPlayer AudioTrack directly to USB DAC for bit-perfect output
-            usbAudioController.onActiveUsbAudioDeviceChanged = { device ->
-                if (device != null) {
-                    player.setPreferredAudioDevice(device)
-                    usbAudioController.applyBitPerfectMixerAttributes(usbAudioController.status.value.isExclusiveBitPerfectEnabled)
-                    android.util.Log.d("UsbBitPerfect", "ExoPlayer routed to USB device: ${device.productName} (id: ${device.id})")
-                } else {
-                    player.setPreferredAudioDevice(null)
-                    usbAudioController.applyBitPerfectMixerAttributes(false)
-                    android.util.Log.d("UsbBitPerfect", "ExoPlayer routing restored to default audio device")
-                }
-            }
-
-            // Apply immediately if already connected
-            val currentDevice = usbAudioController.currentUsbAudioDevice
-            if (currentDevice != null) {
-                player.setPreferredAudioDevice(currentDevice)
-                usbAudioController.applyBitPerfectMixerAttributes(usbAudioController.status.value.isExclusiveBitPerfectEnabled)
-            }
-
-            // Listen to tracks to lock USB DAC mixer attributes
-            player.addListener(object : Player.Listener {
-                override fun onTracksChanged(tracks: Tracks) {
-                    for (group in tracks.groups) {
-                        if (group.type == C.TRACK_TYPE_AUDIO && group.isSelected) {
-                            for (i in 0 until group.length) {
-                                if (group.isTrackSelected(i)) {
-                                    val format = group.getTrackFormat(i)
-                                    usbAudioController.enableBitPerfectBypass(
-                                        enabled = usbAudioController.status.value.isExclusiveBitPerfectEnabled,
-                                        trackFormat = format
-                                    )
-                                    return
-                                }
-                            }
-                        }
-                    }
-                }
-            })
-
-            return player
         }
     }
 }

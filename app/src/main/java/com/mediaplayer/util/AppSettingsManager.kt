@@ -2,6 +2,7 @@ package com.mediaplayer.util
 
 import android.content.Context
 import android.content.SharedPreferences
+import androidx.core.content.edit
 
 class AppSettingsManager(context: Context) {
     private val prefs: SharedPreferences = context.getSharedPreferences("app_settings_customization", Context.MODE_PRIVATE)
@@ -20,57 +21,63 @@ class AppSettingsManager(context: Context) {
         const val KEY_HIDE_SHORT_VIDEOS = "pref_hide_short_videos"
         const val KEY_MIN_VIDEO_DURATION_SEC = "pref_min_video_duration_sec"
         const val KEY_HIGH_REFRESH_RATE = "pref_high_refresh_rate"
+        const val KEY_MUSIC_TIME_VIEW_REMAINING = "pref_music_time_view_remaining"
     }
 
     var defaultDecoderMode: String
         get() = prefs.getString(KEY_DECODER_MODE, "HW+") ?: "HW+"
-        set(value) = prefs.edit().putString(KEY_DECODER_MODE, value).apply()
+        set(value) = prefs.edit { putString(KEY_DECODER_MODE, value) }
 
     var doubleTapSeekSeconds: Int
         get() = prefs.getInt(KEY_DOUBLE_TAP_SEEK, 10)
-        set(value) = prefs.edit().putInt(KEY_DOUBLE_TAP_SEEK, value).apply()
+        set(value) = prefs.edit { putInt(KEY_DOUBLE_TAP_SEEK, value) }
 
     var autoResume: Boolean
         get() = prefs.getBoolean(KEY_AUTO_RESUME, true)
-        set(value) = prefs.edit().putBoolean(KEY_AUTO_RESUME, value).apply()
+        set(value) = prefs.edit { putBoolean(KEY_AUTO_RESUME, value) }
 
+    @Suppress("unused")
     var backgroundPlayback: Boolean
         get() = prefs.getBoolean(KEY_BACKGROUND_PLAYBACK, true)
-        set(value) = prefs.edit().putBoolean(KEY_BACKGROUND_PLAYBACK, value).apply()
+        set(value) = prefs.edit { putBoolean(KEY_BACKGROUND_PLAYBACK, value) }
 
     var swipeGesturesEnabled: Boolean
         get() = prefs.getBoolean(KEY_SWIPE_GESTURES, true)
-        set(value) = prefs.edit().putBoolean(KEY_SWIPE_GESTURES, value).apply()
+        set(value) = prefs.edit { putBoolean(KEY_SWIPE_GESTURES, value) }
 
     var fastScrubEnabled: Boolean
         get() = prefs.getBoolean(KEY_FAST_SCRUB, true)
-        set(value) = prefs.edit().putBoolean(KEY_FAST_SCRUB, value).apply()
+        set(value) = prefs.edit { putBoolean(KEY_FAST_SCRUB, value) }
 
     var hold2xSpeedEnabled: Boolean
         get() = prefs.getBoolean(KEY_HOLD_2X_SPEED, true)
-        set(value) = prefs.edit().putBoolean(KEY_HOLD_2X_SPEED, value).apply()
+        set(value) = prefs.edit { putBoolean(KEY_HOLD_2X_SPEED, value) }
 
     var defaultResizeMode: String
         get() = prefs.getString(KEY_DEFAULT_RESIZE, "FIT") ?: "FIT"
-        set(value) = prefs.edit().putString(KEY_DEFAULT_RESIZE, value).apply()
+        set(value) = prefs.edit { putString(KEY_DEFAULT_RESIZE, value) }
 
     var subtitleSize: Int
         get() = prefs.getInt(KEY_SUBTITLE_SIZE, 48)
-        set(value) = prefs.edit().putInt(KEY_SUBTITLE_SIZE, value).apply()
+        set(value) = prefs.edit { putInt(KEY_SUBTITLE_SIZE, value) }
 
     var subtitleColorHex: String
         get() = prefs.getString(KEY_SUBTITLE_COLOR, "#FFFFFF") ?: "#FFFFFF"
-        set(value) = prefs.edit().putString(KEY_SUBTITLE_COLOR, value).apply()
+        set(value) = prefs.edit { putString(KEY_SUBTITLE_COLOR, value) }
 
     var hideShortVideos: Boolean
         get() = prefs.getBoolean(KEY_HIDE_SHORT_VIDEOS, false)
-        set(value) = prefs.edit().putBoolean(KEY_HIDE_SHORT_VIDEOS, value).apply()
+        set(value) = prefs.edit { putBoolean(KEY_HIDE_SHORT_VIDEOS, value) }
 
     var minVideoDurationSec: Int
         get() = prefs.getInt(KEY_MIN_VIDEO_DURATION_SEC, 30)
-        set(value) = prefs.edit().putInt(KEY_MIN_VIDEO_DURATION_SEC, value).apply()
+        set(value) = prefs.edit { putInt(KEY_MIN_VIDEO_DURATION_SEC, value) }
 
     var highRefreshRateEnabled: Boolean
         get() = prefs.getBoolean(KEY_HIGH_REFRESH_RATE, true)
-        set(value) = prefs.edit().putBoolean(KEY_HIGH_REFRESH_RATE, value).apply()
+        set(value) = prefs.edit { putBoolean(KEY_HIGH_REFRESH_RATE, value) }
+
+    var musicTimeViewRemaining: Boolean
+        get() = prefs.getBoolean(KEY_MUSIC_TIME_VIEW_REMAINING, false)
+        set(value) = prefs.edit { putBoolean(KEY_MUSIC_TIME_VIEW_REMAINING, value) }
 }

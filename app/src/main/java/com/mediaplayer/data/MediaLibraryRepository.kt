@@ -8,6 +8,7 @@ import android.os.Build
 import android.provider.DocumentsContract
 import android.provider.MediaStore
 import android.util.Log
+import androidx.core.net.toUri
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
@@ -37,27 +38,19 @@ class MediaLibraryRepository(private val context: Context) {
     }
 
     fun getCachedVideosFast(): List<MediaItemModel> {
-        return inMemoryVideos ?: emptyList()
+        return inMemoryVideos ?: getCachedVideos()
     }
 
     fun getCachedAudiosFast(): List<MediaItemModel> {
-        return inMemoryAudios ?: emptyList()
+        return inMemoryAudios ?: getCachedAudios()
     }
 
     fun getCachedVideos(): List<MediaItemModel> {
-        val cached = inMemoryVideos
-        if (cached != null) return cached
-        val loaded = readCacheFromFile(videosCacheFile)
-        inMemoryVideos = loaded
-        return loaded
+        return inMemoryVideos ?: readCacheFromFile(videosCacheFile).also { inMemoryVideos = it }
     }
 
     fun getCachedAudios(): List<MediaItemModel> {
-        val cached = inMemoryAudios
-        if (cached != null) return cached
-        val loaded = readCacheFromFile(audioCacheFile)
-        inMemoryAudios = loaded
-        return loaded
+        return inMemoryAudios ?: readCacheFromFile(audioCacheFile).also { inMemoryAudios = it }
     }
 
     suspend fun saveCachedVideos(list: List<MediaItemModel>) = withContext(Dispatchers.IO) {
@@ -70,32 +63,34 @@ class MediaLibraryRepository(private val context: Context) {
         saveCacheToFile(audioCacheFile, list)
     }
 
+    @Suppress("unused")
     suspend fun removeCachedItem(item: MediaItemModel) = withContext(Dispatchers.IO) {
         removeCachedItems(listOf(item))
     }
 
     suspend fun removeCachedItems(items: List<MediaItemModel>) = withContext(Dispatchers.IO) {
         if (items.isEmpty()) return@withContext
-        val videoIds = items.filter { it.isVideo }.map { it.id }.toSet()
-        val videoUris = items.filter { it.isVideo }.map { it.uri }.toSet()
+        val videoIds = items.asSequence().filter { it.isVideo }.map { it.id }.toSet()
+        val videoUris = items.asSequence().filter { it.isVideo }.map { it.uri }.toSet()
         if (videoIds.isNotEmpty() || videoUris.isNotEmpty()) {
-            val list = getCachedVideos().filter { it.id !in videoIds && it.uri !in videoUris }
+            val list = getCachedVideos().filter { (it.id !in videoIds) && (it.uri !in videoUris) }
             inMemoryVideos = list
             saveCacheToFile(videosCacheFile, list)
         }
 
-        val audioIds = items.filter { !it.isVideo }.map { it.id }.toSet()
-        val audioUris = items.filter { !it.isVideo }.map { it.uri }.toSet()
+        val audioIds = items.asSequence().filter { !it.isVideo }.map { it.id }.toSet()
+        val audioUris = items.asSequence().filter { !it.isVideo }.map { it.uri }.toSet()
         if (audioIds.isNotEmpty() || audioUris.isNotEmpty()) {
-            val list = getCachedAudios().filter { it.id !in audioIds && it.uri !in audioUris }
+            val list = getCachedAudios().filter { (it.id !in audioIds) && (it.uri !in audioUris) }
             inMemoryAudios = list
             saveCacheToFile(audioCacheFile, list)
         }
     }
 
+    @Suppress("unused")
     suspend fun deleteMediaFile(
         item: MediaItemModel,
-        onRequiresConsent: (android.content.IntentSender) -> Unit
+        onRequiresConsent: (android.content.IntentSender) -> Unit,
     ): Boolean {
         val deleted = deleteMediaFiles(listOf(item)) { sender, _ ->
             onRequiresConsent(sender)
@@ -105,7 +100,7 @@ class MediaLibraryRepository(private val context: Context) {
 
     suspend fun deleteMediaFiles(
         items: List<MediaItemModel>,
-        onRequiresConsent: (android.content.IntentSender, List<MediaItemModel>) -> Unit
+        onRequiresConsent: (android.content.IntentSender, List<MediaItemModel>) -> Unit,
     ): List<MediaItemModel> = withContext(Dispatchers.IO) {
         if (items.isEmpty()) return@withContext emptyList()
         val contentResolver = context.contentResolver
@@ -147,7 +142,7 @@ class MediaLibraryRepository(private val context: Context) {
 
             // 3. File system fallback if path is accessible and not already deferred to consent
             if (!isDeleted && !remainingForConsent.contains(item)) {
-                if (uri.scheme == "file" || (item.folderPath.isNotEmpty() && item.title.isNotEmpty())) {
+                if ((uri.scheme == "file") || (item.folderPath.isNotEmpty() && item.title.isNotEmpty())) {
                     try {
                         val path = if (uri.scheme == "file") uri.path else "${item.folderPath}/${item.title}"
                         if (path != null) {
@@ -204,7 +199,7 @@ class MediaLibraryRepository(private val context: Context) {
     }
 
     private fun readCacheFromFile(file: File): List<MediaItemModel> {
-        if (!file.exists() || file.length() == 0L) return emptyList()
+        if (!file.exists() || (file.length() == 0L)) return emptyList()
         return try {
             val jsonStr = file.readText()
             val jsonArray = JSONArray(jsonStr)
@@ -213,7 +208,7 @@ class MediaLibraryRepository(private val context: Context) {
                 val obj = jsonArray.getJSONObject(i)
                 val parsedUri = Uri.parse(obj.getString("uri"))
                 val isVideo = obj.optBoolean("isVideo", false)
-                val rawArtUri = obj.optString("artworkUri", "").takeIf { it.isNotEmpty() }?.let { Uri.parse(it) }
+                val rawArtUri = obj.optString("artworkUri", "").takeIf { it.isNotEmpty() }?.toUri()
                 // Sanitize audio artwork: if an audio file was saved with its own audio playback URI as artwork,
                 // or if it points to a raw audio track URI rather than albumart/image, clear it so Coil never stalls.
                 val sanitizedArtUri = if (!isVideo && rawArtUri != null && (rawArtUri == parsedUri || rawArtUri.toString().contains("/audio/media/"))) {
@@ -241,7 +236,7 @@ class MediaLibraryRepository(private val context: Context) {
                         folderPath = obj.optString("folderPath", ""),
                         codecBadge = obj.optString("codecBadge", ""),
                         dateAdded = obj.optLong("dateAdded", 0L),
-                        isNew = obj.optBoolean("isNew", false)
+                        isNew = obj.optBoolean("isNew", false),
                     )
                 )
             }
@@ -255,7 +250,8 @@ class MediaLibraryRepository(private val context: Context) {
     private fun saveCacheToFile(file: File, list: List<MediaItemModel>) {
         try {
             val jsonArray = JSONArray()
-            for (item in list) {
+            for (i in list.indices) {
+                val item = list[i]
                 val obj = JSONObject()
                 obj.put("id", item.id)
                 obj.put("uri", item.uri.toString())
@@ -345,7 +341,7 @@ class MediaLibraryRepository(private val context: Context) {
                     // Point directly to MediaStore's indexed album art URI if album exists, or null.
                     // Never point artworkUri to the raw audio track contentUri (which triggers expensive ID3 extraction on 100+ files).
                     val artworkUri = if (albumId > 0) {
-                        ContentUris.withAppendedId(Uri.parse("content://media/external/audio/albumart"), albumId)
+                        ContentUris.withAppendedId("content://media/external/audio/albumart".toUri(), albumId)
                     } else null
                     val codecInfo = formatAudioCodecBadge(mime)
 
@@ -438,7 +434,7 @@ class MediaLibraryRepository(private val context: Context) {
                     }
 
                     val folderName = if (!rawPath.isNullOrEmpty()) {
-                        val f = java.io.File(rawPath)
+                        val f = File(rawPath)
                         f.parentFile?.name ?: bucketName
                     } else {
                         bucketName

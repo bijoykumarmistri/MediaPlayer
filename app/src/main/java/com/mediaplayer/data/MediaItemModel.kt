@@ -23,7 +23,7 @@ data class MediaItemModel(
     val folderPath: String = "",
     val codecBadge: String = "",
     val dateAdded: Long = 0L,
-    val isNew: Boolean = false
+    val isNew: Boolean = false,
 ) {
     fun toMedia3Item(): MediaItem {
         val metadataBuilder = MediaMetadata.Builder()
@@ -48,7 +48,7 @@ data class MediaItemModel(
 
         val cleanMime = when {
             uri.scheme == "file" -> null // Auto-sniff container format (MKV, MP4, AVI, WebM, TS) directly from file headers
-            mimeType.isBlank() || mimeType == "video/*" || mimeType == "audio/*" -> null
+            (mimeType.isBlank() || mimeType == "video/*" || mimeType == "audio/*") -> null
             mimeType.startsWith("video/") || mimeType.startsWith("audio/") || mimeType.startsWith("application/") -> mimeType
             else -> null
         }

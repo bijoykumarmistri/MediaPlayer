@@ -1,7 +1,11 @@
 package com.mxplayer.mpv
 
 import android.content.Context
+import android.media.AudioAttributes
+import android.media.AudioFocusRequest
+import android.media.AudioManager
 import android.net.Uri
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.os.ParcelFileDescriptor
@@ -24,7 +28,7 @@ import java.util.concurrent.atomic.AtomicInteger
  * - [SW]: Pure FFmpeg CPU software decoding (`hwdec=no`).
  */
 enum class DecoderMode(val label: String, val hwdecValue: String) {
-    HW_PLUS(label = "HW+", hwdecValue = "mediacodec"),
+    HW_PLUS(label = "HW+", hwdecValue = "mediacodec-copy"),
     HW(label = "HW", hwdecValue = "mediacodec-copy"),
     SW(label = "SW", hwdecValue = "no");
 
@@ -34,6 +38,7 @@ enum class DecoderMode(val label: String, val hwdecValue: String) {
         SW -> HW_PLUS
     }
 }
+
 
 /**
  * Aspect Ratio / Resize mode matching MX Player's video scaling presets.
@@ -128,7 +133,7 @@ interface MpvEngineListener {
  */
 class NativeMpvEngine(
     private val listener: MpvEngineListener
-) : SurfaceHolder.Callback, MPVLib.EventObserver {
+) : SurfaceHolder.Callback, MPVLib.EventObserver, MPVLib.LogObserver {
 
     private val mainHandler = Handler(Looper.getMainLooper())
     private val isInitialized = AtomicBoolean(false)
@@ -159,6 +164,60 @@ class NativeMpvEngine(
     @Volatile
     private var lastVideoHeight: Int = 0
 
+    private var contextRef: WeakReference<Context>? = null
+    private var audioFocusRequest: AudioFocusRequest? = null
+
+    private fun requestAudioFocus(context: Context) {
+        val am = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val req = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
+                .setAudioAttributes(
+                    AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_MEDIA)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_MOVIE)
+                        .build()
+                )
+                .setOnAudioFocusChangeListener { focusChange ->
+                    when (focusChange) {
+                        AudioManager.AUDIOFOCUS_LOSS -> {
+                            setPaused(true)
+                        }
+                        AudioManager.AUDIOFOCUS_LOSS_TRANSIENT,
+                        AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
+                            setPaused(true)
+                        }
+                    }
+                }
+                .build()
+            audioFocusRequest = req
+            am.requestAudioFocus(req)
+        } else {
+            @Suppress("DEPRECATION")
+            am.requestAudioFocus(
+                { focusChange ->
+                    if (focusChange == AudioManager.AUDIOFOCUS_LOSS ||
+                        focusChange == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT) {
+                        setPaused(true)
+                    }
+                },
+                AudioManager.STREAM_MUSIC,
+                AudioManager.AUDIOFOCUS_GAIN
+            )
+        }
+    }
+
+    private fun abandonAudioFocus(context: Context?) {
+        val ctx = context ?: return
+        val am = ctx.getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            audioFocusRequest?.let { am.abandonAudioFocusRequest(it) }
+            audioFocusRequest = null
+        } else {
+            @Suppress("DEPRECATION")
+            am.abandonAudioFocus(null)
+        }
+    }
+
     /**
      * Initializes the native libmpv context and applies MX Player HW+ options.
      * Safe to call multiple times; subsequent calls are no-ops until [destroy].
@@ -167,11 +226,13 @@ class NativeMpvEngine(
         if (isDestroyed.get() || !isInitialized.compareAndSet(false, true)) return
 
         val appContext = context.applicationContext
+        contextRef = WeakReference(appContext)
         MPVLib.create(appContext)
         configureEngineOptions()
         MPVLib.init()
 
         MPVLib.addObserver(this)
+        MPVLib.addLogObserver(this)
         observeCoreProperties()
     }
 
@@ -180,35 +241,54 @@ class NativeMpvEngine(
         MPVLib.setOptionString("vo", "gpu")
         MPVLib.setOptionString("gpu-context", "android")
         MPVLib.setOptionString("opengl-es", "yes")
+        MPVLib.setOptionString("force-window", "yes")
 
-        // Default decoder: MX Player HW+ equivalent (FFmpeg RAM demux -> MediaCodec zero-copy)
+        // Default decoder: Hardware-accelerated MediaCodec zero-copy (HW+)
         MPVLib.setOptionString("hwdec", DecoderMode.HW_PLUS.hwdecValue)
         MPVLib.setOptionString("hwdec-codecs", "all")
 
         // High-performance multi-threaded decoding
         MPVLib.setOptionString("vd-lavc-threads", "0") // Auto-detect all CPU cores
         MPVLib.setOptionString("vd-lavc-fast", "yes")
-        MPVLib.setOptionString("framedrop", "vo") // Drop video output frames under heavy system load
+        MPVLib.setOptionString("vd-lavc-dr", "yes")
+        MPVLib.setOptionString("framedrop", "vo") // Drop late frames in vo to maintain smooth playback without stutter
         MPVLib.setOptionString("demuxer-thread", "yes") // Isolated native demuxer thread
 
-        // Aggressive in-memory packet ring buffer (150MiB RAM) for instant seeking
+        // Aggressive in-RAM demuxer ring buffer
         MPVLib.setOptionString("cache", "yes")
         MPVLib.setOptionString("cache-pause", "no")
-        MPVLib.setOptionString("cache-pause-wait", "0")
-        MPVLib.setOptionString("cache-pause-initial", "no")
         MPVLib.setOptionString("demuxer-seekable-cache", "yes")
         MPVLib.setOptionString("demuxer-max-bytes", "150MiB")
         MPVLib.setOptionString("demuxer-max-back-bytes", "50MiB")
         MPVLib.setOptionString("demuxer-readahead-secs", "30")
 
-        // Fast keyframe-aligned seeking matching MX Player HW+ (zero decode preroll lag)
+        // Seeking matching HW+
         MPVLib.setOptionString("hr-seek", "no")
         MPVLib.setOptionString("hr-seek-framedrop", "yes")
 
-        // Android AudioTrack output with low audio latency, pitch-corrected speed control and software boost headroom
-        MPVLib.setOptionString("ao", "audiotrack,opensles")
-        MPVLib.setOptionString("audio-pitch-correction", "yes")
+        // Network streaming & TLS options for HLS, DASH, RTSP, and direct HTTP/HTTPS video streams
+        MPVLib.setOptionString("user-agent", "Mozilla/5.0 (Linux; Android 14) MediaPlayer/2.0")
+        MPVLib.setOptionString("tls-verify", "no")
+        MPVLib.setOptionString("network-timeout", "15")
+        MPVLib.setOptionString("hls-bitrate", "max")
+        MPVLib.setOptionString("stream-lavf-o", "reconnect=1,reconnect_streamed=1,reconnect_delay_max=5")
+
+        // Logging
+        MPVLib.setOptionString("msg-level", "all=v")
+
+        // Preserve full theatrical dynamic range (ZERO DRC on AC-3 / E-AC-3 / TrueHD)
+        MPVLib.setOptionString("ad-lavc-ac3drc", "0")
+        MPVLib.setOptionString("ad-lavc-downmix", "yes")
+        MPVLib.setOptionString("audio-normalize-downmix", "no")
+
+        // Downmixing to stereo with universal formats compatible with Android AudioTrack
+        MPVLib.setOptionString("audio-channels", "stereo")
+
+        // Pure standard Android AudioTrack output for native Android audio mixer to USB IEM
+        MPVLib.setOptionString("ao", "audiotrack")
         MPVLib.setOptionString("audio-buffer", "0.2")
+        MPVLib.setOptionString("audio-pitch-correction", "yes")
+        MPVLib.setOptionString("volume", "100")
         MPVLib.setOptionString("volume-max", "200")
 
         // Subtitle and OSD styling
@@ -219,7 +299,6 @@ class NativeMpvEngine(
         MPVLib.setOptionString("sub-font", "sans-serif")
 
         // Player lifecycle & UI delegation (Compose renders all overlays)
-        MPVLib.setOptionString("force-window", "no")
         MPVLib.setOptionString("keep-open", "yes")
         MPVLib.setOptionString("save-position-on-quit", "no")
         MPVLib.setOptionString("osc", "no")
@@ -248,18 +327,32 @@ class NativeMpvEngine(
             initialize(surfaceView.context)
         }
 
-        detachFromSurfaceView()
+        val currentView = surfaceViewRef?.get()
+        if (currentView === surfaceView && isSurfaceAttached.get()) {
+            return
+        }
+
+        if (currentView != null && currentView !== surfaceView) {
+            currentView.holder.removeCallback(this)
+            detachSurfaceInternal()
+        }
+
         surfaceViewRef = WeakReference(surfaceView)
         val holder = surfaceView.holder
+        holder.removeCallback(this)
         holder.addCallback(this)
 
         if (holder.surface != null && holder.surface.isValid) {
-            attachSurfaceInternal(holder, surfaceView.width, surfaceView.height)
+            val frame = holder.surfaceFrame
+            val w = if (frame.width() > 0) frame.width() else surfaceView.width
+            val h = if (frame.height() > 0) frame.height() else surfaceView.height
+            attachSurfaceInternal(holder, w, h)
         }
     }
 
     fun detachFromSurfaceView() {
-        surfaceViewRef?.get()?.holder?.removeCallback(this)
+        val oldView = surfaceViewRef?.get()
+        oldView?.holder?.removeCallback(this)
         surfaceViewRef = null
         detachSurfaceInternal()
     }
@@ -267,13 +360,19 @@ class NativeMpvEngine(
     override fun surfaceCreated(holder: SurfaceHolder) {
         if (isDestroyed.get() || !isInitialized.get()) return
         val frame = holder.surfaceFrame
-        attachSurfaceInternal(holder, frame.width(), frame.height())
+        val w = if (frame.width() > 0) frame.width() else surfaceViewRef?.get()?.width ?: 0
+        val h = if (frame.height() > 0) frame.height() else surfaceViewRef?.get()?.height ?: 0
+        attachSurfaceInternal(holder, w, h)
     }
 
     override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
-        if (isDestroyed.get() || !isInitialized.get() || !isSurfaceAttached.get()) return
+        if (isDestroyed.get() || !isInitialized.get()) return
         if (width > 0 && height > 0) {
-            MPVLib.setPropertyString("android-surface-size", "${width}x${height}")
+            try {
+                MPVLib.setPropertyString("android-surface-size", "${width}x${height}")
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to update surface size: ${e.message}")
+            }
         }
     }
 
@@ -282,33 +381,58 @@ class NativeMpvEngine(
     }
 
     private fun attachSurfaceInternal(holder: SurfaceHolder, width: Int, height: Int) {
-        if (isSurfaceAttached.compareAndSet(false, true)) {
+        if (!holder.surface.isValid) return
+        try {
             MPVLib.attachSurface(holder.surface)
-            MPVLib.setOptionString("force-window", "yes")
+            isSurfaceAttached.set(true)
             MPVLib.setPropertyString("vo", "gpu")
-            if (width > 0 && height > 0) {
-                MPVLib.setPropertyString("android-surface-size", "${width}x${height}")
+            MPVLib.setPropertyString("gpu-context", "android")
+            MPVLib.setPropertyString("opengl-es", "yes")
+            MPVLib.setPropertyString("vid", "auto")
+            MPVLib.setPropertyString("hwdec", currentDecoderMode.hwdecValue)
+
+            val w = if (width > 0) width else {
+                val fWidth = holder.surfaceFrame.width()
+                if (fWidth > 0) fWidth else surfaceViewRef?.get()?.width ?: 0
+            }
+            val h = if (height > 0) height else {
+                val fHeight = holder.surfaceFrame.height()
+                if (fHeight > 0) fHeight else surfaceViewRef?.get()?.height ?: 0
+            }
+            if (w > 0 && h > 0) {
+                MPVLib.setPropertyString("android-surface-size", "${w}x${h}")
             }
 
             // Restore resize mode on newly attached surface
             applyResizeModeInternal(currentResizeMode)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error attaching surface to libmpv", e)
+        }
 
-            val queued = pendingMediaPath
-            val queuedStart = pendingStartPositionMs
-            if (queued != null) {
-                pendingMediaPath = null
-                pendingStartPositionMs = 0L
-                loadPathInternal(queued, queuedStart)
-            }
+        val queued = pendingMediaPath
+        val queuedStart = pendingStartPositionMs
+        if (queued != null) {
+            pendingMediaPath = null
+            pendingStartPositionMs = 0L
+            loadPathInternal(queued, queuedStart)
+        } else {
+            // Force redraw/refresh on newly attached surface if video is already loaded
+            try {
+                MPVLib.command(arrayOf("seek", "0", "relative+exact"))
+            } catch (_: Exception) {}
         }
     }
 
     private fun detachSurfaceInternal() {
         if (isDestroyed.get() || !isInitialized.get()) return
-        if (isSurfaceAttached.compareAndSet(true, false)) {
-            MPVLib.setPropertyString("vo", "null")
-            MPVLib.setOptionString("force-window", "no")
-            MPVLib.detachSurface()
+        if (isSurfaceAttached.getAndSet(false)) {
+            try {
+                // Immediately shut down OpenGL rendering pipeline to prevent abandoned BufferQueue dequeue crashes
+                MPVLib.setPropertyString("vo", "null")
+                MPVLib.detachSurface()
+            } catch (e: Exception) {
+                Log.e(TAG, "Error detaching surface from libmpv", e)
+            }
         }
     }
 
@@ -323,12 +447,33 @@ class NativeMpvEngine(
             initialize(context)
         }
 
+        val scheme = uri.scheme?.lowercase(Locale.ROOT)
+        // Direct network streams (http, https, rtsp, rtmp, mms, etc.) bypass ContentResolver and pass directly to libmpv
+        if (scheme in listOf("http", "https", "rtsp", "rtmp", "mms")) {
+            val urlString = uri.toString()
+            val previousFd = activeDetachedFd.getAndSet(NO_FD)
+            closeFdQuietly(previousFd)
+
+            if (isSurfaceAttached.get()) {
+                mainHandler.post { loadPathInternal(urlString, startPositionMs) }
+            } else {
+                pendingMediaPath = urlString
+                pendingStartPositionMs = startPositionMs
+            }
+            return true
+        }
+
         return try {
-            val pfd = context.contentResolver.openFileDescriptor(uri, "r")
-                ?: run {
-                    mainHandler.post { listener.onError("Unable to open file descriptor for selected video.") }
-                    return false
+            val pfd = when {
+                uri.scheme == "file" && uri.path != null -> {
+                    android.os.ParcelFileDescriptor.open(java.io.File(uri.path!!), android.os.ParcelFileDescriptor.MODE_READ_ONLY)
                 }
+                else -> context.contentResolver.openFileDescriptor(uri, "r")
+            }
+            if (pfd == null) {
+                mainHandler.post { listener.onError("Unable to open file descriptor for selected video.") }
+                return false
+            }
 
             val rawFd = pfd.detachFd()
             val previousFd = activeDetachedFd.getAndSet(rawFd)
@@ -361,9 +506,39 @@ class NativeMpvEngine(
         } else {
             MPVLib.setOptionString("start", "none")
         }
+        MPVLib.setPropertyString("audio-channels", "stereo")
+        MPVLib.setPropertyString("ao", "audiotrack")
+        MPVLib.setPropertyBoolean("mute", false)
+        MPVLib.setPropertyDouble("volume", 100.0)
+
+        if (isSurfaceAttached.get()) {
+            try {
+                MPVLib.setPropertyString("vo", "gpu")
+                MPVLib.setPropertyString("vid", "auto")
+                MPVLib.setPropertyString("hwdec", currentDecoderMode.hwdecValue)
+                val view = surfaceViewRef?.get()
+                val w = view?.width ?: 0
+                val h = view?.height ?: 0
+                if (w > 0 && h > 0) {
+                    MPVLib.setPropertyString("android-surface-size", "${w}x${h}")
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed setting options before loadfile: ${e.message}")
+            }
+        }
+
         isPausedState = false
         MPVLib.command(arrayOf("loadfile", path, "replace"))
         MPVLib.setPropertyBoolean("pause", false)
+
+        if (isSurfaceAttached.get()) {
+            try {
+                MPVLib.setPropertyString("vo", "gpu")
+                MPVLib.setPropertyString("vid", "auto")
+            } catch (_: Exception) {}
+        }
+
+        contextRef?.get()?.let { requestAudioFocus(it) }
         mainHandler.post { listener.onPausedChanged(false) }
     }
 
@@ -380,6 +555,11 @@ class NativeMpvEngine(
         if (isDestroyed.get() || !isInitialized.get()) return
         isPausedState = paused
         MPVLib.setPropertyBoolean("pause", paused)
+        if (paused) {
+            contextRef?.get()?.let { abandonAudioFocus(it) }
+        } else {
+            contextRef?.get()?.let { requestAudioFocus(it) }
+        }
     }
 
     fun togglePlayPause() {
@@ -391,6 +571,24 @@ class NativeMpvEngine(
     fun setSoftwareVolume(percent: Int) {
         if (isDestroyed.get() || !isInitialized.get()) return
         MPVLib.setPropertyDouble("volume", percent.coerceIn(0, 200).toDouble())
+    }
+
+    /**
+     * Completely stops playback, terminates demuxer/decoders, and releases Android AudioTrack.
+     */
+    fun stop() {
+        if (isDestroyed.get() || !isInitialized.get()) return
+        isPausedState = true
+        try {
+            MPVLib.setPropertyBoolean("pause", true)
+            MPVLib.command(arrayOf("stop"))
+            if (!isSurfaceAttached.get()) {
+                MPVLib.setPropertyString("vo", "null")
+            }
+        } catch (_: Exception) {}
+        contextRef?.get()?.let { abandonAudioFocus(it) }
+        closeFdQuietly(activeDetachedFd.getAndSet(NO_FD))
+        mainHandler.post { listener.onPausedChanged(true) }
     }
 
     // region Track Selection & Delay Sync
@@ -433,6 +631,10 @@ class NativeMpvEngine(
         when (type) {
             "audio" -> MPVLib.setPropertyInt("aid", id)
             "sub" -> MPVLib.setPropertyInt("sid", id)
+            "video" -> {
+                MPVLib.setPropertyInt("vid", id)
+                MPVLib.setPropertyString("vo", "gpu")
+            }
         }
     }
 
@@ -441,6 +643,7 @@ class NativeMpvEngine(
         when (type) {
             "audio" -> MPVLib.setPropertyString("aid", "no")
             "sub" -> MPVLib.setPropertyString("sid", "no")
+            "video" -> MPVLib.setPropertyString("vid", "no")
         }
     }
 
@@ -651,14 +854,14 @@ class NativeMpvEngine(
         if (!isInitialized.get()) return
 
         try {
+            contextRef?.get()?.let { abandonAudioFocus(it) }
             mainHandler.removeCallbacksAndMessages(null)
             MPVLib.removeObserver(this)
+            MPVLib.removeLogObserver(this)
             surfaceViewRef?.get()?.holder?.removeCallback(this)
             surfaceViewRef = null
 
             if (isSurfaceAttached.compareAndSet(true, false)) {
-                MPVLib.setPropertyString("vo", "null")
-                MPVLib.setOptionString("force-window", "no")
                 MPVLib.detachSurface()
             }
 
@@ -723,6 +926,19 @@ class NativeMpvEngine(
     override fun event(eventId: Int) {
         when (eventId) {
             MPVLib.MPV_EVENT_FILE_LOADED -> {
+                if (isSurfaceAttached.get()) {
+                    try {
+                        MPVLib.setPropertyString("vo", "gpu")
+                        MPVLib.setPropertyString("vid", "auto")
+                        val view = surfaceViewRef?.get()
+                        if (view != null && view.width > 0 && view.height > 0) {
+                            MPVLib.setPropertyString("android-surface-size", "${view.width}x${view.height}")
+                        }
+                        applyResizeModeInternal(currentResizeMode)
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Failed restoring video surface on file loaded: ${e.message}")
+                    }
+                }
                 mainHandler.post {
                     listener.onTracksChanged()
                     listener.onFileLoaded()
@@ -731,6 +947,21 @@ class NativeMpvEngine(
             // Note: MPV_EVENT_END_FILE is intentionally NOT mapped to onEndOfFile()
             // because libmpv fires MPV_EVENT_END_FILE when stopping, replacing, or loading files.
             // Natural playback end-of-file is detected exclusively via the observed "eof-reached" property.
+        }
+    }
+
+    // endregion
+
+    // region MPVLib.LogObserver
+
+    override fun logMessage(prefix: String, level: Int, text: String) {
+        val clean = text.trimEnd()
+        when (level) {
+            MPVLib.MPV_LOG_LEVEL_FATAL, MPVLib.MPV_LOG_LEVEL_ERROR -> Log.e(TAG, "[$prefix] $clean")
+            MPVLib.MPV_LOG_LEVEL_WARN -> Log.w(TAG, "[$prefix] $clean")
+            MPVLib.MPV_LOG_LEVEL_INFO -> Log.i(TAG, "[$prefix] $clean")
+            MPVLib.MPV_LOG_LEVEL_V, MPVLib.MPV_LOG_LEVEL_DEBUG -> Log.d(TAG, "[$prefix] $clean")
+            else -> Log.v(TAG, "[$prefix] $clean")
         }
     }
 

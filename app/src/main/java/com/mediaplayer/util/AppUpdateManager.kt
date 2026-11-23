@@ -3,8 +3,8 @@ package com.mediaplayer.util
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.net.Uri
 import android.util.Log
+import androidx.core.net.toUri
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
@@ -20,7 +20,7 @@ data class AppReleaseInfo(
     val releaseUrl: String,
     val downloadUrl: String?,
     val isUpdateAvailable: Boolean,
-    val currentVersionName: String
+    val currentVersionName: String,
 )
 
 object AppUpdateManager {
@@ -79,7 +79,7 @@ object AppUpdateManager {
                         currentVersionName = currentVersion
                     )
                 )
-            } else if (responseCode !in 200..299) {
+            } else if ((responseCode !in 200..299)) {
                 return@withContext Result.failure(
                     Exception("GitHub API error: HTTP $responseCode")
                 )
@@ -165,7 +165,7 @@ object AppUpdateManager {
      */
     fun openUrl(context: Context, url: String) {
         try {
-            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
+            val intent = Intent(Intent.ACTION_VIEW, url.toUri()).apply {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
             context.startActivity(intent)
