@@ -1,4 +1,4 @@
-package com.mxplayer.mpv
+package com.bkm.player.mpv
 
 import android.app.Activity
 import android.content.Context
@@ -40,13 +40,11 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -109,6 +107,7 @@ import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -158,16 +157,36 @@ import kotlin.math.roundToInt
 import kotlin.math.sqrt
 
 // ============================================================================
-// MX PLAYER SIGNATURE DESIGN SYSTEM & COLOR PALETTE
+// MATERIAL YOU 3 DESIGN SYSTEM & DYNAMIC COLOR PALETTE
 // ============================================================================
-private val MxBlue = Color(0xFF007AFF)             // MX Player signature electric blue accent
-private val MxRed = Color(0xFFFF3B30)              // MX Player volume boost (>100%) & mute alert
-private val MxWhite = Color(0xFFFFFFFF)            // Sharp white icons and text
-private val MxSubtext = Color(0xFFB0B0B0)          // Secondary subtext
-private val MxDialogBg = Color(0xF21C1C1E)         // MX Player dark translucent popup dialog
-private val MxHudBg = Color(0xDC000000)            // MX Player gesture HUD overlay background
-private val MxPillBg = Color(0x40000000)           // Dark pill background for badges
-private val MxMenuBg = Color(0xF218181C)           // Modern dark translucent popup menu background
+private val MxBlue: Color
+    @Composable
+    @ReadOnlyComposable
+    get() = MaterialTheme.colorScheme.primary
+
+private val MxRed = Color(0xFFFF3B30)              // Volume boost (>100%) & mute alert
+private val MxWhite = Color(0xFFFFFFFF)            // Sharp white icons and text for video overlay
+private val MxSubtext: Color
+    @Composable
+    @ReadOnlyComposable
+    get() = MaterialTheme.colorScheme.onSurfaceVariant
+
+private val MxDialogBg: Color
+    @Composable
+    @ReadOnlyComposable
+    get() = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.95f)
+
+private val MxHudBg = Color(0xDC000000)            // Video player gesture HUD overlay background
+
+private val MxPillBg: Color
+    @Composable
+    @ReadOnlyComposable
+    get() = MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.50f)
+
+private val MxMenuBg: Color
+    @Composable
+    @ReadOnlyComposable
+    get() = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.95f)
 
 /**
  * Screen orientation mode for video playback:
@@ -340,9 +359,8 @@ fun VideoPlayerScreen(
     var showAspectHud by remember { mutableStateOf(false) }
     var aspectHudText by remember { mutableStateOf("") }
 
-    // Sleep Timer Job & Remaining time
-    var sleepTimerJob by remember { mutableStateOf<Job?>(null) }
-    var sleepTimerRemainingMinutes by remember { mutableIntStateOf(0) }
+    // Sleep Timer Remaining time from ViewModel
+    val sleepTimerRemainingMinutes by viewModel.sleepTimerMinutes.collectAsStateWithLifecycle()
 
     // Interactive Pinch-to-Zoom & Pan states (1.0x .. 5.0x)
     var zoomScale by remember { mutableFloatStateOf(1.0f) }
@@ -433,7 +451,7 @@ fun VideoPlayerScreen(
 
         onDispose {
             val window = activity?.window
-            if (window != null && !isInPipMode) {
+            if (window != null && activity?.isInPictureInPictureMode != true) {
                 val insetsController = WindowCompat.getInsetsController(window, window.decorView)
                 insetsController.show(WindowInsetsCompat.Type.systemBars())
                 window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -460,7 +478,7 @@ fun VideoPlayerScreen(
 
     DisposableEffect(Unit) {
         onDispose {
-            activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_USER_PORTRAIT
+            activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
         }
     }
 
@@ -1127,8 +1145,8 @@ fun VideoPlayerScreen(
 
             // 10. (Child Lock moved to top of Z-stack below controls overlay)
 
-            // 11. MX Player Top & Bottom Controls Overlays
-            MxPlayerControlsOverlay(
+            // 11. BKM Player Top & Bottom Controls Overlays
+            BkmPlayerControlsOverlay(
                 isVisible = uiState.controlsVisible && !uiState.isScrubbing && !isScreenLocked,
                 uiState = uiState,
                 orientationMode = orientationMode,
@@ -1416,23 +1434,13 @@ fun VideoPlayerScreen(
         MxSleepTimerDialog(
             currentMinutes = sleepTimerRemainingMinutes,
             onSetMinutes = { minutes ->
-                sleepTimerJob?.cancel()
                 if (minutes > 0) {
-                    sleepTimerRemainingMinutes = minutes
-                    sleepTimerJob = scope.launch {
-                        var left = minutes
-                        while (left > 0) {
-                            delay(60_000L)
-                            left--
-                            sleepTimerRemainingMinutes = left
-                        }
-                        viewModel.pausePlayback()
+                    viewModel.setSleepTimer(minutes) {
                         Toast.makeText(context, "Sleep Timer finished. Video paused.", Toast.LENGTH_LONG).show()
                     }
                     Toast.makeText(context, "Sleep timer set for $minutes min", Toast.LENGTH_SHORT).show()
                 } else {
-                    sleepTimerRemainingMinutes = 0
-                    sleepTimerJob = null
+                    viewModel.setSleepTimer(0)
                     Toast.makeText(context, "Sleep timer turned off", Toast.LENGTH_SHORT).show()
                 }
                 showSleepTimerDialog = false
@@ -1494,7 +1502,7 @@ fun VideoPlayerScreen(
 // ============================================================================
 
 @Composable
-private fun MxPlayerControlsOverlay(
+private fun BkmPlayerControlsOverlay(
     isVisible: Boolean,
     uiState: PlayerUiState,
     orientationMode: OrientationMode,
@@ -1538,12 +1546,18 @@ private fun MxPlayerControlsOverlay(
     val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
     var showMoreDropdown by remember { mutableStateOf(false) }
 
-    Box(modifier = Modifier.fillMaxSize()) {
-        // TOP BAR
-        AnimatedVisibility(
-            visible = isVisible,
-            enter = slideInVertically(tween(180)) { -it } + fadeIn(tween(180)),
-            exit = slideOutVertically(tween(180)) { -it } + fadeOut(tween(180)),
+    AnimatedVisibility(
+        visible = isVisible,
+        enter = fadeIn(tween(180)),
+        exit = fadeOut(tween(180)),
+        modifier = Modifier.fillMaxSize()
+    ) {
+        Box(modifier = Modifier.fillMaxSize()) {
+            // TOP BAR
+            AnimatedVisibility(
+                visible = isVisible,
+                enter = slideInVertically(tween(180)) { -it } + fadeIn(tween(180)),
+                exit = slideOutVertically(tween(180)) { -it } + fadeOut(tween(180)),
             modifier = Modifier.align(Alignment.TopCenter)
         ) {
             Column(
@@ -1704,7 +1718,7 @@ private fun MxPlayerControlsOverlay(
                         }
 
                         // Streamlined 3-Dot Overflow Menu (Settings not available on the player screen)
-                        MxPlayerOverflowMenu(
+                        BkmPlayerOverflowMenu(
                             expanded = showMoreDropdown,
                             onDismissRequest = { showMoreDropdown = false },
                             uiState = uiState,
@@ -2268,13 +2282,14 @@ private fun MxPlayerControlsOverlay(
         }
     }
 }
+}
 
 // ============================================================================
 // STREAMLINED 3-DOT OVERFLOW MENU (ADVANCED SETTINGS NOT ON SCREEN)
 // ============================================================================
 
 @Composable
-private fun MxPlayerOverflowMenu(
+private fun BkmPlayerOverflowMenu(
     expanded: Boolean,
     onDismissRequest: () -> Unit,
     uiState: PlayerUiState,
@@ -2325,7 +2340,7 @@ private fun MxPlayerOverflowMenu(
             if (uiState.videoWidth > 0 && uiState.videoHeight > 0) {
                 Surface(
                     shape = RoundedCornerShape(6.dp),
-                    color = Color(0x33007AFF)
+                    color = MxBlue.copy(alpha = 0.22f)
                 ) {
                     Text(
                         text = "${uiState.videoHeight}p",
@@ -2478,7 +2493,7 @@ private fun MxMenuActionItem(
                     Spacer(modifier = Modifier.width(6.dp))
                     Surface(
                         shape = RoundedCornerShape(6.dp),
-                        color = Color(0x22007AFF)
+                        color = MxBlue.copy(alpha = 0.18f)
                     ) {
                         Text(
                             text = trailing,
@@ -2516,7 +2531,7 @@ private fun MxMenuToggleItem(
             ) {
                 Surface(
                     shape = RoundedCornerShape(8.dp),
-                    color = if (checked) Color(0x33007AFF) else Color(0x1AFFFFFF),
+                    color = if (checked) MxBlue.copy(alpha = 0.22f) else Color(0x1AFFFFFF),
                     modifier = Modifier.size(30.dp)
                 ) {
                     Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
@@ -3119,7 +3134,7 @@ private fun MxSpeedDialog(
                         shape = RoundedCornerShape(8.dp),
                         contentPadding = PaddingValues(0.dp),
                         colors = ButtonDefaults.filledTonalButtonColors(
-                            containerColor = if (abs(currentSpeed - 1.0) < 0.01) MxBlue else Color(0x33007AFF)
+                            containerColor = if (abs(currentSpeed - 1.0) < 0.01) MxBlue else MxBlue.copy(alpha = 0.22f)
                         )
                     ) {
                         Text(
@@ -3355,7 +3370,7 @@ private fun MxAbRepeatDialog(
                         FilledTonalButton(
                             onClick = onSetPointA,
                             shape = RoundedCornerShape(6.dp),
-                            colors = ButtonDefaults.filledTonalButtonColors(containerColor = Color(0x33007AFF)),
+                            colors = ButtonDefaults.filledTonalButtonColors(containerColor = MxBlue.copy(alpha = 0.22f)),
                             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
                             modifier = Modifier.height(34.dp)
                         ) {
@@ -3365,7 +3380,7 @@ private fun MxAbRepeatDialog(
                             onClick = onSetPointB,
                             enabled = isPointBEnabled,
                             shape = RoundedCornerShape(6.dp),
-                            colors = ButtonDefaults.filledTonalButtonColors(containerColor = Color(0x33007AFF)),
+                            colors = ButtonDefaults.filledTonalButtonColors(containerColor = MxBlue.copy(alpha = 0.22f)),
                             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
                             modifier = Modifier.height(34.dp)
                         ) {
@@ -3498,7 +3513,7 @@ private fun MxSyncDelayAdjuster(
                 modifier = Modifier.weight(1f).height(32.dp),
                 shape = RoundedCornerShape(4.dp),
                 contentPadding = PaddingValues(0.dp),
-                colors = ButtonDefaults.filledTonalButtonColors(containerColor = Color(0x33007AFF))
+                colors = ButtonDefaults.filledTonalButtonColors(containerColor = MxBlue.copy(alpha = 0.22f))
             ) {
                 Text("Reset", fontSize = 11.sp, color = MxBlue, fontWeight = FontWeight.Bold)
             }
@@ -3605,8 +3620,6 @@ private fun MpvSurfaceCanvas(
     engine: NativeMpvEngine,
     modifier: Modifier = Modifier
 ) {
-    var surfaceViewRef by remember { mutableStateOf<SurfaceView?>(null) }
-
     DisposableEffect(engine) {
         onDispose {
             engine.detachFromSurfaceView()
@@ -3618,17 +3631,14 @@ private fun MpvSurfaceCanvas(
         factory = { ctx ->
             SurfaceView(ctx).apply {
                 keepScreenOn = true
-                surfaceViewRef = this
                 engine.attachToSurfaceView(this)
             }
         },
         update = { view ->
-            if (surfaceViewRef !== view) {
-                surfaceViewRef = view
-                engine.attachToSurfaceView(view)
-            }
+            engine.attachToSurfaceView(view)
         },
-        onRelease = {
+        onRelease = { view ->
+            view.holder.removeCallback(engine)
             engine.detachFromSurfaceView()
         }
     )

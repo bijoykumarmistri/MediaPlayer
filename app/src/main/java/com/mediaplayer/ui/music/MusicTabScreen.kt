@@ -88,10 +88,6 @@ import com.mediaplayer.ui.components.PermissionOnboardingCard
 import com.mediaplayer.ui.components.formatFileSize
 import com.mediaplayer.ui.components.formatFolderDuration
 import com.mediaplayer.ui.components.shareMediaFiles
-import com.mediaplayer.ui.theme.AudiophileCyan
-import com.mediaplayer.ui.theme.AudiophileGold
-import com.mediaplayer.ui.theme.OledBorder
-import com.mediaplayer.ui.theme.OledSurfaceVariant
 import com.mediaplayer.ui.video.InfoTextRow
 import com.mediaplayer.ui.video.formatTimeMs
 import com.mediaplayer.util.AudioFormatUtils
@@ -127,8 +123,8 @@ fun MusicFolderListItem(
     Surface(
         onClick = onClick,
         shape = RoundedCornerShape(14.dp),
-        color = Color(0xFF131822),
-        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x22FFFFFF)),
+        color = MaterialTheme.colorScheme.surfaceContainer,
+        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
         modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 5.dp)
@@ -142,7 +138,7 @@ fun MusicFolderListItem(
                 modifier = Modifier
                     .size(width = 112.dp, height = 70.dp)
                     .clip(RoundedCornerShape(10.dp))
-                    .background(Color(0xFF1B2330)),
+                    .background(MaterialTheme.colorScheme.surfaceContainerHighest),
                 contentAlignment = Alignment.Center
             ) {
                 if (imageRequest != null) {
@@ -165,7 +161,7 @@ fun MusicFolderListItem(
                     Icon(
                         imageVector = Icons.Rounded.Folder,
                         contentDescription = null,
-                        tint = AudiophileCyan.copy(alpha = 0.7f),
+                        tint = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.size(36.dp)
                     )
                 }
@@ -193,12 +189,12 @@ fun MusicFolderListItem(
                         modifier = Modifier
                             .align(Alignment.TopEnd)
                             .padding(4.dp)
-                            .background(Color(0xFF00E5FF), RoundedCornerShape(4.dp))
+                            .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(4.dp))
                             .padding(horizontal = 5.dp, vertical = 1.dp)
                     ) {
                         Text(
                             text = "${folder.newCount} NEW",
-                            color = Color.Black,
+                            color = MaterialTheme.colorScheme.onPrimary,
                             fontSize = 8.sp,
                             fontWeight = FontWeight.Black
                         )
@@ -214,13 +210,13 @@ fun MusicFolderListItem(
                     Icon(
                         imageVector = Icons.Rounded.Folder,
                         contentDescription = null,
-                        tint = AudiophileCyan,
+                        tint = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.size(16.dp)
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
                         text = folder.name,
-                        color = Color.White,
+                        color = MaterialTheme.colorScheme.onSurface,
                         fontSize = 15.sp,
                         fontWeight = FontWeight.Bold,
                         maxLines = 1,
@@ -230,7 +226,7 @@ fun MusicFolderListItem(
                 Spacer(modifier = Modifier.height(3.dp))
                 Text(
                     text = folder.path,
-                    color = Color(0xFF7E8E9E),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 12.sp,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
@@ -238,12 +234,12 @@ fun MusicFolderListItem(
                 Spacer(modifier = Modifier.height(6.dp))
                 Box(
                     modifier = Modifier
-                        .background(Color(0xFF1E2838), RoundedCornerShape(6.dp))
+                        .background(MaterialTheme.colorScheme.primaryContainer, RoundedCornerShape(6.dp))
                         .padding(horizontal = 8.dp, vertical = 2.dp)
                 ) {
                     Text(
                         text = "${folder.tracks.size} Tracks",
-                        color = AudiophileCyan,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.SemiBold
                     )
@@ -276,8 +272,8 @@ fun MusicFolderGridItem(
     Surface(
         onClick = onClick,
         shape = RoundedCornerShape(16.dp),
-        color = Color(0xFF131822),
-        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x26FFFFFF)),
+        color = MaterialTheme.colorScheme.surfaceContainer,
+        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
         modifier = modifier.fillMaxWidth()
     ) {
         Column(modifier = Modifier.padding(10.dp)) {
@@ -287,7 +283,7 @@ fun MusicFolderGridItem(
                     .fillMaxWidth()
                     .aspectRatio(16f / 10f)
                     .clip(RoundedCornerShape(12.dp))
-                    .background(Color(0xFF1A222E)),
+                    .background(MaterialTheme.colorScheme.surfaceContainerHighest),
                 contentAlignment = Alignment.Center
             ) {
                 if (imageRequest != null) {
@@ -310,7 +306,7 @@ fun MusicFolderGridItem(
                     Icon(
                         imageVector = Icons.Rounded.Folder,
                         contentDescription = null,
-                        tint = AudiophileCyan.copy(alpha = 0.6f),
+                        tint = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.size(42.dp)
                     )
                 }
@@ -327,7 +323,7 @@ fun MusicFolderGridItem(
                         Icon(
                             imageVector = Icons.Rounded.Folder,
                             contentDescription = null,
-                            tint = AudiophileCyan,
+                            tint = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.size(12.dp)
                         )
                         Spacer(modifier = Modifier.width(4.dp))
@@ -346,12 +342,12 @@ fun MusicFolderGridItem(
                         modifier = Modifier
                             .align(Alignment.TopEnd)
                             .padding(6.dp)
-                            .background(Color(0xFF00E5FF), RoundedCornerShape(6.dp))
+                            .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(6.dp))
                             .padding(horizontal = 6.dp, vertical = 2.dp)
                     ) {
                         Text(
                             text = "${folder.newCount} NEW",
-                            color = Color.Black,
+                            color = MaterialTheme.colorScheme.onPrimary,
                             fontSize = 8.sp,
                             fontWeight = FontWeight.Black
                         )
@@ -380,7 +376,7 @@ fun MusicFolderGridItem(
 
             Text(
                 text = folder.name,
-                color = Color.White,
+                color = MaterialTheme.colorScheme.onSurface,
                 fontSize = 14.sp,
                 fontWeight = FontWeight.Bold,
                 maxLines = 1,
@@ -389,7 +385,7 @@ fun MusicFolderGridItem(
             Spacer(modifier = Modifier.height(2.dp))
             Text(
                 text = folder.path,
-                color = Color(0xFF7E8E9E),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontSize = 11.sp,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
@@ -452,7 +448,7 @@ fun MusicCardItem(
             .clip(RoundedCornerShape(14.dp))
             .border(
                 if (isSelected) 2.dp else 1.dp,
-                if (isSelected) AudiophileCyan else if (isPlaying) AudiophileCyan else OledBorder,
+                if (isSelected) MaterialTheme.colorScheme.primary else if (isPlaying) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
                 RoundedCornerShape(14.dp)
             )
             .combinedClickable(
@@ -460,7 +456,7 @@ fun MusicCardItem(
                 onLongClick = onLongClick
             ),
         shape = RoundedCornerShape(14.dp),
-        colors = CardDefaults.cardColors(containerColor = if (isSelected) Color(0xFF1B2A38) else OledSurfaceVariant)
+        colors = CardDefaults.cardColors(containerColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainer)
     ) {
         Column {
             Box(
@@ -473,7 +469,7 @@ fun MusicCardItem(
                 Icon(
                     imageVector = if (isPlaying) Icons.Rounded.GraphicEq else Icons.Rounded.MusicNote,
                     contentDescription = null,
-                    tint = if (isPlaying) AudiophileCyan else Color(0xFF6E6E80),
+                    tint = if (isPlaying) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.size(48.dp)
                 )
 
@@ -494,15 +490,15 @@ fun MusicCardItem(
                             .padding(6.dp)
                             .size(24.dp)
                             .clip(CircleShape)
-                            .background(if (isSelected) AudiophileCyan else Color(0x99000000))
-                            .border(1.5.dp, if (isSelected) AudiophileCyan else Color.White, CircleShape),
+                            .background(if (isSelected) MaterialTheme.colorScheme.primary else Color(0x99000000))
+                            .border(1.5.dp, if (isSelected) MaterialTheme.colorScheme.primary else Color.White, CircleShape),
                         contentAlignment = Alignment.Center
                     ) {
                         if (isSelected) {
                             Icon(
                                 imageVector = Icons.Rounded.Check,
                                 contentDescription = "Selected",
-                                tint = Color.Black,
+                                tint = MaterialTheme.colorScheme.onPrimary,
                                 modifier = Modifier.size(16.dp)
                             )
                         }
@@ -520,7 +516,7 @@ fun MusicCardItem(
                     Icon(
                         imageVector = if (isPlaying) Icons.Rounded.GraphicEq else Icons.Rounded.PlayArrow,
                         contentDescription = null,
-                        tint = if (isPlaying) AudiophileCyan else Color.White,
+                        tint = if (isPlaying) MaterialTheme.colorScheme.primary else Color.White,
                         modifier = Modifier.size(22.dp)
                     )
                 }
@@ -572,7 +568,7 @@ fun MusicCardItem(
                         text = item.title,
                         style = MaterialTheme.typography.bodyMedium,
                         fontWeight = FontWeight.SemiBold,
-                        color = if (isPlaying) AudiophileCyan else Color.White,
+                        color = if (isPlaying) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -580,7 +576,7 @@ fun MusicCardItem(
                     Text(
                         text = "${item.artist} • ${item.album}",
                         style = MaterialTheme.typography.bodySmall,
-                        color = Color(0xFF8E8E9E),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -593,7 +589,7 @@ fun MusicCardItem(
                     Icon(
                         imageVector = Icons.Rounded.MoreVert,
                         contentDescription = "Options",
-                        tint = Color(0xFFA0A0B0),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.size(18.dp)
                     )
                 }
@@ -654,10 +650,10 @@ fun MusicListItem(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(14.dp))
-            .background(if (isSelected) Color(0xFF1E2D3D) else if (isPlaying) Color(0x1A00E5FF) else OledSurfaceVariant)
+            .background(if (isSelected) MaterialTheme.colorScheme.primaryContainer else if (isPlaying) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f) else MaterialTheme.colorScheme.surfaceContainer)
             .border(
                 if (isSelected) 2.dp else 1.dp,
-                if (isSelected) AudiophileCyan else if (isPlaying) AudiophileCyan else OledBorder,
+                if (isSelected) MaterialTheme.colorScheme.primary else if (isPlaying) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
                 RoundedCornerShape(14.dp)
             )
             .combinedClickable(
@@ -672,15 +668,15 @@ fun MusicListItem(
                 modifier = Modifier
                     .size(24.dp)
                     .clip(CircleShape)
-                    .background(if (isSelected) AudiophileCyan else Color(0x33FFFFFF))
-                    .border(1.5.dp, if (isSelected) AudiophileCyan else Color.White, CircleShape),
+                    .background(if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHighest)
+                    .border(1.5.dp, if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline, CircleShape),
                 contentAlignment = Alignment.Center
             ) {
                 if (isSelected) {
                     Icon(
                         imageVector = Icons.Rounded.Check,
                         contentDescription = "Selected",
-                        tint = Color.Black,
+                        tint = MaterialTheme.colorScheme.onPrimary,
                         modifier = Modifier.size(16.dp)
                     )
                 }
@@ -694,13 +690,13 @@ fun MusicListItem(
                 .size(60.dp)
                 .clip(RoundedCornerShape(10.dp))
                 .background(Brush.linearGradient(fallbackColors))
-                .border(0.5.dp, Color(0x33FFFFFF), RoundedCornerShape(10.dp)),
+                .border(0.5.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(10.dp)),
             contentAlignment = Alignment.Center
         ) {
             Icon(
                 imageVector = if (isPlaying) Icons.Rounded.GraphicEq else Icons.Rounded.MusicNote,
                 contentDescription = null,
-                tint = if (isPlaying) AudiophileCyan else Color(0xFF6E6E80),
+                tint = if (isPlaying) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.size(26.dp)
             )
 
@@ -741,7 +737,7 @@ fun MusicListItem(
                     Icon(
                         imageVector = Icons.Rounded.GraphicEq,
                         contentDescription = "Playing",
-                        tint = AudiophileCyan,
+                        tint = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.size(14.dp)
                     )
                     Spacer(modifier = Modifier.width(4.dp))
@@ -750,7 +746,7 @@ fun MusicListItem(
                     text = item.title,
                     style = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.SemiBold,
-                    color = if (isPlaying) AudiophileCyan else Color.White,
+                    color = if (isPlaying) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -761,17 +757,17 @@ fun MusicListItem(
                     text = badgeText,
                     fontSize = 9.sp,
                     fontWeight = FontWeight.Bold,
-                    color = if (isHiRes) AudiophileGold else AudiophileCyan,
+                    color = if (isHiRes) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.primary,
                     modifier = Modifier
                         .clip(RoundedCornerShape(4.dp))
-                        .background(if (isHiRes) Color(0x22FFD54F) else Color(0x2200E5FF))
+                        .background(if (isHiRes) MaterialTheme.colorScheme.tertiaryContainer else MaterialTheme.colorScheme.primaryContainer)
                         .padding(horizontal = 5.dp, vertical = 1.dp)
                 )
                 Spacer(modifier = Modifier.width(6.dp))
                 Text(
                     text = "${item.artist} • ${formatFileSize(item.sizeBytes)}",
                     style = MaterialTheme.typography.bodySmall,
-                    color = Color(0xFF8E8E9E),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -785,7 +781,7 @@ fun MusicListItem(
             Icon(
                 imageVector = Icons.Rounded.MoreVert,
                 contentDescription = "Options",
-                tint = Color(0xFFA0A0B0),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.size(18.dp)
             )
         }
@@ -805,13 +801,13 @@ fun TrackOptionsMenuDialog(
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        containerColor = OledSurfaceVariant,
+        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
         title = {
             Text(
                 text = item.title,
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
-                color = Color.White,
+                color = MaterialTheme.colorScheme.onSurface,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis
             )
@@ -823,9 +819,9 @@ fun TrackOptionsMenuDialog(
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Rounded.PlayArrow, contentDescription = null, tint = AudiophileCyan)
+                        Icon(Icons.Rounded.PlayArrow, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                         Spacer(Modifier.width(12.dp))
-                        Text("Play Now", color = Color.White)
+                        Text("Play Now", color = MaterialTheme.colorScheme.onSurface)
                     }
                 }
                 TextButton(
@@ -833,9 +829,9 @@ fun TrackOptionsMenuDialog(
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Rounded.Info, contentDescription = null, tint = AudiophileGold)
+                        Icon(Icons.Rounded.Info, contentDescription = null, tint = MaterialTheme.colorScheme.tertiary)
                         Spacer(Modifier.width(12.dp))
-                        Text("Track Details", color = Color.White)
+                        Text("Track Details", color = MaterialTheme.colorScheme.onSurface)
                     }
                 }
                 TextButton(
@@ -843,9 +839,9 @@ fun TrackOptionsMenuDialog(
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Rounded.Share, contentDescription = null, tint = Color.White)
+                        Icon(Icons.Rounded.Share, contentDescription = null, tint = MaterialTheme.colorScheme.onSurface)
                         Spacer(Modifier.width(12.dp))
-                        Text("Share Track", color = Color.White)
+                        Text("Share Track", color = MaterialTheme.colorScheme.onSurface)
                     }
                 }
                 TextButton(
@@ -853,9 +849,9 @@ fun TrackOptionsMenuDialog(
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Rounded.CheckCircleOutline, contentDescription = null, tint = AudiophileCyan)
+                        Icon(Icons.Rounded.CheckCircleOutline, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                         Spacer(Modifier.width(12.dp))
-                        Text("Select File", color = Color.White)
+                        Text("Select File", color = MaterialTheme.colorScheme.onSurface)
                     }
                 }
                 TextButton(
@@ -863,9 +859,9 @@ fun TrackOptionsMenuDialog(
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Rounded.Lock, contentDescription = null, tint = AudiophileGold)
+                        Icon(Icons.Rounded.Lock, contentDescription = null, tint = MaterialTheme.colorScheme.tertiary)
                         Spacer(Modifier.width(12.dp))
-                        Text("Hide in Privacy Vault", color = Color.White)
+                        Text("Hide in Privacy Vault", color = MaterialTheme.colorScheme.onSurface)
                     }
                 }
                 TextButton(
@@ -873,16 +869,16 @@ fun TrackOptionsMenuDialog(
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Rounded.Delete, contentDescription = null, tint = Color(0xFFFF5252))
+                        Icon(Icons.Rounded.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error)
                         Spacer(Modifier.width(12.dp))
-                        Text("Delete from Storage", color = Color(0xFFFF5252))
+                        Text("Delete from Storage", color = MaterialTheme.colorScheme.error)
                     }
                 }
             }
         },
         confirmButton = {
             TextButton(onClick = onDismiss) {
-                Text("Cancel", color = Color(0xFF9093A0))
+                Text("Cancel", color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     )
@@ -903,10 +899,10 @@ fun MusicCategoryFilterPills(
     ) {
         items(items = filterTabs) { tab: String ->
             val isSelected = tab == selectedTab
-            val pillBg = if (isSelected) AudiophileCyan else Color(0x1F222533)
-            val pillBorder = if (isSelected) AudiophileCyan else Color(0x22FFFFFF)
-            val pillContentColor = if (isSelected) Color.Black else Color(0xFFE0E0EC)
-            val pillIconColor = if (isSelected) Color.Black else Color(0xFFC0C0D0)
+            val pillBg = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainer
+            val pillBorder = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant
+            val pillContentColor = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
+            val pillIconColor = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
 
             Box(
                 modifier = Modifier
@@ -951,13 +947,13 @@ fun MusicTrackDetailsDialog(
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        containerColor = OledSurfaceVariant,
+        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
         title = {
             Text(
                 text = "Track Information",
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
-                color = Color.White
+                color = MaterialTheme.colorScheme.onSurface
             )
         },
         text = {
@@ -976,7 +972,7 @@ fun MusicTrackDetailsDialog(
         },
         confirmButton = {
             TextButton(onClick = onDismiss) {
-                Text("Close", color = Color.White)
+                Text("Close", color = MaterialTheme.colorScheme.primary)
             }
         }
     )
@@ -1205,7 +1201,7 @@ fun MusicTabScreen(
                                 Icon(
                                     imageVector = Icons.Rounded.Folder,
                                     contentDescription = null,
-                                    tint = AudiophileCyan,
+                                    tint = MaterialTheme.colorScheme.primary,
                                     modifier = Modifier.size(20.dp)
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
@@ -1213,7 +1209,7 @@ fun MusicTabScreen(
                                     text = "Folders (${folderItems.size})",
                                     style = MaterialTheme.typography.titleMedium,
                                     fontWeight = FontWeight.Bold,
-                                    color = Color.White
+                                    color = MaterialTheme.colorScheme.onSurface
                                 )
                             }
 
@@ -1224,7 +1220,7 @@ fun MusicTabScreen(
                                 Icon(
                                     imageVector = if (isGridView) Icons.AutoMirrored.Rounded.ViewList else Icons.Rounded.GridView,
                                     contentDescription = "Toggle Grid/List",
-                                    tint = Color.White,
+                                    tint = MaterialTheme.colorScheme.onSurface,
                                     modifier = Modifier.size(22.dp)
                                 )
                             }
@@ -1280,7 +1276,7 @@ fun MusicTabScreen(
                                 Icon(
                                     imageVector = Icons.Rounded.Album,
                                     contentDescription = null,
-                                    tint = AudiophileCyan,
+                                    tint = MaterialTheme.colorScheme.primary,
                                     modifier = Modifier.size(20.dp)
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
@@ -1288,7 +1284,7 @@ fun MusicTabScreen(
                                     text = "Albums (${albumItems.size})",
                                     style = MaterialTheme.typography.titleMedium,
                                     fontWeight = FontWeight.Bold,
-                                    color = Color.White
+                                    color = MaterialTheme.colorScheme.onSurface
                                 )
                             }
 
@@ -1299,7 +1295,7 @@ fun MusicTabScreen(
                                 Icon(
                                     imageVector = if (isGridView) Icons.AutoMirrored.Rounded.ViewList else Icons.Rounded.GridView,
                                     contentDescription = "Toggle Grid/List",
-                                    tint = Color.White,
+                                    tint = MaterialTheme.colorScheme.onSurface,
                                     modifier = Modifier.size(22.dp)
                                 )
                             }
@@ -1355,7 +1351,7 @@ fun MusicTabScreen(
                                 Icon(
                                     imageVector = Icons.Rounded.Person,
                                     contentDescription = null,
-                                    tint = AudiophileCyan,
+                                    tint = MaterialTheme.colorScheme.primary,
                                     modifier = Modifier.size(20.dp)
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
@@ -1363,7 +1359,7 @@ fun MusicTabScreen(
                                     text = "Artists (${artistItems.size})",
                                     style = MaterialTheme.typography.titleMedium,
                                     fontWeight = FontWeight.Bold,
-                                    color = Color.White
+                                    color = MaterialTheme.colorScheme.onSurface
                                 )
                             }
 
@@ -1374,7 +1370,7 @@ fun MusicTabScreen(
                                 Icon(
                                     imageVector = if (isGridView) Icons.AutoMirrored.Rounded.ViewList else Icons.Rounded.GridView,
                                     contentDescription = "Toggle Grid/List",
-                                    tint = Color.White,
+                                    tint = MaterialTheme.colorScheme.onSurface,
                                     modifier = Modifier.size(22.dp)
                                 )
                             }
@@ -1456,7 +1452,7 @@ fun MusicTabScreen(
                                 Box(
                                     modifier = Modifier
                                         .clip(RoundedCornerShape(18.dp))
-                                        .background(Brush.horizontalGradient(listOf(AudiophileCyan, Color(0xFF00B0FF))))
+                                        .background(MaterialTheme.colorScheme.primary)
                                         .clickable {
                                             if (tracksToDisplay.isNotEmpty()) {
                                                 onPlayAudio(tracksToDisplay.first(), tracksToDisplay)
@@ -1469,13 +1465,13 @@ fun MusicTabScreen(
                                         Icon(
                                             imageVector = Icons.Rounded.PlayArrow,
                                             contentDescription = "Play All",
-                                            tint = Color.Black,
+                                            tint = MaterialTheme.colorScheme.onPrimary,
                                             modifier = Modifier.size(16.dp)
                                         )
                                         Spacer(modifier = Modifier.width(4.dp))
                                         Text(
                                             text = "Play All",
-                                            color = Color.Black,
+                                            color = MaterialTheme.colorScheme.onPrimary,
                                             fontWeight = FontWeight.Bold,
                                             fontSize = 12.sp
                                         )
@@ -1486,8 +1482,8 @@ fun MusicTabScreen(
                                 Box(
                                     modifier = Modifier
                                         .clip(RoundedCornerShape(18.dp))
-                                        .background(Color(0x1F222533))
-                                        .border(1.dp, Color(0x22FFFFFF), RoundedCornerShape(18.dp))
+                                        .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                                        .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(18.dp))
                                         .clickable { onShuffleAll() }
                                         .padding(horizontal = 12.dp, vertical = 6.dp),
                                     contentAlignment = Alignment.Center
@@ -1496,13 +1492,13 @@ fun MusicTabScreen(
                                         Icon(
                                             imageVector = Icons.Rounded.Shuffle,
                                             contentDescription = "Shuffle",
-                                            tint = Color.White,
+                                            tint = MaterialTheme.colorScheme.onSurface,
                                             modifier = Modifier.size(14.dp)
                                         )
                                         Spacer(modifier = Modifier.width(4.dp))
                                         Text(
                                             text = "Shuffle",
-                                            color = Color.White,
+                                            color = MaterialTheme.colorScheme.onSurface,
                                             fontWeight = FontWeight.SemiBold,
                                             fontSize = 12.sp
                                         )
@@ -1518,7 +1514,7 @@ fun MusicTabScreen(
                                 Icon(
                                     imageVector = if (isGridView) Icons.AutoMirrored.Rounded.ViewList else Icons.Rounded.GridView,
                                     contentDescription = "Toggle Grid/List",
-                                    tint = Color.White,
+                                    tint = MaterialTheme.colorScheme.onSurface,
                                     modifier = Modifier.size(22.dp)
                                 )
                             }

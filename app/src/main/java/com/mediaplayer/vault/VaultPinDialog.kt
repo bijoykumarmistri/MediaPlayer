@@ -36,6 +36,7 @@ import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
@@ -49,17 +50,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.mediaplayer.ui.theme.AudiophileCyan
-import com.mediaplayer.ui.theme.AudiophileGold
-import com.mediaplayer.ui.theme.OledBorder
-import com.mediaplayer.ui.theme.OledSurfaceVariant
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -139,7 +135,7 @@ fun VaultPinDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        containerColor = OledSurfaceVariant,
+        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
         title = {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -151,18 +147,14 @@ fun VaultPinDialog(
                         modifier = Modifier
                             .size(36.dp)
                             .clip(CircleShape)
-                            .background(
-                                Brush.linearGradient(
-                                    listOf(AudiophileGold.copy(alpha = 0.25f), AudiophileCyan.copy(alpha = 0.25f))
-                                )
-                            )
-                            .border(1.dp, AudiophileGold.copy(alpha = 0.6f), CircleShape),
+                            .background(MaterialTheme.colorScheme.primaryContainer)
+                            .border(1.dp, MaterialTheme.colorScheme.primary, CircleShape),
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
                             imageVector = if (stage == 0) Icons.Rounded.Lock else Icons.Rounded.Security,
                             contentDescription = null,
-                            tint = AudiophileGold,
+                            tint = MaterialTheme.colorScheme.onPrimaryContainer,
                             modifier = Modifier.size(20.dp)
                         )
                     }
@@ -179,7 +171,7 @@ fun VaultPinDialog(
                                 else -> "Privacy Vault"
                             },
                             fontWeight = FontWeight.Bold,
-                            color = Color.White,
+                            color = MaterialTheme.colorScheme.onSurface,
                             fontSize = 18.sp
                         )
                         Text(
@@ -193,7 +185,7 @@ fun VaultPinDialog(
                                 else -> "Secure local storage"
                             },
                             fontSize = 11.sp,
-                            color = Color(0xFF9E9EAE)
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 }
@@ -202,7 +194,7 @@ fun VaultPinDialog(
                     Icon(
                         imageVector = Icons.Rounded.Close,
                         contentDescription = "Close",
-                        tint = Color(0xFF9E9EAE)
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             }
@@ -223,7 +215,7 @@ fun VaultPinDialog(
                         Text(
                             text = "Choose a recovery question in case you forget your PIN:",
                             fontSize = 12.sp,
-                            color = Color(0xFFD0D0E0),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                             lineHeight = 16.sp
                         )
 
@@ -241,21 +233,21 @@ fun VaultPinDialog(
                                     .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable),
                                 shape = RoundedCornerShape(12.dp),
                                 colors = OutlinedTextFieldDefaults.colors(
-                                    focusedBorderColor = AudiophileGold,
-                                    unfocusedBorderColor = OledBorder,
-                                    focusedTextColor = Color.White,
-                                    unfocusedTextColor = Color.White
+                                    focusedBorderColor = MaterialTheme.colorScheme.primary,
+                                    unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
+                                    focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                                    unfocusedTextColor = MaterialTheme.colorScheme.onSurface
                                 )
                             )
 
                             ExposedDropdownMenu(
                                 expanded = questionExpanded,
                                 onDismissRequest = { questionExpanded = false },
-                                modifier = Modifier.background(Color(0xFF141722))
+                                modifier = Modifier.background(MaterialTheme.colorScheme.surfaceContainerHigh)
                             ) {
                                 VaultSecurityManager.DEFAULT_SECURITY_QUESTIONS.forEach { q ->
                                     DropdownMenuItem(
-                                        text = { Text(q, color = Color.White, fontSize = 12.sp) },
+                                        text = { Text(q, color = MaterialTheme.colorScheme.onSurface, fontSize = 12.sp) },
                                         onClick = {
                                             selectedQuestion = q
                                             questionExpanded = false
@@ -274,10 +266,10 @@ fun VaultPinDialog(
                             modifier = Modifier.fillMaxWidth(),
                             shape = RoundedCornerShape(12.dp),
                             colors = OutlinedTextFieldDefaults.colors(
-                                focusedBorderColor = AudiophileCyan,
-                                unfocusedBorderColor = OledBorder,
-                                focusedTextColor = Color.White,
-                                unfocusedTextColor = Color.White
+                                focusedBorderColor = MaterialTheme.colorScheme.primary,
+                                unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
+                                focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                                unfocusedTextColor = MaterialTheme.colorScheme.onSurface
                             )
                         )
 
@@ -297,13 +289,16 @@ fun VaultPinDialog(
                                     Toast.makeText(context, "Please enter an answer", Toast.LENGTH_SHORT).show()
                                 }
                             },
-                            colors = ButtonDefaults.buttonColors(containerColor = AudiophileGold),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.primary,
+                                contentColor = MaterialTheme.colorScheme.onPrimary
+                            ),
                             shape = RoundedCornerShape(12.dp),
                             modifier = Modifier.fillMaxWidth()
                         ) {
-                            Icon(Icons.Rounded.CheckCircle, contentDescription = null, tint = Color.Black, modifier = Modifier.size(16.dp))
+                            Icon(Icons.Rounded.CheckCircle, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.size(16.dp))
                             Spacer(Modifier.width(6.dp))
-                            Text("Save & Open Vault", color = Color.Black, fontWeight = FontWeight.Bold)
+                            Text("Save & Open Vault", color = MaterialTheme.colorScheme.onPrimary, fontWeight = FontWeight.Bold)
                         }
                     }
                 }
@@ -317,7 +312,7 @@ fun VaultPinDialog(
                             text = "Security Question:\n${securityManager.getSecurityQuestion()}",
                             fontSize = 13.sp,
                             fontWeight = FontWeight.SemiBold,
-                            color = AudiophileGold
+                            color = MaterialTheme.colorScheme.primary
                         )
 
                         OutlinedTextField(
@@ -332,17 +327,17 @@ fun VaultPinDialog(
                             modifier = Modifier.fillMaxWidth(),
                             shape = RoundedCornerShape(12.dp),
                             colors = OutlinedTextFieldDefaults.colors(
-                                focusedBorderColor = AudiophileCyan,
-                                unfocusedBorderColor = OledBorder,
-                                focusedTextColor = Color.White,
-                                unfocusedTextColor = Color.White
+                                focusedBorderColor = MaterialTheme.colorScheme.primary,
+                                unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
+                                focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                                unfocusedTextColor = MaterialTheme.colorScheme.onSurface
                             )
                         )
 
                         if (recoveryError) {
                             Text(
                                 text = "Answer does not match. Try again.",
-                                color = Color(0xFFFF5252),
+                                color = MaterialTheme.colorScheme.error,
                                 fontSize = 12.sp
                             )
                         }
@@ -357,11 +352,14 @@ fun VaultPinDialog(
                                     recoveryError = true
                                 }
                             },
-                            colors = ButtonDefaults.buttonColors(containerColor = AudiophileCyan),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.primary,
+                                contentColor = MaterialTheme.colorScheme.onPrimary
+                            ),
                             shape = RoundedCornerShape(12.dp),
                             modifier = Modifier.fillMaxWidth()
                         ) {
-                            Text("Verify Answer", color = Color.Black, fontWeight = FontWeight.Bold)
+                            Text("Verify Answer", color = MaterialTheme.colorScheme.onPrimary, fontWeight = FontWeight.Bold)
                         }
 
                         TextButton(
@@ -371,7 +369,7 @@ fun VaultPinDialog(
                             },
                             modifier = Modifier.align(Alignment.CenterHorizontally)
                         ) {
-                            Text("Back to PIN entry", color = Color(0xFFA0A0B0), fontSize = 12.sp)
+                            Text("Back to PIN entry", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
                         }
                     }
                 }
@@ -394,15 +392,15 @@ fun VaultPinDialog(
                                         .size(16.dp)
                                         .clip(CircleShape)
                                         .background(
-                                            if (pinError) Color(0xFFFF5252)
-                                            else if (filled) AudiophileCyan
-                                            else Color(0x33FFFFFF)
+                                            if (pinError) MaterialTheme.colorScheme.error
+                                            else if (filled) MaterialTheme.colorScheme.primary
+                                            else MaterialTheme.colorScheme.surfaceContainerHighest
                                         )
                                         .border(
                                             1.5.dp,
-                                            if (pinError) Color(0xFFFF5252)
-                                            else if (filled) AudiophileCyan
-                                            else Color(0x55FFFFFF),
+                                            if (pinError) MaterialTheme.colorScheme.error
+                                            else if (filled) MaterialTheme.colorScheme.primary
+                                            else MaterialTheme.colorScheme.outline,
                                             CircleShape
                                         )
                                 )
@@ -436,11 +434,11 @@ fun VaultPinDialog(
                                                 .clip(RoundedCornerShape(12.dp))
                                                 .background(
                                                     if (key.isEmpty()) Color.Transparent
-                                                    else Color(0x18FFFFFF)
+                                                    else MaterialTheme.colorScheme.surfaceContainerHighest
                                                 )
                                                 .border(
                                                     1.dp,
-                                                    if (key.isEmpty()) Color.Transparent else Color(0x15FFFFFF),
+                                                    if (key.isEmpty()) Color.Transparent else MaterialTheme.colorScheme.outlineVariant,
                                                     RoundedCornerShape(12.dp)
                                                 )
                                                 .clickable(enabled = key.isNotEmpty()) {
@@ -453,7 +451,7 @@ fun VaultPinDialog(
                                                 Icon(
                                                     imageVector = Icons.AutoMirrored.Rounded.Backspace,
                                                     contentDescription = "Backspace",
-                                                    tint = Color.White,
+                                                    tint = MaterialTheme.colorScheme.onSurface,
                                                     modifier = Modifier.size(20.dp)
                                                 )
                                             } else if (key.isNotEmpty()) {
@@ -461,7 +459,7 @@ fun VaultPinDialog(
                                                     text = key,
                                                     fontSize = 20.sp,
                                                     fontWeight = FontWeight.Bold,
-                                                    color = Color.White,
+                                                    color = MaterialTheme.colorScheme.onSurface,
                                                     fontFamily = FontFamily.SansSerif
                                                 )
                                             }
@@ -481,7 +479,7 @@ fun VaultPinDialog(
                             ) {
                                 Text(
                                     text = "Forgot PIN?",
-                                    color = AudiophileGold,
+                                    color = MaterialTheme.colorScheme.primary,
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.SemiBold
                                 )

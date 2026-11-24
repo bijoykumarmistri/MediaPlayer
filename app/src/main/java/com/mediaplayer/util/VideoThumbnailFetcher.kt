@@ -149,12 +149,12 @@ class VideoThumbnailFetcher(
             try {
                 retriever.setDataSource(context, uri)
                 bitmap = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
-                    retriever.getScaledFrameAtTime(0L, MediaMetadataRetriever.OPTION_PREVIOUS_SYNC, targetW, targetH)
-                        ?: retriever.getScaledFrameAtTime(-1L, MediaMetadataRetriever.OPTION_CLOSEST_SYNC, targetW, targetH)
+                    retriever.getScaledFrameAtTime(-1L, MediaMetadataRetriever.OPTION_CLOSEST_SYNC, targetW, targetH)
+                        ?: retriever.getScaledFrameAtTime(1000000L, MediaMetadataRetriever.OPTION_CLOSEST_SYNC, targetW, targetH)
                         ?: retriever.getFrameAtTime(-1L)
                 } else {
-                    retriever.getFrameAtTime(0L, MediaMetadataRetriever.OPTION_PREVIOUS_SYNC)
-                        ?: retriever.getFrameAtTime(-1L)
+                    retriever.getFrameAtTime(-1L)
+                        ?: retriever.getFrameAtTime(1000000L)
                 }
             } catch (_: Throwable) {
                 // Negative cache handles missing/unreadable videos

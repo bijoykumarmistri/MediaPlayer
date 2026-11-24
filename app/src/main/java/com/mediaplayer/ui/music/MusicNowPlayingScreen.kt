@@ -91,7 +91,6 @@ import com.mediaplayer.data.MediaItemModel
 import com.mediaplayer.playback.MediaPlayerManager
 import com.mediaplayer.ui.components.rememberDominantColors
 import com.mediaplayer.ui.theme.AudiophileCyan
-import com.mediaplayer.ui.theme.OledSurfaceVariant
 import com.mediaplayer.ui.video.formatTimeMs
 import com.mediaplayer.util.AppSettingsManager
 import kotlinx.coroutines.isActive
@@ -392,7 +391,7 @@ fun MusicNowPlayingScreen(
             ModalBottomSheet(
                 onDismissRequest = { showQueueSheet = false },
                 sheetState = sheetState,
-                containerColor = OledSurfaceVariant
+                containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
             ) {
                 Column(
                     modifier = Modifier

@@ -50,8 +50,6 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.mediaplayer.playback.MediaPlayerManager
-import com.mediaplayer.ui.theme.AudiophileCyan
-import com.mediaplayer.ui.theme.AudiophileGold
 import com.mediaplayer.ui.video.formatTimeMs
 
 @Composable
@@ -70,7 +68,7 @@ fun BottomMiniPlayer(
     val isVideo = item.isVideo
     val isPlaying = if (isVideo) isVideoPlayingState else isPlayingState
 
-    val accentColor = if (isVideo) AudiophileGold else AudiophileCyan
+    val accentColor = if (isVideo) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.primary
 
     Surface(
         onClick = onExpand,
@@ -78,13 +76,13 @@ fun BottomMiniPlayer(
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 4.dp),
         shape = RoundedCornerShape(24.dp),
-        color = Color(0xF2131622),
+        color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.95f),
         border = androidx.compose.foundation.BorderStroke(
             1.dp,
             androidx.compose.ui.graphics.Brush.horizontalGradient(
                 listOf(
                     accentColor.copy(alpha = 0.5f),
-                    Color(0x33FFFFFF),
+                    MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
                     accentColor.copy(alpha = 0.2f)
                 )
             )
@@ -105,7 +103,7 @@ fun BottomMiniPlayer(
                     .fillMaxWidth()
                     .height(2.5.dp),
                 color = accentColor,
-                trackColor = Color(0x15FFFFFF),
+                trackColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
             )
 
             Row(
@@ -134,7 +132,7 @@ fun BottomMiniPlayer(
                     } else {
                         Surface(
                             modifier = Modifier.matchParentSize(),
-                            color = Color(0xFF1E2230)
+                            color = MaterialTheme.colorScheme.surfaceContainerHighest
                         ) {
                             Box(contentAlignment = Alignment.Center) {
                                 Icon(
@@ -177,7 +175,7 @@ fun BottomMiniPlayer(
                                 text = "VIDEO",
                                 fontSize = 7.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = AudiophileGold
+                                color = Color.White
                             )
                         }
                     }
@@ -191,7 +189,7 @@ fun BottomMiniPlayer(
                         text = item.title.ifEmpty { if (isVideo) "Video" else "Unknown Track" },
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.Bold,
-                        color = Color.White,
+                        color = MaterialTheme.colorScheme.onSurface,
                         maxLines = 1,
                         modifier = Modifier.basicMarquee()
                     )
@@ -199,12 +197,12 @@ fun BottomMiniPlayer(
                     val subtitleText = if (isVideo) {
                         if (totalDur > 0) "Video • ${formatTimeMs(totalDur)}" else "Video Playback"
                     } else {
-                        item.artist.ifEmpty { "Media Player" }
+                        item.artist.ifEmpty { "BKM Player" }
                     }
                     Text(
                         text = subtitleText,
                         style = MaterialTheme.typography.bodySmall,
-                        color = Color(0xFF9E9EAE),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1
                     )
                 }
@@ -221,7 +219,7 @@ fun BottomMiniPlayer(
                     Icon(
                         imageVector = Icons.Rounded.SkipPrevious,
                         contentDescription = "Previous",
-                        tint = Color.White,
+                        tint = MaterialTheme.colorScheme.onSurface,
                         modifier = Modifier.size(20.dp)
                     )
                 }
@@ -245,7 +243,7 @@ fun BottomMiniPlayer(
                         Icon(
                             imageVector = if (playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
                             contentDescription = if (playing) "Pause" else "Play",
-                            tint = Color.Black,
+                            tint = if (isVideo) MaterialTheme.colorScheme.onTertiary else MaterialTheme.colorScheme.onPrimary,
                             modifier = Modifier.size(22.dp)
                         )
                     }
@@ -261,7 +259,7 @@ fun BottomMiniPlayer(
                     Icon(
                         imageVector = Icons.Rounded.SkipNext,
                         contentDescription = "Next",
-                        tint = Color.White,
+                        tint = MaterialTheme.colorScheme.onSurface,
                         modifier = Modifier.size(20.dp)
                     )
                 }

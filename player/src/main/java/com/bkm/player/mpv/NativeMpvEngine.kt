@@ -1,4 +1,4 @@
-package com.mxplayer.mpv
+package com.bkm.player.mpv
 
 import android.content.Context
 import android.media.AudioAttributes
@@ -28,7 +28,7 @@ import java.util.concurrent.atomic.AtomicInteger
  * - [SW]: Pure FFmpeg CPU software decoding (`hwdec=no`).
  */
 enum class DecoderMode(val label: String, val hwdecValue: String) {
-    HW_PLUS(label = "HW+", hwdecValue = "mediacodec-copy"),
+    HW_PLUS(label = "HW+", hwdecValue = "mediacodec"),
     HW(label = "HW", hwdecValue = "mediacodec-copy"),
     SW(label = "SW", hwdecValue = "no");
 
@@ -166,6 +166,7 @@ class NativeMpvEngine(
 
     private var contextRef: WeakReference<Context>? = null
     private var audioFocusRequest: AudioFocusRequest? = null
+    private var tracksChangedRunnable: Runnable? = null
 
     private fun requestAudioFocus(context: Context) {
         val am = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return
@@ -287,7 +288,7 @@ class NativeMpvEngine(
 
         // Pure standard Android AudioTrack output for native Android audio mixer to USB IEM
         MPVLib.setOptionString("ao", "audiotrack")
-        MPVLib.setOptionString("audio-buffer", "0.2")
+        MPVLib.setOptionString("audio-buffer", "0.3")
         MPVLib.setOptionString("audio-pitch-correction", "yes")
         MPVLib.setOptionString("volume", "100")
         MPVLib.setOptionString("volume-max", "200")
@@ -466,8 +467,8 @@ class NativeMpvEngine(
 
         return try {
             val pfd = when {
-                uri.scheme == "file" && uri.path != null -> {
-                    android.os.ParcelFileDescriptor.open(java.io.File(uri.path!!), android.os.ParcelFileDescriptor.MODE_READ_ONLY)
+                (uri.scheme == null || uri.scheme == "file") && uri.path != null -> {
+                    ParcelFileDescriptor.open(java.io.File(uri.path!!), ParcelFileDescriptor.MODE_READ_ONLY)
                 }
                 else -> context.contentResolver.openFileDescriptor(uri, "r")
             }
@@ -589,6 +590,7 @@ class NativeMpvEngine(
         } catch (_: Exception) {}
         contextRef?.get()?.let { abandonAudioFocus(it) }
         closeFdQuietly(activeDetachedFd.getAndSet(NO_FD))
+        cleanTempSubtitleFiles()
         mainHandler.post { listener.onPausedChanged(true) }
     }
 
@@ -605,11 +607,11 @@ class NativeMpvEngine(
             val type = MPVLib.getPropertyString("track-list/$i/type") ?: continue
             val id = MPVLib.getPropertyInt("track-list/$i/id") ?: (i + 1)
             val title = MPVLib.getPropertyString("track-list/$i/title")
-            val lang = MPVLib.getPropertyString("track-list/$i/lang")
+            val lang = if (type != "video") MPVLib.getPropertyString("track-list/$i/lang") else null
             val codec = MPVLib.getPropertyString("track-list/$i/codec")
             val selected = MPVLib.getPropertyBoolean("track-list/$i/selected") ?: false
-            val channels = MPVLib.getPropertyInt("track-list/$i/audio-channels") ?: 0
-            val sampleRate = MPVLib.getPropertyInt("track-list/$i/demux-samplerate") ?: 0
+            val channels = if (type == "audio") MPVLib.getPropertyInt("track-list/$i/audio-channels") ?: 0 else 0
+            val sampleRate = if (type == "audio") MPVLib.getPropertyInt("track-list/$i/demux-samplerate") ?: 0 else 0
 
             list.add(
                 MediaTrack(
@@ -694,25 +696,29 @@ class NativeMpvEngine(
                 MPVLib.setPropertyString("video-unscaled", "no")
                 MPVLib.setPropertyString("keepaspect", "yes")
                 MPVLib.setPropertyDouble("panscan", 0.0)
-                MPVLib.setPropertyString("video-aspect-override", "-1")
+                MPVLib.setPropertyString("video-aspect-override", "no")
+                MPVLib.setPropertyString("video-aspect-mode", "container")
             }
             ResizeMode.STRETCH -> {
                 MPVLib.setPropertyString("video-unscaled", "no")
                 MPVLib.setPropertyString("keepaspect", "no")
                 MPVLib.setPropertyDouble("panscan", 0.0)
-                MPVLib.setPropertyString("video-aspect-override", "-1")
+                MPVLib.setPropertyString("video-aspect-override", "no")
+                MPVLib.setPropertyString("video-aspect-mode", "container")
             }
             ResizeMode.CROP -> {
                 MPVLib.setPropertyString("video-unscaled", "no")
                 MPVLib.setPropertyString("keepaspect", "yes")
                 MPVLib.setPropertyDouble("panscan", 1.0)
-                MPVLib.setPropertyString("video-aspect-override", "-1")
+                MPVLib.setPropertyString("video-aspect-override", "no")
+                MPVLib.setPropertyString("video-aspect-mode", "container")
             }
             ResizeMode.ORIGINAL_100 -> {
                 MPVLib.setPropertyString("video-unscaled", "yes")
                 MPVLib.setPropertyString("keepaspect", "yes")
                 MPVLib.setPropertyDouble("panscan", 0.0)
-                MPVLib.setPropertyString("video-aspect-override", "-1")
+                MPVLib.setPropertyString("video-aspect-override", "no")
+                MPVLib.setPropertyString("video-aspect-mode", "container")
             }
             ResizeMode.SIXTEEN_NINE -> {
                 MPVLib.setPropertyString("video-unscaled", "no")
@@ -855,6 +861,8 @@ class NativeMpvEngine(
         if (!isInitialized.get()) return
 
         try {
+            tracksChangedRunnable?.let { mainHandler.removeCallbacks(it) }
+            tracksChangedRunnable = null
             contextRef?.get()?.let { abandonAudioFocus(it) }
             mainHandler.removeCallbacksAndMessages(null)
             MPVLib.removeObserver(this)
@@ -871,6 +879,7 @@ class NativeMpvEngine(
             Log.e(TAG, "Error during libmpv teardown", t)
         } finally {
             closeFdQuietly(activeDetachedFd.getAndSet(NO_FD))
+            cleanTempSubtitleFiles()
         }
     }
 
@@ -878,7 +887,10 @@ class NativeMpvEngine(
 
     override fun eventProperty(property: String) {
         if (property == "track-list") {
-            mainHandler.post { listener.onTracksChanged() }
+            tracksChangedRunnable?.let { mainHandler.removeCallbacks(it) }
+            val r = Runnable { listener.onTracksChanged() }
+            tracksChangedRunnable = r
+            mainHandler.postDelayed(r, 60L)
         }
     }
 
@@ -941,7 +953,6 @@ class NativeMpvEngine(
                     }
                 }
                 mainHandler.post {
-                    listener.onTracksChanged()
                     listener.onFileLoaded()
                 }
             }
@@ -967,6 +978,14 @@ class NativeMpvEngine(
     }
 
     // endregion
+
+    private fun cleanTempSubtitleFiles() {
+        try {
+            val dir = contextRef?.get()?.cacheDir ?: return
+            val tempFiles = dir.listFiles { file -> file.name.startsWith("ext_sub_") }
+            tempFiles?.forEach { it.delete() }
+        } catch (_: Exception) {}
+    }
 
     private fun closeFdQuietly(fdInt: Int) {
         if (fdInt < 0) return

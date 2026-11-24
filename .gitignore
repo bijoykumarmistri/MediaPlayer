@@ -18,3 +18,14 @@ local.properties
 *.aab
 .kotlin/
 build/
+
+# Keystores & Signing
+*.jks
+*.keystore
+keystore.properties
+signing.properties
+
+# Design drafts & concept exports
+icon_*.png
+!ic_launcher_playstore_512.png
+

@@ -2,6 +2,7 @@ package com.mediaplayer.ui.components
 
 import android.graphics.drawable.BitmapDrawable
 import android.net.Uri
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -28,13 +29,25 @@ private val dominantColorsCache = androidx.collection.LruCache<Uri, DominantColo
 @Composable
 fun rememberDominantColors(uri: Uri?): DominantColors {
     val context = LocalContext.current
-    var dominantColors by remember(uri) {
-        mutableStateOf(uri?.let { dominantColorsCache[it] } ?: DominantColors())
+    val systemPrimary = MaterialTheme.colorScheme.primary
+    val systemSurfaceContainer = MaterialTheme.colorScheme.surfaceContainer
+    val systemSurface = MaterialTheme.colorScheme.surface
+
+    val defaultFallback = remember(systemPrimary, systemSurfaceContainer, systemSurface) {
+        DominantColors(
+            dominant = systemSurfaceContainer,
+            accent = systemPrimary,
+            darkBackground = systemSurface
+        )
     }
 
-    LaunchedEffect(uri) {
+    var dominantColors by remember(uri, defaultFallback) {
+        mutableStateOf(uri?.let { dominantColorsCache[it] } ?: defaultFallback)
+    }
+
+    LaunchedEffect(uri, defaultFallback) {
         if (uri == null) {
-            dominantColors = DominantColors()
+            dominantColors = defaultFallback
             return@LaunchedEffect
         }
 
@@ -62,9 +75,9 @@ fun rememberDominantColors(uri: Uri?): DominantColors {
                         val vibrantRgb = palette.vibrantSwatch?.rgb ?: palette.darkVibrantSwatch?.rgb ?: dominantRgb
                         val darkRgb = palette.darkMutedSwatch?.rgb ?: palette.darkVibrantSwatch?.rgb
 
-                        val dominantColor = dominantRgb?.let { Color(it) } ?: Color(0xFF1E202B)
-                        val accentColor = vibrantRgb?.let { Color(it) } ?: Color(0xFF00E5FF)
-                        val darkBgColor = darkRgb?.let { Color(it) } ?: Color(0xFF0A0B0E)
+                        val dominantColor = dominantRgb?.let { Color(it) } ?: systemSurfaceContainer
+                        val accentColor = vibrantRgb?.let { Color(it) } ?: systemPrimary
+                        val darkBgColor = darkRgb?.let { Color(it) } ?: systemSurface
 
                         val colors = DominantColors(
                             dominant = dominantColor,

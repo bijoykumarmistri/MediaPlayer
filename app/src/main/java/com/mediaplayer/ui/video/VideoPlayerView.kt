@@ -11,8 +11,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.mediaplayer.playback.MediaPlayerManager
 import com.mediaplayer.util.AppSettingsManager
-import com.mxplayer.mpv.PlayerViewModel
-import com.mxplayer.mpv.VideoPlayerScreen as MpvVideoPlayerScreen
+import com.bkm.player.mpv.PlayerViewModel
+import com.bkm.player.mpv.VideoPlayerScreen as MpvVideoPlayerScreen
 
 /**
  * High-performance video player interface powered 100% by the C++ Core (libmpv HW+) native engine.

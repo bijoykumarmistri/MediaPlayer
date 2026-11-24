@@ -31,6 +31,8 @@ object AppUpdateManager {
     const val GITHUB_RELEASES_WEB_URL = "https://github.com/$GITHUB_REPO_OWNER/$GITHUB_REPO_NAME/releases"
     private const val GITHUB_API_LATEST_RELEASE_URL =
         "https://api.github.com/repos/$GITHUB_REPO_OWNER/$GITHUB_REPO_NAME/releases/latest"
+    const val PLAY_STORE_MARKET_URI = "market://details?id=com.bkm.player"
+    const val PLAY_STORE_WEB_URL = "https://play.google.com/store/apps/details?id=com.bkm.player"
 
     /**
      * Gets the currently installed app version name (e.g. "1.1").
@@ -95,22 +97,6 @@ object AppUpdateManager {
             val releaseNotes = json.optString("body", "Bug fixes and performance enhancements.")
             val htmlUrl = json.optString("html_url", GITHUB_RELEASES_WEB_URL)
 
-            // Look for .apk asset in release assets
-            var apkDownloadUrl: String? = null
-            val assets = json.optJSONArray("assets")
-            if (assets != null) {
-                for (i in 0 until assets.length()) {
-                    val asset = assets.getJSONObject(i)
-                    val assetName = asset.optString("name", "").lowercase()
-                    if (assetName.endsWith(".apk")) {
-                        if (asset.has("browser_download_url")) {
-                            apkDownloadUrl = asset.getString("browser_download_url")
-                        }
-                        break
-                    }
-                }
-            }
-
             val updateAvailable = isNewerVersion(remoteVersion = tagName, currentVersion = currentVersion)
 
             val releaseInfo = AppReleaseInfo(
@@ -118,7 +104,7 @@ object AppUpdateManager {
                 releaseTitle = releaseTitle,
                 releaseNotes = releaseNotes,
                 releaseUrl = htmlUrl,
-                downloadUrl = apkDownloadUrl ?: htmlUrl,
+                downloadUrl = PLAY_STORE_MARKET_URI,
                 isUpdateAvailable = updateAvailable,
                 currentVersionName = currentVersion
             )
@@ -161,7 +147,23 @@ object AppUpdateManager {
     }
 
     /**
-     * Opens a web URL (GitHub release or APK direct download) in external browser.
+     * Opens the app's Google Play Store listing directly.
+     * Falls back to the web browser if Play Store is not installed.
+     */
+    fun openPlayStore(context: Context) {
+        try {
+            val intent = Intent(Intent.ACTION_VIEW, PLAY_STORE_MARKET_URI.toUri()).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(intent)
+        } catch (e: Exception) {
+            // Play Store app not available on this device; fall back to browser
+            openUrl(context, PLAY_STORE_WEB_URL)
+        }
+    }
+
+    /**
+     * Opens a web URL in external browser.
      */
     fun openUrl(context: Context, url: String) {
         try {

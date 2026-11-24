@@ -23,7 +23,7 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "Media Player"
+rootProject.name = "BKM Player"
 include(":app")
 include(":player")
  

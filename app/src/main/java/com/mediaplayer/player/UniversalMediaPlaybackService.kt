@@ -103,7 +103,7 @@ class UniversalMediaPlaybackService : MediaSessionService() {
     }
 
     companion object {
-        const val ACTION_STOP = "com.mediaplayer.action.STOP_SERVICE"
+        const val ACTION_STOP = "com.bkm.player.action.STOP_SERVICE"
 
         @OptIn(UnstableApi::class)
         fun createExoPlayer(context: Context): ExoPlayer {

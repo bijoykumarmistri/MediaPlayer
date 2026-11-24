@@ -83,10 +83,6 @@ import com.mediaplayer.ui.components.VideoFolderItem
 import com.mediaplayer.ui.components.formatFileSize
 import com.mediaplayer.ui.components.formatFolderDuration
 import com.mediaplayer.ui.components.shareMediaFiles
-import com.mediaplayer.ui.theme.AudiophileCyan
-import com.mediaplayer.ui.theme.AudiophileGold
-import com.mediaplayer.ui.theme.OledBorder
-import com.mediaplayer.ui.theme.OledSurfaceVariant
 
 fun cleanMovieDisplayTitle(rawTitle: String): Pair<String, String?> {
     var clean = rawTitle.replace(Regex("\\.(mp4|mkv|avi|mov|webm|flv|m4v|wmv)$", RegexOption.IGNORE_CASE), "")
@@ -111,8 +107,8 @@ fun cleanMovieDisplayTitle(rawTitle: String): Pair<String, String?> {
 @Composable
 fun InfoTextRow(label: String, value: String) {
     Column(modifier = Modifier.padding(vertical = 4.dp)) {
-        Text(text = label, color = Color(0xFFA0A0B0), fontSize = 11.sp)
-        Text(text = value, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+        Text(text = label, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp)
+        Text(text = value, color = MaterialTheme.colorScheme.onSurface, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
     }
 }
 
@@ -139,8 +135,8 @@ fun FolderListItem(
     Surface(
         onClick = onClick,
         shape = RoundedCornerShape(14.dp),
-        color = Color(0xFF131822),
-        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x22FFFFFF)),
+        color = MaterialTheme.colorScheme.surfaceContainer,
+        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
         modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 5.dp)
@@ -154,7 +150,7 @@ fun FolderListItem(
                 modifier = Modifier
                     .size(width = 112.dp, height = 70.dp)
                     .clip(RoundedCornerShape(10.dp))
-                    .background(Color(0xFF1B2330)),
+                    .background(MaterialTheme.colorScheme.surfaceContainerHighest),
                 contentAlignment = Alignment.Center
             ) {
                 if (imageRequest != null) {
@@ -177,7 +173,7 @@ fun FolderListItem(
                     Icon(
                         imageVector = Icons.Rounded.Folder,
                         contentDescription = null,
-                        tint = AudiophileCyan.copy(alpha = 0.7f),
+                        tint = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.size(36.dp)
                     )
                 }
@@ -205,12 +201,12 @@ fun FolderListItem(
                         modifier = Modifier
                             .align(Alignment.TopEnd)
                             .padding(4.dp)
-                            .background(Color(0xFF00E5FF), RoundedCornerShape(4.dp))
+                            .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(4.dp))
                             .padding(horizontal = 5.dp, vertical = 1.dp)
                     ) {
                         Text(
                             text = "${folder.newCount} NEW",
-                            color = Color.Black,
+                            color = MaterialTheme.colorScheme.onPrimary,
                             fontSize = 8.sp,
                             fontWeight = FontWeight.Black
                         )
@@ -226,13 +222,13 @@ fun FolderListItem(
                     Icon(
                         imageVector = Icons.Rounded.Folder,
                         contentDescription = null,
-                        tint = AudiophileCyan,
+                        tint = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.size(16.dp)
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
                         text = folder.name,
-                        color = Color.White,
+                        color = MaterialTheme.colorScheme.onSurface,
                         fontSize = 15.sp,
                         fontWeight = FontWeight.Bold,
                         maxLines = 1,
@@ -242,7 +238,7 @@ fun FolderListItem(
                 Spacer(modifier = Modifier.height(3.dp))
                 Text(
                     text = folder.path,
-                    color = Color(0xFF7E8E9E),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 12.sp,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
@@ -250,12 +246,12 @@ fun FolderListItem(
                 Spacer(modifier = Modifier.height(6.dp))
                 Box(
                     modifier = Modifier
-                        .background(Color(0xFF1E2838), RoundedCornerShape(6.dp))
+                        .background(MaterialTheme.colorScheme.primaryContainer, RoundedCornerShape(6.dp))
                         .padding(horizontal = 8.dp, vertical = 2.dp)
                 ) {
                     Text(
                         text = "${folder.videos.size} Videos",
-                        color = AudiophileCyan,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.SemiBold
                     )
@@ -288,8 +284,8 @@ fun FolderGridItem(
     Surface(
         onClick = onClick,
         shape = RoundedCornerShape(16.dp),
-        color = Color(0xFF131822),
-        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x26FFFFFF)),
+        color = MaterialTheme.colorScheme.surfaceContainer,
+        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
         modifier = modifier.fillMaxWidth()
     ) {
         Column(modifier = Modifier.padding(10.dp)) {
@@ -299,7 +295,7 @@ fun FolderGridItem(
                     .fillMaxWidth()
                     .aspectRatio(16f / 10f)
                     .clip(RoundedCornerShape(12.dp))
-                    .background(Color(0xFF1A222E)),
+                    .background(MaterialTheme.colorScheme.surfaceContainerHighest),
                 contentAlignment = Alignment.Center
             ) {
                 if (imageRequest != null) {
@@ -322,7 +318,7 @@ fun FolderGridItem(
                     Icon(
                         imageVector = Icons.Rounded.Folder,
                         contentDescription = null,
-                        tint = AudiophileCyan.copy(alpha = 0.6f),
+                        tint = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.size(42.dp)
                     )
                 }
@@ -339,7 +335,7 @@ fun FolderGridItem(
                         Icon(
                             imageVector = Icons.Rounded.Folder,
                             contentDescription = null,
-                            tint = AudiophileCyan,
+                            tint = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.size(12.dp)
                         )
                         Spacer(modifier = Modifier.width(4.dp))
@@ -358,12 +354,12 @@ fun FolderGridItem(
                         modifier = Modifier
                             .align(Alignment.TopEnd)
                             .padding(6.dp)
-                            .background(Color(0xFF00E5FF), RoundedCornerShape(6.dp))
+                            .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(6.dp))
                             .padding(horizontal = 6.dp, vertical = 2.dp)
                     ) {
                         Text(
                             text = "${folder.newCount} NEW",
-                            color = Color.Black,
+                            color = MaterialTheme.colorScheme.onPrimary,
                             fontSize = 8.sp,
                             fontWeight = FontWeight.Black
                         )
@@ -392,7 +388,7 @@ fun FolderGridItem(
 
             Text(
                 text = folder.name,
-                color = Color.White,
+                color = MaterialTheme.colorScheme.onSurface,
                 fontSize = 14.sp,
                 fontWeight = FontWeight.Bold,
                 maxLines = 1,
@@ -401,7 +397,7 @@ fun FolderGridItem(
             Spacer(modifier = Modifier.height(2.dp))
             Text(
                 text = folder.path,
-                color = Color(0xFF7E8E9E),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontSize = 11.sp,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
@@ -448,7 +444,7 @@ fun VideoCardItem(
             .clip(RoundedCornerShape(14.dp))
             .border(
                 if (isSelected) 2.dp else 1.dp,
-                if (isSelected) AudiophileCyan else if (isPlaying) AudiophileCyan else OledBorder,
+                if (isSelected) MaterialTheme.colorScheme.primary else if (isPlaying) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
                 RoundedCornerShape(14.dp)
             )
             .combinedClickable(
@@ -456,14 +452,14 @@ fun VideoCardItem(
                 onLongClick = onLongClick
             ),
         shape = RoundedCornerShape(14.dp),
-        colors = CardDefaults.cardColors(containerColor = if (isSelected) Color(0xFF1B2A38) else OledSurfaceVariant)
+        colors = CardDefaults.cardColors(containerColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainer)
     ) {
         Column {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .aspectRatio(16f / 9f)
-                    .background(Color(0xFF161722)),
+                    .background(MaterialTheme.colorScheme.surfaceContainerHighest),
                 contentAlignment = Alignment.Center
             ) {
                 if (item.artworkUri != null) {
@@ -474,7 +470,7 @@ fun VideoCardItem(
                         modifier = Modifier.fillMaxSize()
                     )
                 } else {
-                    Icon(Icons.Rounded.Movie, contentDescription = null, tint = Color(0xFF6E6E80), modifier = Modifier.size(36.dp))
+                    Icon(Icons.Rounded.Movie, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(36.dp))
                 }
 
                 // Selection Checkbox Badge
@@ -485,15 +481,15 @@ fun VideoCardItem(
                             .padding(6.dp)
                             .size(24.dp)
                             .clip(CircleShape)
-                            .background(if (isSelected) AudiophileCyan else Color(0x99000000))
-                            .border(1.5.dp, if (isSelected) AudiophileCyan else Color.White, CircleShape),
+                            .background(if (isSelected) MaterialTheme.colorScheme.primary else Color(0x99000000))
+                            .border(1.5.dp, if (isSelected) MaterialTheme.colorScheme.primary else Color.White, CircleShape),
                         contentAlignment = Alignment.Center
                     ) {
                         if (isSelected) {
                             Icon(
                                 imageVector = Icons.Rounded.Check,
                                 contentDescription = "Selected",
-                                tint = Color.Black,
+                                tint = MaterialTheme.colorScheme.onPrimary,
                                 modifier = Modifier.size(16.dp)
                             )
                         }
@@ -511,7 +507,7 @@ fun VideoCardItem(
                     Icon(
                         imageVector = Icons.Rounded.PlayArrow,
                         contentDescription = null,
-                        tint = if (isPlaying) AudiophileCyan else Color.White,
+                        tint = if (isPlaying) MaterialTheme.colorScheme.primary else Color.White,
                         modifier = Modifier.size(22.dp)
                     )
                 }
@@ -528,10 +524,10 @@ fun VideoCardItem(
                         .align(Alignment.TopStart)
                         .padding(6.dp)
                         .clip(RoundedCornerShape(6.dp))
-                        .background(Color(0xCC00E5FF))
+                        .background(MaterialTheme.colorScheme.primaryContainer)
                         .padding(horizontal = 5.dp, vertical = 2.dp)
                 ) {
-                    Text(text = resBadge, color = Color.Black, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                    Text(text = resBadge, color = MaterialTheme.colorScheme.onPrimaryContainer, fontSize = 9.sp, fontWeight = FontWeight.Bold)
                 }
 
                 // NEW Badge (only shown on genuinely unplayed & recent videos)
@@ -541,10 +537,10 @@ fun VideoCardItem(
                             .align(Alignment.TopEnd)
                             .padding(6.dp)
                             .clip(RoundedCornerShape(6.dp))
-                            .background(Color(0xFF00E676))
+                            .background(MaterialTheme.colorScheme.primary)
                             .padding(horizontal = 6.dp, vertical = 2.dp)
                     ) {
-                        Text(text = "NEW", color = Color.Black, fontSize = 8.sp, fontWeight = FontWeight.Black)
+                        Text(text = "NEW", color = MaterialTheme.colorScheme.onPrimary, fontSize = 8.sp, fontWeight = FontWeight.Black)
                     }
                 }
 
@@ -575,8 +571,8 @@ fun VideoCardItem(
                             .fillMaxWidth()
                             .height(3.dp)
                             .align(Alignment.BottomCenter),
-                        color = AudiophileCyan,
-                        trackColor = Color(0x33FFFFFF)
+                        color = MaterialTheme.colorScheme.primary,
+                        trackColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
                     )
                 }
             }
@@ -593,7 +589,7 @@ fun VideoCardItem(
                             text = cleanTitle,
                             style = MaterialTheme.typography.bodyMedium,
                             fontWeight = FontWeight.SemiBold,
-                            color = Color.White,
+                            color = MaterialTheme.colorScheme.onSurface,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.weight(1f, fill = false)
@@ -604,7 +600,7 @@ fun VideoCardItem(
                                 text = "($year)",
                                 style = MaterialTheme.typography.bodySmall,
                                 fontWeight = FontWeight.Bold,
-                                color = AudiophileGold,
+                                color = MaterialTheme.colorScheme.tertiary,
                                 fontSize = 11.sp
                             )
                         }
@@ -617,7 +613,7 @@ fun VideoCardItem(
                             "${formatFileSize(item.sizeBytes)} • ${formatTimeMs(item.durationMs)}"
                         },
                         style = MaterialTheme.typography.bodySmall,
-                        color = if (savedPositionMs > 0) AudiophileCyan.copy(alpha = 0.9f) else Color(0xFF8E8E9E),
+                        color = if (savedPositionMs > 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -631,7 +627,7 @@ fun VideoCardItem(
                     Icon(
                         imageVector = Icons.Rounded.MoreVert,
                         contentDescription = "Options",
-                        tint = Color(0xFFA0A0B0),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.size(18.dp)
                     )
                 }
@@ -676,10 +672,10 @@ fun VideoListItem(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(14.dp))
-            .background(if (isSelected) Color(0xFF1E2D3D) else if (isPlaying) Color(0x1A00E5FF) else OledSurfaceVariant)
+            .background(if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f) else if (isPlaying) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.25f) else MaterialTheme.colorScheme.surfaceContainer)
             .border(
                 if (isSelected) 2.dp else 1.dp,
-                if (isSelected) AudiophileCyan else if (isPlaying) AudiophileCyan else OledBorder,
+                if (isSelected) MaterialTheme.colorScheme.primary else if (isPlaying) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
                 RoundedCornerShape(14.dp)
             )
             .combinedClickable(
@@ -694,15 +690,15 @@ fun VideoListItem(
                 modifier = Modifier
                     .size(24.dp)
                     .clip(CircleShape)
-                    .background(if (isSelected) AudiophileCyan else Color(0x33FFFFFF))
-                    .border(1.5.dp, if (isSelected) AudiophileCyan else Color.White, CircleShape),
+                    .background(if (isSelected) MaterialTheme.colorScheme.primary else Color(0x33FFFFFF))
+                    .border(1.5.dp, if (isSelected) MaterialTheme.colorScheme.primary else Color.White, CircleShape),
                 contentAlignment = Alignment.Center
             ) {
                 if (isSelected) {
                     Icon(
                         imageVector = Icons.Rounded.Check,
                         contentDescription = "Selected",
-                        tint = Color.Black,
+                        tint = MaterialTheme.colorScheme.onPrimary,
                         modifier = Modifier.size(16.dp)
                     )
                 }
@@ -715,8 +711,8 @@ fun VideoListItem(
             modifier = Modifier
                 .size(100.dp, 60.dp)
                 .clip(RoundedCornerShape(10.dp))
-                .background(Color(0xFF1B1C28))
-                .border(0.5.dp, Color(0x33FFFFFF), RoundedCornerShape(10.dp)),
+                .background(MaterialTheme.colorScheme.surfaceContainerHighest)
+                .border(0.5.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(10.dp)),
             contentAlignment = Alignment.Center
         ) {
             if (item.artworkUri != null) {
@@ -727,7 +723,7 @@ fun VideoListItem(
                     modifier = Modifier.fillMaxSize()
                 )
             } else {
-                Icon(Icons.Rounded.Movie, contentDescription = null, tint = Color(0xFF6E6E80), modifier = Modifier.size(28.dp))
+                Icon(Icons.Rounded.Movie, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(28.dp))
             }
 
             // Duration Pill
@@ -755,10 +751,10 @@ fun VideoListItem(
                         .align(Alignment.TopStart)
                         .padding(3.dp)
                         .clip(RoundedCornerShape(4.dp))
-                        .background(Color(0xFF00E676))
+                        .background(MaterialTheme.colorScheme.primary)
                         .padding(horizontal = 4.dp, vertical = 1.dp)
                 ) {
-                    Text(text = "NEW", color = Color.Black, fontSize = 7.sp, fontWeight = FontWeight.Black)
+                    Text(text = "NEW", color = MaterialTheme.colorScheme.onPrimary, fontSize = 7.sp, fontWeight = FontWeight.Black)
                 }
             }
 
@@ -771,8 +767,8 @@ fun VideoListItem(
                         .fillMaxWidth()
                         .height(3.dp)
                         .align(Alignment.BottomCenter),
-                    color = AudiophileCyan,
-                    trackColor = Color(0x33FFFFFF)
+                    color = MaterialTheme.colorScheme.primary,
+                    trackColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
                 )
             }
         }
@@ -786,7 +782,7 @@ fun VideoListItem(
                     text = cleanTitle,
                     style = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.SemiBold,
-                    color = if (isPlaying) AudiophileCyan else Color.White,
+                    color = if (isPlaying) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f, fill = false)
@@ -797,7 +793,7 @@ fun VideoListItem(
                         text = "($year)",
                         style = MaterialTheme.typography.bodySmall,
                         fontWeight = FontWeight.Bold,
-                        color = AudiophileGold,
+                        color = MaterialTheme.colorScheme.tertiary,
                         fontSize = 11.sp
                     )
                 }
@@ -814,10 +810,10 @@ fun VideoListItem(
                     text = resBadge,
                     fontSize = 9.sp,
                     fontWeight = FontWeight.Bold,
-                    color = AudiophileCyan,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer,
                     modifier = Modifier
                         .clip(RoundedCornerShape(4.dp))
-                        .background(Color(0x2200E5FF))
+                        .background(MaterialTheme.colorScheme.primaryContainer)
                         .padding(horizontal = 5.dp, vertical = 1.dp)
                 )
                 Spacer(modifier = Modifier.width(6.dp))
@@ -828,7 +824,7 @@ fun VideoListItem(
                         "${formatFileSize(item.sizeBytes)} • ${formatTimeMs(item.durationMs)}"
                     },
                     style = MaterialTheme.typography.bodySmall,
-                    color = if (savedPositionMs > 0) AudiophileCyan.copy(alpha = 0.9f) else Color(0xFF8E8E9E),
+                    color = if (savedPositionMs > 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -842,7 +838,7 @@ fun VideoListItem(
             Icon(
                 imageVector = Icons.Rounded.MoreVert,
                 contentDescription = "Options",
-                tint = Color(0xFFA0A0B0),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.size(18.dp)
             )
         }
@@ -864,13 +860,13 @@ fun VideoOptionsMenuDialog(
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        containerColor = Color(0xFF161822),
+        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
         title = {
             Text(
                 text = video.title,
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
-                color = Color.White,
+                color = MaterialTheme.colorScheme.onSurface,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis
             )
@@ -883,9 +879,9 @@ fun VideoOptionsMenuDialog(
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Rounded.PlayArrow, contentDescription = null, tint = AudiophileCyan)
+                            Icon(Icons.Rounded.PlayArrow, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                             Spacer(Modifier.width(12.dp))
-                            Text("Resume (${formatTimeMs(savedPositionMs)})", color = Color.White)
+                            Text("Resume (${formatTimeMs(savedPositionMs)})", color = MaterialTheme.colorScheme.onSurface)
                         }
                     }
                 }
@@ -894,9 +890,9 @@ fun VideoOptionsMenuDialog(
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Rounded.Replay10, contentDescription = null, tint = Color.White)
+                        Icon(Icons.Rounded.Replay10, contentDescription = null, tint = MaterialTheme.colorScheme.onSurface)
                         Spacer(Modifier.width(12.dp))
-                        Text("Play from Beginning", color = Color.White)
+                        Text("Play from Beginning", color = MaterialTheme.colorScheme.onSurface)
                     }
                 }
                 TextButton(
@@ -904,9 +900,9 @@ fun VideoOptionsMenuDialog(
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Rounded.Info, contentDescription = null, tint = AudiophileGold)
+                        Icon(Icons.Rounded.Info, contentDescription = null, tint = MaterialTheme.colorScheme.tertiary)
                         Spacer(Modifier.width(12.dp))
-                        Text("Video Details", color = Color.White)
+                        Text("Video Details", color = MaterialTheme.colorScheme.onSurface)
                     }
                 }
                 TextButton(
@@ -914,9 +910,9 @@ fun VideoOptionsMenuDialog(
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Rounded.Share, contentDescription = null, tint = Color.White)
+                        Icon(Icons.Rounded.Share, contentDescription = null, tint = MaterialTheme.colorScheme.onSurface)
                         Spacer(Modifier.width(12.dp))
-                        Text("Share Video", color = Color.White)
+                        Text("Share Video", color = MaterialTheme.colorScheme.onSurface)
                     }
                 }
                 TextButton(
@@ -924,9 +920,9 @@ fun VideoOptionsMenuDialog(
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Rounded.CheckCircleOutline, contentDescription = null, tint = AudiophileCyan)
+                        Icon(Icons.Rounded.CheckCircleOutline, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                         Spacer(Modifier.width(12.dp))
-                        Text("Select File", color = Color.White)
+                        Text("Select File", color = MaterialTheme.colorScheme.onSurface)
                     }
                 }
                 TextButton(
@@ -934,9 +930,9 @@ fun VideoOptionsMenuDialog(
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Rounded.Lock, contentDescription = null, tint = AudiophileGold)
+                        Icon(Icons.Rounded.Lock, contentDescription = null, tint = MaterialTheme.colorScheme.tertiary)
                         Spacer(Modifier.width(12.dp))
-                        Text("Hide in Privacy Vault", color = Color.White)
+                        Text("Hide in Privacy Vault", color = MaterialTheme.colorScheme.onSurface)
                     }
                 }
                 TextButton(
@@ -944,16 +940,16 @@ fun VideoOptionsMenuDialog(
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Rounded.Delete, contentDescription = null, tint = Color(0xFFFF5252))
+                        Icon(Icons.Rounded.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error)
                         Spacer(Modifier.width(12.dp))
-                        Text("Delete from Storage", color = Color(0xFFFF5252))
+                        Text("Delete from Storage", color = MaterialTheme.colorScheme.error)
                     }
                 }
             }
         },
         confirmButton = {
             TextButton(onClick = onDismiss) {
-                Text("Cancel", color = Color(0xFF9093A0))
+                Text("Cancel", color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     )
@@ -1142,7 +1138,7 @@ fun VideosTabScreen(
                         Icon(
                             imageVector = Icons.Rounded.Folder,
                             contentDescription = null,
-                            tint = AudiophileCyan,
+                            tint = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.size(20.dp)
                         )
                         Spacer(modifier = Modifier.width(8.dp))
@@ -1150,7 +1146,7 @@ fun VideosTabScreen(
                             text = "Folders (${folderItems.size})",
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
-                            color = Color.White
+                            color = MaterialTheme.colorScheme.onSurface
                         )
                     }
 
@@ -1162,7 +1158,7 @@ fun VideosTabScreen(
                         Icon(
                             imageVector = if (isGridView) Icons.AutoMirrored.Rounded.ViewList else Icons.Rounded.GridView,
                             contentDescription = "Toggle Grid/List",
-                            tint = Color.White,
+                            tint = MaterialTheme.colorScheme.onSurface,
                             modifier = Modifier.size(22.dp)
                         )
                     }
@@ -1211,8 +1207,8 @@ fun VideosTabScreen(
         val video = selectedVideoForDetails!!
         AlertDialog(
             onDismissRequest = { selectedVideoForDetails = null },
-            containerColor = OledSurfaceVariant,
-            title = { Text("Video Details", fontWeight = FontWeight.Bold, color = Color.White) },
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+            title = { Text("Video Details", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface) },
             text = {
                 Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
                     InfoTextRow("Title", video.title)
@@ -1226,7 +1222,7 @@ fun VideosTabScreen(
             },
             confirmButton = {
                 TextButton(onClick = { selectedVideoForDetails = null }) {
-                    Text("Close", color = Color.White)
+                    Text("Close", color = MaterialTheme.colorScheme.primary)
                 }
             }
         )

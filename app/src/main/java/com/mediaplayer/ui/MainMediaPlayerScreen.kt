@@ -91,6 +91,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.NavigationRail
 import androidx.compose.material3.NavigationRailItem
 import androidx.compose.material3.NavigationRailItemDefaults
@@ -145,11 +146,6 @@ import com.mediaplayer.ui.components.formatFolderDuration
 import com.mediaplayer.ui.components.shareMediaFiles
 import com.mediaplayer.ui.music.MusicNowPlayingScreen
 import com.mediaplayer.ui.music.MusicTabScreen
-import com.mediaplayer.ui.theme.AudiophileCyan
-import com.mediaplayer.ui.theme.AudiophileGold
-import com.mediaplayer.ui.theme.OledBorder
-import com.mediaplayer.ui.theme.OledSurface
-import com.mediaplayer.ui.theme.OledSurfaceVariant
 import com.mediaplayer.ui.video.VideoPlayerView
 import com.mediaplayer.ui.video.VideosTabScreen
 import com.mediaplayer.util.AppReleaseInfo
@@ -164,7 +160,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.mxplayer.mpv.PlayerViewModel
+import com.bkm.player.mpv.PlayerViewModel
 import kotlinx.coroutines.withContext
 
 @Composable
@@ -618,7 +614,7 @@ fun MainMediaPlayerScreen(
 
     Surface(
         modifier = modifier.fillMaxSize(),
-        color = OledSurface
+        color = MaterialTheme.colorScheme.background
     ) {
         val windowInfo = androidx.compose.ui.platform.LocalWindowInfo.current
         val density = androidx.compose.ui.platform.LocalDensity.current
@@ -630,8 +626,8 @@ fun MainMediaPlayerScreen(
                     // Navigation Rail on Tablets / Landscape
                     if (isWideScreen) {
                         NavigationRail(
-                            containerColor = OledSurface,
-                            contentColor = AudiophileCyan,
+                            containerColor = MaterialTheme.colorScheme.surface,
+                            contentColor = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.fillMaxHeight()
                         ) {
                             Spacer(modifier = Modifier.height(16.dp))
@@ -649,11 +645,11 @@ fun MainMediaPlayerScreen(
                                 icon = { Icon(Icons.Rounded.Movie, contentDescription = "Videos") },
                                 label = { Text("Videos") },
                                 colors = NavigationRailItemDefaults.colors(
-                                    selectedIconColor = Color.Black,
-                                    selectedTextColor = AudiophileCyan,
-                                    indicatorColor = AudiophileCyan,
-                                    unselectedIconColor = Color(0xFF9E9EAE),
-                                    unselectedTextColor = Color(0xFF9E9EAE)
+                                    selectedIconColor = MaterialTheme.colorScheme.onPrimary,
+                                    selectedTextColor = MaterialTheme.colorScheme.primary,
+                                    indicatorColor = MaterialTheme.colorScheme.primary,
+                                    unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             )
                             NavigationRailItem(
@@ -670,11 +666,11 @@ fun MainMediaPlayerScreen(
                                 icon = { Icon(Icons.Rounded.MusicNote, contentDescription = "Music") },
                                 label = { Text("Music") },
                                 colors = NavigationRailItemDefaults.colors(
-                                    selectedIconColor = Color.Black,
-                                    selectedTextColor = AudiophileCyan,
-                                    indicatorColor = AudiophileCyan,
-                                    unselectedIconColor = Color(0xFF9E9EAE),
-                                    unselectedTextColor = Color(0xFF9E9EAE)
+                                    selectedIconColor = MaterialTheme.colorScheme.onPrimary,
+                                    selectedTextColor = MaterialTheme.colorScheme.primary,
+                                    indicatorColor = MaterialTheme.colorScheme.primary,
+                                    unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             )
                             NavigationRailItem(
@@ -686,11 +682,11 @@ fun MainMediaPlayerScreen(
                                 icon = { Icon(Icons.Rounded.FolderOpen, contentDescription = "Media Hub") },
                                 label = { Text("Media Hub") },
                                 colors = NavigationRailItemDefaults.colors(
-                                    selectedIconColor = Color.Black,
-                                    selectedTextColor = AudiophileCyan,
-                                    indicatorColor = AudiophileCyan,
-                                    unselectedIconColor = Color(0xFF9E9EAE),
-                                    unselectedTextColor = Color(0xFF9E9EAE)
+                                    selectedIconColor = MaterialTheme.colorScheme.onPrimary,
+                                    selectedTextColor = MaterialTheme.colorScheme.primary,
+                                    indicatorColor = MaterialTheme.colorScheme.primary,
+                                    unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             )
                         }
@@ -701,14 +697,17 @@ fun MainMediaPlayerScreen(
                         modifier = Modifier
                             .weight(1f)
                             .fillMaxHeight(),
-                        containerColor = OledSurface,
+                        containerColor = MaterialTheme.colorScheme.background,
                         topBar = {
                             Column(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .background(
                                         Brush.verticalGradient(
-                                            listOf(Color(0xFF11141C), Color(0xFF090A0E))
+                                            listOf(
+                                                MaterialTheme.colorScheme.surface,
+                                                MaterialTheme.colorScheme.background
+                                            )
                                         )
                                     )
                                     .statusBarsPadding()
@@ -727,14 +726,14 @@ fun MainMediaPlayerScreen(
                                                 modifier = Modifier
                                                     .size(38.dp)
                                                     .clip(CircleShape)
-                                                    .background(Color(0x1AFFFFFF))
+                                                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
                                                     .clickable { selectedMediaItems = emptySet() },
                                                 contentAlignment = Alignment.Center
                                             ) {
                                                 Icon(
                                                     imageVector = Icons.Rounded.Close,
                                                     contentDescription = "Cancel Selection",
-                                                    tint = Color.White,
+                                                    tint = MaterialTheme.colorScheme.onSurface,
                                                     modifier = Modifier.size(20.dp)
                                                 )
                                             }
@@ -744,13 +743,13 @@ fun MainMediaPlayerScreen(
                                                     text = "${selectedMediaItems.size} Selected",
                                                     style = MaterialTheme.typography.titleMedium,
                                                     fontWeight = FontWeight.Bold,
-                                                    color = Color.White
+                                                    color = MaterialTheme.colorScheme.onSurface
                                                 )
                                                 val totalSize = selectedMediaItems.sumOf { it.sizeBytes }
                                                 Text(
                                                     text = formatFileSize(totalSize),
                                                     style = MaterialTheme.typography.bodySmall,
-                                                    color = Color(0xFFA0A8B8),
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                                                     fontSize = 11.sp
                                                 )
                                             }
@@ -771,7 +770,7 @@ fun MainMediaPlayerScreen(
                                                 modifier = Modifier
                                                     .size(38.dp)
                                                     .clip(CircleShape)
-                                                    .background(Color(0x1AFFFFFF))
+                                                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
                                                     .clickable {
                                                         selectedMediaItems = if (isAllSelected) {
                                                             emptySet()
@@ -784,7 +783,7 @@ fun MainMediaPlayerScreen(
                                                 Icon(
                                                     imageVector = if (isAllSelected) Icons.Rounded.Deselect else Icons.Rounded.SelectAll,
                                                     contentDescription = if (isAllSelected) "Deselect All" else "Select All",
-                                                    tint = AudiophileCyan,
+                                                    tint = MaterialTheme.colorScheme.primary,
                                                     modifier = Modifier.size(20.dp)
                                                 )
                                             }
@@ -794,7 +793,7 @@ fun MainMediaPlayerScreen(
                                                 modifier = Modifier
                                                     .size(38.dp)
                                                     .clip(CircleShape)
-                                                    .background(Color(0x1AFFFFFF))
+                                                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
                                                     .clickable {
                                                         shareMediaFiles(context, selectedMediaItems.toList())
                                                     },
@@ -803,18 +802,18 @@ fun MainMediaPlayerScreen(
                                                 Icon(
                                                     imageVector = Icons.Rounded.Share,
                                                     contentDescription = "Share Selected Files",
-                                                    tint = Color.White,
+                                                    tint = MaterialTheme.colorScheme.onSurface,
                                                     modifier = Modifier.size(20.dp)
                                                 )
                                             }
 
-                                            // Lock in Privacy Vault Button (Gold)
+                                            // Lock in Privacy Vault Button (Tertiary Container)
                                             Box(
                                                 modifier = Modifier
                                                     .size(38.dp)
                                                     .clip(CircleShape)
-                                                    .background(Color(0x33FFD54F))
-                                                    .border(1.dp, Color(0x66FFD54F), CircleShape)
+                                                    .background(MaterialTheme.colorScheme.tertiaryContainer)
+                                                    .border(1.dp, MaterialTheme.colorScheme.tertiary.copy(alpha = 0.4f), CircleShape)
                                                     .clickable {
                                                         moveToPrivacyVault(selectedMediaItems.toList())
                                                     },
@@ -823,18 +822,18 @@ fun MainMediaPlayerScreen(
                                                 Icon(
                                                     imageVector = Icons.Rounded.Lock,
                                                     contentDescription = "Hide in Privacy Vault",
-                                                    tint = AudiophileGold,
+                                                    tint = MaterialTheme.colorScheme.onTertiaryContainer,
                                                     modifier = Modifier.size(18.dp)
                                                 )
                                             }
 
-                                            // Delete Button (Red)
+                                            // Delete Button (Error Container)
                                             Box(
                                                 modifier = Modifier
                                                     .size(38.dp)
                                                     .clip(CircleShape)
-                                                    .background(Color(0x33FF453A))
-                                                    .border(1.dp, Color(0x66FF453A), CircleShape)
+                                                    .background(MaterialTheme.colorScheme.errorContainer)
+                                                    .border(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.4f), CircleShape)
                                                     .clickable {
                                                         itemsToDelete = selectedMediaItems.toList()
                                                     },
@@ -843,7 +842,7 @@ fun MainMediaPlayerScreen(
                                                 Icon(
                                                     imageVector = Icons.Rounded.Delete,
                                                     contentDescription = "Delete Selected Files",
-                                                    tint = Color(0xFFFF5252),
+                                                    tint = MaterialTheme.colorScheme.onErrorContainer,
                                                     modifier = Modifier.size(20.dp)
                                                 )
                                             }
@@ -859,19 +858,19 @@ fun MainMediaPlayerScreen(
                                                 .padding(horizontal = 14.dp, vertical = 10.dp),
                                             verticalAlignment = Alignment.CenterVertically
                                         ) {
-                                            // Luxury frosted circular back button
+                                            // Circular back button
                                             Box(
                                                 modifier = Modifier
                                                     .size(38.dp)
                                                     .clip(CircleShape)
-                                                    .background(Color(0x1AFFFFFF))
+                                                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
                                                     .clickable { openedVideoFolder = null },
                                                 contentAlignment = Alignment.Center
                                             ) {
                                                 Icon(
                                                     imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
                                                     contentDescription = "Back",
-                                                    tint = Color.White,
+                                                    tint = MaterialTheme.colorScheme.onSurface,
                                                     modifier = Modifier.size(20.dp)
                                                 )
                                             }
@@ -885,7 +884,7 @@ fun MainMediaPlayerScreen(
                                                     text = folder.name,
                                                     style = MaterialTheme.typography.titleMedium,
                                                     fontWeight = FontWeight.Bold,
-                                                    color = Color.White,
+                                                    color = MaterialTheme.colorScheme.onSurface,
                                                     maxLines = 1,
                                                     overflow = TextOverflow.Ellipsis
                                                 )
@@ -894,12 +893,12 @@ fun MainMediaPlayerScreen(
                                                     Box(
                                                         modifier = Modifier
                                                             .clip(RoundedCornerShape(4.dp))
-                                                            .background(Color(0xFF1B2230))
+                                                            .background(MaterialTheme.colorScheme.primaryContainer)
                                                             .padding(horizontal = 6.dp, vertical = 1.dp)
                                                     ) {
                                                         Text(
                                                             text = "${folder.videos.size} Videos",
-                                                            color = AudiophileCyan,
+                                                            color = MaterialTheme.colorScheme.onPrimaryContainer,
                                                             fontSize = 10.sp,
                                                             fontWeight = FontWeight.Bold
                                                         )
@@ -908,7 +907,7 @@ fun MainMediaPlayerScreen(
                                                     Text(
                                                         text = formatFolderDuration(folder.totalDurationMs),
                                                         style = MaterialTheme.typography.bodySmall,
-                                                        color = Color(0xFF7E8E9E),
+                                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                                                         fontSize = 11.sp
                                                     )
                                                 }
@@ -920,36 +919,36 @@ fun MainMediaPlayerScreen(
                                                     modifier = Modifier
                                                         .size(38.dp)
                                                         .clip(CircleShape)
-                                                        .background(if (videoSortOrder != 0) Color(0x3300E5FF) else Color(0x1AFFFFFF))
+                                                        .background(if (videoSortOrder != 0) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
                                                         .clickable { showVideoSortMenu = true },
                                                     contentAlignment = Alignment.Center
                                                 ) {
                                                     Icon(
                                                         imageVector = Icons.Rounded.Tune,
                                                         contentDescription = "Sort",
-                                                        tint = if (videoSortOrder != 0) AudiophileCyan else Color.White,
+                                                        tint = if (videoSortOrder != 0) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
                                                         modifier = Modifier.size(18.dp)
                                                     )
                                                 }
                                                 DropdownMenu(
                                                     expanded = showVideoSortMenu,
                                                     onDismissRequest = { showVideoSortMenu = false },
-                                                    modifier = Modifier.background(OledSurfaceVariant)
+                                                    modifier = Modifier.background(MaterialTheme.colorScheme.surfaceContainerHigh)
                                                 ) {
                                                     DropdownMenuItem(
-                                                        text = { Text("Sort by Date Added", color = Color.White) },
+                                                        text = { Text("Sort by Date Added", color = MaterialTheme.colorScheme.onSurface) },
                                                         onClick = { videoSortOrder = 0; showVideoSortMenu = false }
                                                     )
                                                     DropdownMenuItem(
-                                                        text = { Text("Sort by Name (A-Z)", color = Color.White) },
+                                                        text = { Text("Sort by Name (A-Z)", color = MaterialTheme.colorScheme.onSurface) },
                                                         onClick = { videoSortOrder = 1; showVideoSortMenu = false }
                                                     )
                                                     DropdownMenuItem(
-                                                        text = { Text("Sort by File Size", color = Color.White) },
+                                                        text = { Text("Sort by File Size", color = MaterialTheme.colorScheme.onSurface) },
                                                         onClick = { videoSortOrder = 2; showVideoSortMenu = false }
                                                     )
                                                     DropdownMenuItem(
-                                                        text = { Text("Sort by Duration", color = Color.White) },
+                                                        text = { Text("Sort by Duration", color = MaterialTheme.colorScheme.onSurface) },
                                                         onClick = { videoSortOrder = 3; showVideoSortMenu = false }
                                                     )
                                                 }
@@ -962,14 +961,14 @@ fun MainMediaPlayerScreen(
                                                 modifier = Modifier
                                                     .size(38.dp)
                                                     .clip(CircleShape)
-                                                    .background(Color(0x1AFFFFFF))
+                                                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
                                                     .clickable { isVideoGridView = !isVideoGridView },
                                                 contentAlignment = Alignment.Center
                                             ) {
                                                 Icon(
                                                     imageVector = if (isVideoGridView) Icons.AutoMirrored.Rounded.ViewList else Icons.Rounded.GridView,
                                                     contentDescription = "Toggle Grid/List",
-                                                    tint = Color.White,
+                                                    tint = MaterialTheme.colorScheme.onSurface,
                                                     modifier = Modifier.size(18.dp)
                                                 )
                                             }
@@ -988,13 +987,13 @@ fun MainMediaPlayerScreen(
                                                     text = "Videos",
                                                     style = MaterialTheme.typography.titleLarge,
                                                     fontWeight = FontWeight.ExtraBold,
-                                                    color = Color.White,
+                                                    color = MaterialTheme.colorScheme.onSurface,
                                                     letterSpacing = 0.5.sp
                                                 )
                                                 Text(
                                                     text = "${videoFolders.size} Folders • ${videoList.size} Videos",
                                                     style = MaterialTheme.typography.bodySmall,
-                                                    color = Color(0xFF7E8E9E),
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                                                     fontSize = 11.sp
                                                 )
                                             }
@@ -1008,14 +1007,14 @@ fun MainMediaPlayerScreen(
                                                     modifier = Modifier
                                                         .size(38.dp)
                                                         .clip(CircleShape)
-                                                        .background(if (isSearchActive) Color(0x3300E5FF) else Color(0x1AFFFFFF))
+                                                        .background(if (isSearchActive) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
                                                         .clickable { isSearchActive = !isSearchActive },
                                                     contentAlignment = Alignment.Center
                                                 ) {
                                                     Icon(
                                                         imageVector = Icons.Rounded.Search,
                                                         contentDescription = "Search",
-                                                        tint = if (isSearchActive) AudiophileCyan else Color.White,
+                                                        tint = if (isSearchActive) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
                                                         modifier = Modifier.size(18.dp)
                                                     )
                                                 }
@@ -1025,14 +1024,14 @@ fun MainMediaPlayerScreen(
                                                     modifier = Modifier
                                                         .size(38.dp)
                                                         .clip(CircleShape)
-                                                        .background(Color(0x1AFFFFFF))
+                                                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
                                                         .clickable { isVideoGridView = !isVideoGridView },
                                                     contentAlignment = Alignment.Center
                                                 ) {
                                                     Icon(
                                                         imageVector = if (isVideoGridView) Icons.AutoMirrored.Rounded.ViewList else Icons.Rounded.GridView,
                                                         contentDescription = "Toggle View",
-                                                        tint = Color.White,
+                                                        tint = MaterialTheme.colorScheme.onSurface,
                                                         modifier = Modifier.size(18.dp)
                                                     )
                                                 }
@@ -1042,14 +1041,14 @@ fun MainMediaPlayerScreen(
                                                     modifier = Modifier
                                                         .size(38.dp)
                                                         .clip(CircleShape)
-                                                        .background(Color(0x1AFFFFFF))
+                                                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
                                                         .clickable { showVideoSettingsDialog = true },
                                                     contentAlignment = Alignment.Center
                                                 ) {
                                                     Icon(
                                                         imageVector = Icons.Rounded.Settings,
                                                         contentDescription = "Settings",
-                                                        tint = Color.White,
+                                                        tint = MaterialTheme.colorScheme.onSurface,
                                                         modifier = Modifier.size(18.dp)
                                                     )
                                                 }
@@ -1071,14 +1070,14 @@ fun MainMediaPlayerScreen(
                                                 modifier = Modifier
                                                     .size(38.dp)
                                                     .clip(CircleShape)
-                                                    .background(Color(0x1AFFFFFF))
+                                                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
                                                     .clickable { openedMusicFolder = null },
                                                 contentAlignment = Alignment.Center
                                             ) {
                                                 Icon(
                                                     imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
                                                     contentDescription = "Back",
-                                                    tint = Color.White,
+                                                    tint = MaterialTheme.colorScheme.onSurface,
                                                     modifier = Modifier.size(20.dp)
                                                 )
                                             }
@@ -1092,7 +1091,7 @@ fun MainMediaPlayerScreen(
                                                     text = folder.name,
                                                     style = MaterialTheme.typography.titleMedium,
                                                     fontWeight = FontWeight.Bold,
-                                                    color = Color.White,
+                                                    color = MaterialTheme.colorScheme.onSurface,
                                                     maxLines = 1,
                                                     overflow = TextOverflow.Ellipsis
                                                 )
@@ -1101,12 +1100,12 @@ fun MainMediaPlayerScreen(
                                                     Box(
                                                         modifier = Modifier
                                                             .clip(RoundedCornerShape(4.dp))
-                                                            .background(Color(0xFF1B2230))
+                                                            .background(MaterialTheme.colorScheme.primaryContainer)
                                                             .padding(horizontal = 6.dp, vertical = 1.dp)
                                                     ) {
                                                         Text(
                                                             text = "${folder.tracks.size} Tracks",
-                                                            color = AudiophileCyan,
+                                                            color = MaterialTheme.colorScheme.onPrimaryContainer,
                                                             fontSize = 10.sp,
                                                             fontWeight = FontWeight.Bold
                                                         )
@@ -1115,7 +1114,7 @@ fun MainMediaPlayerScreen(
                                                     Text(
                                                         text = formatFolderDuration(folder.totalDurationMs),
                                                         style = MaterialTheme.typography.bodySmall,
-                                                        color = Color(0xFF7E8E9E),
+                                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                                                         fontSize = 11.sp
                                                     )
                                                 }
@@ -1127,40 +1126,40 @@ fun MainMediaPlayerScreen(
                                                     modifier = Modifier
                                                         .size(38.dp)
                                                         .clip(CircleShape)
-                                                        .background(if (musicSortOrder != 0) Color(0x3300E5FF) else Color(0x1AFFFFFF))
+                                                        .background(if (musicSortOrder != 0) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
                                                         .clickable { showMusicSortMenu = true },
                                                     contentAlignment = Alignment.Center
                                                 ) {
                                                     Icon(
                                                         imageVector = Icons.Rounded.Tune,
                                                         contentDescription = "Sort",
-                                                        tint = if (musicSortOrder != 0) AudiophileCyan else Color.White,
+                                                        tint = if (musicSortOrder != 0) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
                                                         modifier = Modifier.size(18.dp)
                                                     )
                                                 }
                                                 DropdownMenu(
                                                     expanded = showMusicSortMenu,
                                                     onDismissRequest = { showMusicSortMenu = false },
-                                                    modifier = Modifier.background(OledSurfaceVariant)
+                                                    modifier = Modifier.background(MaterialTheme.colorScheme.surfaceContainerHigh)
                                                 ) {
                                                     DropdownMenuItem(
-                                                        text = { Text("Sort by Date Added", color = Color.White) },
+                                                        text = { Text("Sort by Date Added", color = MaterialTheme.colorScheme.onSurface) },
                                                         onClick = { musicSortOrder = 0; showMusicSortMenu = false }
                                                     )
                                                     DropdownMenuItem(
-                                                        text = { Text("Sort by Title (A-Z)", color = Color.White) },
+                                                        text = { Text("Sort by Title (A-Z)", color = MaterialTheme.colorScheme.onSurface) },
                                                         onClick = { musicSortOrder = 1; showMusicSortMenu = false }
                                                     )
                                                     DropdownMenuItem(
-                                                        text = { Text("Sort by Artist", color = Color.White) },
+                                                        text = { Text("Sort by Artist", color = MaterialTheme.colorScheme.onSurface) },
                                                         onClick = { musicSortOrder = 2; showMusicSortMenu = false }
                                                     )
                                                     DropdownMenuItem(
-                                                        text = { Text("Sort by File Size", color = Color.White) },
+                                                        text = { Text("Sort by File Size", color = MaterialTheme.colorScheme.onSurface) },
                                                         onClick = { musicSortOrder = 3; showMusicSortMenu = false }
                                                     )
                                                     DropdownMenuItem(
-                                                        text = { Text("Sort by Duration", color = Color.White) },
+                                                        text = { Text("Sort by Duration", color = MaterialTheme.colorScheme.onSurface) },
                                                         onClick = { musicSortOrder = 4; showMusicSortMenu = false }
                                                     )
                                                 }
@@ -1173,14 +1172,14 @@ fun MainMediaPlayerScreen(
                                                 modifier = Modifier
                                                     .size(38.dp)
                                                     .clip(CircleShape)
-                                                    .background(Color(0x1AFFFFFF))
+                                                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
                                                     .clickable { isMusicGridView = !isMusicGridView },
                                                 contentAlignment = Alignment.Center
                                             ) {
                                                 Icon(
                                                     imageVector = if (isMusicGridView) Icons.AutoMirrored.Rounded.ViewList else Icons.Rounded.GridView,
                                                     contentDescription = "Toggle Grid/List",
-                                                    tint = Color.White,
+                                                    tint = MaterialTheme.colorScheme.onSurface,
                                                     modifier = Modifier.size(18.dp)
                                                 )
                                             }
@@ -1199,13 +1198,13 @@ fun MainMediaPlayerScreen(
                                                     text = "Music",
                                                     style = MaterialTheme.typography.titleLarge,
                                                     fontWeight = FontWeight.ExtraBold,
-                                                    color = Color.White,
+                                                    color = MaterialTheme.colorScheme.onSurface,
                                                     letterSpacing = 0.5.sp
                                                 )
                                                 Text(
                                                     text = "${musicFolders.size} Folders • ${audioList.size} Tracks",
                                                     style = MaterialTheme.typography.bodySmall,
-                                                    color = Color(0xFF7E8E9E),
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                                                     fontSize = 11.sp
                                                 )
                                             }
@@ -1219,14 +1218,14 @@ fun MainMediaPlayerScreen(
                                                     modifier = Modifier
                                                         .size(38.dp)
                                                         .clip(CircleShape)
-                                                        .background(if (isSearchActive) Color(0x3300E5FF) else Color(0x1AFFFFFF))
+                                                        .background(if (isSearchActive) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
                                                         .clickable { isSearchActive = !isSearchActive },
                                                     contentAlignment = Alignment.Center
                                                 ) {
                                                     Icon(
                                                         imageVector = Icons.Rounded.Search,
                                                         contentDescription = "Search",
-                                                        tint = if (isSearchActive) AudiophileCyan else Color.White,
+                                                        tint = if (isSearchActive) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
                                                         modifier = Modifier.size(18.dp)
                                                     )
                                                 }
@@ -1236,14 +1235,14 @@ fun MainMediaPlayerScreen(
                                                     modifier = Modifier
                                                         .size(38.dp)
                                                         .clip(CircleShape)
-                                                        .background(Color(0x1AFFFFFF))
+                                                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
                                                         .clickable { isMusicGridView = !isMusicGridView },
                                                     contentAlignment = Alignment.Center
                                                 ) {
                                                     Icon(
                                                         imageVector = if (isMusicGridView) Icons.AutoMirrored.Rounded.ViewList else Icons.Rounded.GridView,
                                                         contentDescription = "Toggle View",
-                                                        tint = Color.White,
+                                                        tint = MaterialTheme.colorScheme.onSurface,
                                                         modifier = Modifier.size(18.dp)
                                                     )
                                                 }
@@ -1254,40 +1253,40 @@ fun MainMediaPlayerScreen(
                                                         modifier = Modifier
                                                             .size(38.dp)
                                                             .clip(CircleShape)
-                                                            .background(if (musicSortOrder != 0) Color(0x3300E5FF) else Color(0x1AFFFFFF))
+                                                            .background(if (musicSortOrder != 0) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
                                                             .clickable { showMusicSortMenu = true },
                                                         contentAlignment = Alignment.Center
                                                     ) {
                                                         Icon(
                                                             imageVector = Icons.Rounded.Tune,
                                                             contentDescription = "Sort",
-                                                            tint = if (musicSortOrder != 0) AudiophileCyan else Color.White,
+                                                            tint = if (musicSortOrder != 0) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
                                                             modifier = Modifier.size(18.dp)
                                                         )
                                                     }
                                                     DropdownMenu(
                                                         expanded = showMusicSortMenu,
                                                         onDismissRequest = { showMusicSortMenu = false },
-                                                        modifier = Modifier.background(OledSurfaceVariant)
+                                                        modifier = Modifier.background(MaterialTheme.colorScheme.surfaceContainerHigh)
                                                     ) {
                                                         DropdownMenuItem(
-                                                            text = { Text("Sort by Date Added", color = Color.White) },
+                                                            text = { Text("Sort by Date Added", color = MaterialTheme.colorScheme.onSurface) },
                                                             onClick = { musicSortOrder = 0; showMusicSortMenu = false }
                                                         )
                                                         DropdownMenuItem(
-                                                            text = { Text("Sort by Title (A-Z)", color = Color.White) },
+                                                            text = { Text("Sort by Title (A-Z)", color = MaterialTheme.colorScheme.onSurface) },
                                                             onClick = { musicSortOrder = 1; showMusicSortMenu = false }
                                                         )
                                                         DropdownMenuItem(
-                                                            text = { Text("Sort by Artist", color = Color.White) },
+                                                            text = { Text("Sort by Artist", color = MaterialTheme.colorScheme.onSurface) },
                                                             onClick = { musicSortOrder = 2; showMusicSortMenu = false }
                                                         )
                                                         DropdownMenuItem(
-                                                            text = { Text("Sort by File Size", color = Color.White) },
+                                                            text = { Text("Sort by File Size", color = MaterialTheme.colorScheme.onSurface) },
                                                             onClick = { musicSortOrder = 3; showMusicSortMenu = false }
                                                         )
                                                         DropdownMenuItem(
-                                                            text = { Text("Sort by Duration", color = Color.White) },
+                                                            text = { Text("Sort by Duration", color = MaterialTheme.colorScheme.onSurface) },
                                                             onClick = { musicSortOrder = 4; showMusicSortMenu = false }
                                                         )
                                                     }
@@ -1298,14 +1297,14 @@ fun MainMediaPlayerScreen(
                                                     modifier = Modifier
                                                         .size(38.dp)
                                                         .clip(CircleShape)
-                                                        .background(Color(0x1AFFFFFF))
+                                                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
                                                         .clickable { reloadMedia() },
                                                     contentAlignment = Alignment.Center
                                                 ) {
                                                     Icon(
                                                         imageVector = Icons.Rounded.Refresh,
                                                         contentDescription = "Refresh",
-                                                        tint = Color.White,
+                                                        tint = MaterialTheme.colorScheme.onSurface,
                                                         modifier = Modifier.size(18.dp)
                                                     )
                                                 }
@@ -1325,24 +1324,24 @@ fun MainMediaPlayerScreen(
                                                 text = "Media Hub",
                                                 style = MaterialTheme.typography.titleLarge,
                                                 fontWeight = FontWeight.Bold,
-                                                color = Color.White
+                                                color = MaterialTheme.colorScheme.onSurface
                                             )
                                             Spacer(modifier = Modifier.height(2.dp))
                                             Text(
                                                 text = "Storage & Streams",
                                                 style = MaterialTheme.typography.bodySmall,
-                                                color = Color(0xFF9E9EAE)
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
                                             )
                                         }
                                     }
                                 }
 
-                                // Razor-thin subtle OLED border under header
+                                // Border under header
                                 Box(
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .height(0.5.dp)
-                                        .background(Color(0x1AFFFFFF))
+                                        .background(MaterialTheme.colorScheme.outlineVariant)
                                 )
 
                                 // Search Bar Expansion
@@ -1358,17 +1357,17 @@ fun MainMediaPlayerScreen(
                                     OutlinedTextField(
                                         value = searchQuery,
                                         onValueChange = { query: String -> searchQuery = query },
-                                        placeholder = { Text("Search videos, folders, music, artists...") },
+                                        placeholder = { Text("Search videos, folders, music, artists...", color = MaterialTheme.colorScheme.onSurfaceVariant) },
                                         singleLine = true,
                                         modifier = Modifier
                                             .fillMaxWidth()
                                             .padding(horizontal = 16.dp, vertical = 4.dp),
                                         shape = RoundedCornerShape(14.dp),
                                         colors = OutlinedTextFieldDefaults.colors(
-                                            focusedBorderColor = AudiophileCyan,
-                                            unfocusedBorderColor = OledBorder,
-                                            focusedTextColor = Color.White,
-                                            unfocusedTextColor = Color.White
+                                            focusedBorderColor = MaterialTheme.colorScheme.primary,
+                                            unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
+                                            focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                                            unfocusedTextColor = MaterialTheme.colorScheme.onSurface
                                         )
                                     )
                                 }
@@ -1396,7 +1395,7 @@ fun MainMediaPlayerScreen(
 
                                 // Unified Floating Glassmorphic Navigation Island on Phones
                                 if (!isWideScreen) {
-                                    val activeAccentColor = AudiophileCyan
+                                    val activeAccentColor = MaterialTheme.colorScheme.primary
                                     val indicatorFraction by animateFloatAsState(
                                         targetValue = selectedDestination.toFloat(),
                                         animationSpec = tween(
@@ -1415,13 +1414,13 @@ fun MainMediaPlayerScreen(
                                     ) {
                                         Surface(
                                             shape = RoundedCornerShape(28.dp),
-                                            color = Color(0xF20F121C),
+                                            color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.95f),
                                             border = androidx.compose.foundation.BorderStroke(
                                                 1.dp,
                                                 Brush.horizontalGradient(
                                                     listOf(
                                                         activeAccentColor.copy(alpha = 0.40f),
-                                                        Color(0x22FFFFFF),
+                                                        MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.40f),
                                                         activeAccentColor.copy(alpha = 0.40f)
                                                     )
                                                 )
@@ -1485,7 +1484,7 @@ fun MainMediaPlayerScreen(
                                                         },
                                                         icon = Icons.Rounded.Movie,
                                                         label = "Videos",
-                                                        activeColor = AudiophileCyan,
+                                                        activeColor = MaterialTheme.colorScheme.primary,
                                                         modifier = Modifier.weight(1f)
                                                     )
 
@@ -1503,7 +1502,7 @@ fun MainMediaPlayerScreen(
                                                         },
                                                         icon = Icons.Rounded.MusicNote,
                                                         label = "Music",
-                                                        activeColor = AudiophileCyan,
+                                                        activeColor = MaterialTheme.colorScheme.primary,
                                                         modifier = Modifier.weight(1f)
                                                     )
 
@@ -1517,7 +1516,7 @@ fun MainMediaPlayerScreen(
                                                         },
                                                         icon = Icons.Rounded.FolderOpen,
                                                         label = "Media Hub",
-                                                        activeColor = AudiophileCyan,
+                                                        activeColor = MaterialTheme.colorScheme.primary,
                                                         modifier = Modifier.weight(1f)
                                                     )
                                                 }
@@ -1746,22 +1745,28 @@ fun MainMediaPlayerScreen(
                         .background(Color.Black)
                 ) {
                     if (currentItem?.isVideo == true) {
-                        VideoPlayerView(
-                            playerManager = playerManager,
-                            videoViewModel = videoViewModel,
-                            onBack = {
-                                playerManager.setPlayerExpanded(false)
-                            },
-                            onEnterPip = onEnterPip,
-                            isInPipMode = inPip,
-                            settingsManager = settingsManager,
-                            modifier = Modifier.fillMaxSize()
-                        )
+                        // Full-screen video playback surface (Intentional dark cinema overlay)
+                        MaterialTheme(colorScheme = darkColorScheme()) {
+                            VideoPlayerView(
+                                playerManager = playerManager,
+                                videoViewModel = videoViewModel,
+                                onBack = {
+                                    playerManager.setPlayerExpanded(false)
+                                },
+                                onEnterPip = onEnterPip,
+                                isInPipMode = inPip,
+                                settingsManager = settingsManager,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        }
                     } else if (!inPip) {
-                        MusicNowPlayingScreen(
-                            playerManager = playerManager,
-                            onCollapse = { playerManager.setPlayerExpanded(false) }
-                        )
+                        // Immersive Music Now Playing surface (Intentional dark media overlay)
+                        MaterialTheme(colorScheme = darkColorScheme()) {
+                            MusicNowPlayingScreen(
+                                playerManager = playerManager,
+                                onCollapse = { playerManager.setPlayerExpanded(false) }
+                            )
+                        }
                     }
                 }
             }
@@ -1805,17 +1810,17 @@ fun MainMediaPlayerScreen(
                 if (isMovingToVault) {
                     AlertDialog(
                         onDismissRequest = { /* prevent dismissal while moving */ },
-                        containerColor = Color(0xFF141722),
+                        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
                         shape = RoundedCornerShape(24.dp),
                         icon = {
                             Box(
                                 modifier = Modifier
                                     .size(56.dp)
-                                    .background(Color(0x22FFD54F), CircleShape),
+                                    .background(MaterialTheme.colorScheme.tertiaryContainer, CircleShape),
                                 contentAlignment = Alignment.Center
                             ) {
                                 CircularProgressIndicator(
-                                    color = AudiophileGold,
+                                    color = MaterialTheme.colorScheme.tertiary,
                                     modifier = Modifier.size(34.dp),
                                     strokeWidth = 3.dp
                                 )
@@ -1826,7 +1831,7 @@ fun MainMediaPlayerScreen(
                                 text = "Securing Media...",
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Bold,
-                                color = Color.White
+                                color = MaterialTheme.colorScheme.onSurface
                             )
                         },
                         text = {
@@ -1837,7 +1842,7 @@ fun MainMediaPlayerScreen(
                                 Text(
                                     text = "Moving to Privacy Vault & hiding from device gallery...",
                                     style = MaterialTheme.typography.bodyMedium,
-                                    color = Color(0xFFD0D0DC),
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     textAlign = androidx.compose.ui.text.style.TextAlign.Center
                                 )
                             }

@@ -4,7 +4,7 @@ plugins {
 }
 
 android {
-    namespace = "com.mxplayer.mpv"
+    namespace = "com.bkm.player.mpv"
     compileSdk = 36
 
     defaultConfig {

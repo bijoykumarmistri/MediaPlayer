@@ -53,7 +53,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mediaplayer.data.MediaItemModel
-import com.mediaplayer.ui.theme.AudiophileCyan
 
 data class VideoFolderItem(
     val name: String,
@@ -129,28 +128,31 @@ fun PermissionOnboardingCard(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 8.dp),
-        colors = CardDefaults.cardColors(containerColor = Color(0x1F00E5FF)),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
         shape = RoundedCornerShape(16.dp),
-        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x4400E5FF))
+        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
     ) {
         Row(
             modifier = Modifier.padding(14.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(Icons.Rounded.Security, contentDescription = null, tint = AudiophileCyan, modifier = Modifier.size(28.dp))
+            Icon(Icons.Rounded.Security, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(28.dp))
             Spacer(modifier = Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
-                Text("Enable Media Storage Access", fontWeight = FontWeight.Bold, color = Color.White)
-                Text("Grant permission to browse device video and audiophile music, or pick single media files.", style = MaterialTheme.typography.bodySmall, color = Color(0xFFB0B0C4))
+                Text("Enable Media Storage Access", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                Text("Grant permission to browse device video and audiophile music, or pick single media files.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f))
                 Spacer(modifier = Modifier.height(8.dp))
                 Row {
                     Button(
                         onClick = onRequestPermission,
-                        colors = ButtonDefaults.buttonColors(containerColor = AudiophileCyan),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.primary,
+                            contentColor = MaterialTheme.colorScheme.onPrimary
+                        ),
                         shape = RoundedCornerShape(8.dp),
                         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
                     ) {
-                        Text("Grant Permission", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                        Text("Grant Permission", fontWeight = FontWeight.Bold, fontSize = 11.sp)
                     }
                     Spacer(modifier = Modifier.width(8.dp))
                     OutlinedButton(
@@ -158,7 +160,7 @@ fun PermissionOnboardingCard(
                         shape = RoundedCornerShape(8.dp),
                         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
                     ) {
-                        Text("Pick Media File", color = AudiophileCyan, fontSize = 11.sp)
+                        Text("Pick Media File", color = MaterialTheme.colorScheme.primary, fontSize = 11.sp)
                     }
                 }
             }
@@ -183,24 +185,27 @@ fun EmptyStateView(
             modifier = Modifier
                 .size(64.dp)
                 .clip(CircleShape)
-                .background(Color(0x2200E5FF)),
+                .background(MaterialTheme.colorScheme.primaryContainer),
             contentAlignment = Alignment.Center
         ) {
-            Icon(Icons.Rounded.Movie, contentDescription = null, tint = AudiophileCyan, modifier = Modifier.size(32.dp))
+            Icon(Icons.Rounded.Movie, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(32.dp))
         }
         Spacer(modifier = Modifier.height(16.dp))
-        Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = Color.White)
+        Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
         Spacer(modifier = Modifier.height(4.dp))
-        Text(subtitle, style = MaterialTheme.typography.bodySmall, color = Color(0xFF8E8E9E), modifier = Modifier.padding(horizontal = 24.dp))
+        Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 24.dp))
         Spacer(modifier = Modifier.height(16.dp))
         Button(
             onClick = onAction,
-            colors = ButtonDefaults.buttonColors(containerColor = AudiophileCyan),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = MaterialTheme.colorScheme.primary,
+                contentColor = MaterialTheme.colorScheme.onPrimary
+            ),
             shape = RoundedCornerShape(12.dp)
         ) {
-            Icon(Icons.Rounded.FileOpen, contentDescription = null, tint = Color.Black)
+            Icon(Icons.Rounded.FileOpen, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimary)
             Spacer(modifier = Modifier.width(8.dp))
-            Text("Open Media Files", color = Color.Black, fontWeight = FontWeight.Bold)
+            Text("Open Media Files", fontWeight = FontWeight.Bold)
         }
     }
 }
@@ -212,11 +217,11 @@ fun FloatingDockItem(
     icon: ImageVector,
     label: String,
     modifier: Modifier = Modifier,
-    activeColor: Color = AudiophileCyan
+    activeColor: Color = MaterialTheme.colorScheme.primary
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val haptic = LocalHapticFeedback.current
-    val itemColor = if (selected) activeColor else Color(0xFF9093A0)
+    val itemColor = if (selected) activeColor else MaterialTheme.colorScheme.onSurfaceVariant
 
     Box(
         modifier = modifier
@@ -270,20 +275,20 @@ fun DeleteMediaConfirmDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        containerColor = Color(0xFF141722),
+        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
         shape = RoundedCornerShape(24.dp),
         icon = {
             Box(
                 modifier = Modifier
                     .size(48.dp)
                     .clip(CircleShape)
-                    .background(Color(0x33FF453A)),
+                    .background(MaterialTheme.colorScheme.errorContainer),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
                     imageVector = Icons.Rounded.Delete,
                     contentDescription = null,
-                    tint = Color(0xFFFF453A),
+                    tint = MaterialTheme.colorScheme.error,
                     modifier = Modifier.size(26.dp)
                 )
             }
@@ -292,7 +297,7 @@ fun DeleteMediaConfirmDialog(
             Text(
                 text = if (isSingle) "Delete Video / Audio?" else "Delete ${items.size} Selected Files?",
                 fontWeight = FontWeight.Bold,
-                color = Color.White,
+                color = MaterialTheme.colorScheme.onSurface,
                 fontSize = 17.sp,
                 textAlign = TextAlign.Center
             )
@@ -307,7 +312,7 @@ fun DeleteMediaConfirmDialog(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(12.dp))
-                        .background(Color(0xFF1C1F2E))
+                        .background(MaterialTheme.colorScheme.surfaceContainerHighest)
                         .padding(horizontal = 14.dp, vertical = 10.dp)
                 ) {
                     Row(
@@ -322,14 +327,14 @@ fun DeleteMediaConfirmDialog(
                             modifier = Modifier.weight(1f, fill = false),
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
-                            color = AudiophileCyan,
+                            color = MaterialTheme.colorScheme.primary,
                             fontFamily = FontFamily.Monospace
                         )
                         Text(
                             text = formatFileSize(totalBytes),
                             fontSize = 12.sp,
                             fontWeight = FontWeight.SemiBold,
-                            color = Color(0xFFA0AAB8),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                             fontFamily = FontFamily.Monospace
                         )
                     }
@@ -347,14 +352,14 @@ fun DeleteMediaConfirmDialog(
                                 text = "• ${item.title}",
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
-                                color = Color(0xFFA0A8B8),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 fontSize = 12.sp
                             )
                         }
                         if (items.size > 4) {
                             Text(
                                 text = "... and ${items.size - 4} more files",
-                                color = AudiophileCyan,
+                                color = MaterialTheme.colorScheme.primary,
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.SemiBold
                             )
@@ -365,7 +370,7 @@ fun DeleteMediaConfirmDialog(
                 Text(
                     text = "This will physically remove the file${if (isSingle) "" else "s"} from your device storage. This action cannot be undone.",
                     style = MaterialTheme.typography.bodySmall,
-                    color = Color(0xFF888898),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center
                 )
             }
@@ -374,11 +379,13 @@ fun DeleteMediaConfirmDialog(
             Button(
                 onClick = onConfirm,
                 shape = RoundedCornerShape(12.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFF453A))
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.error,
+                    contentColor = MaterialTheme.colorScheme.onError
+                )
             ) {
                 Text(
                     text = if (isSingle) "Delete Permanently" else "Delete ${items.size} Files",
-                    color = Color.White,
                     fontWeight = FontWeight.Bold
                 )
             }
@@ -388,7 +395,7 @@ fun DeleteMediaConfirmDialog(
                 onClick = onDismiss,
                 shape = RoundedCornerShape(12.dp)
             ) {
-                Text("Cancel", color = Color(0xFFA0A0B0))
+                Text("Cancel", color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     )

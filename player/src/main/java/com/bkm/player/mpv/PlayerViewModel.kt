@@ -1,4 +1,4 @@
-package com.mxplayer.mpv
+package com.bkm.player.mpv
 
 import android.content.Context
 import android.net.Uri
@@ -605,7 +605,34 @@ class PlayerViewModel : ViewModel() {
         _uiState.update { it.copy(errorMessage = null) }
     }
 
+    private var sleepTimerJob: Job? = null
+    private val _sleepTimerMinutes = MutableStateFlow(0)
+    val sleepTimerMinutes: StateFlow<Int> = _sleepTimerMinutes.asStateFlow()
+
+    fun setSleepTimer(minutes: Int, onFinish: (() -> Unit)? = null) {
+        sleepTimerJob?.cancel()
+        if (minutes > 0) {
+            _sleepTimerMinutes.value = minutes
+            sleepTimerJob = viewModelScope.launch {
+                var left = minutes
+                while (left > 0) {
+                    delay(60_000L)
+                    left--
+                    _sleepTimerMinutes.value = left
+                }
+                pausePlayback()
+                onFinish?.invoke()
+            }
+        } else {
+            _sleepTimerMinutes.value = 0
+            sleepTimerJob = null
+        }
+    }
+
     override fun onCleared() {
+        sleepTimerJob?.cancel()
+        bufferingDebounceJob?.cancel()
+        openDocumentJob?.cancel()
         engine.destroy()
         super.onCleared()
     }

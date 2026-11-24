@@ -1,10 +1,7 @@
 package com.mediaplayer.vault
 
-import android.content.Intent
 import android.net.Uri
 import android.os.Build
-import android.os.Environment
-import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -95,11 +92,6 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.mediaplayer.data.MediaItemModel
-import com.mediaplayer.ui.theme.AudiophileCyan
-import com.mediaplayer.ui.theme.AudiophileGold
-import com.mediaplayer.ui.theme.OledBorder
-import com.mediaplayer.ui.theme.OledSurface
-import com.mediaplayer.ui.theme.OledSurfaceVariant
 import com.mediaplayer.ui.video.formatTimeMs
 import kotlinx.coroutines.launch
 import java.io.File
@@ -170,7 +162,7 @@ fun PrivacyVaultScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(OledSurface)
+            .background(MaterialTheme.colorScheme.background)
             .statusBarsPadding()
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
@@ -187,14 +179,14 @@ fun PrivacyVaultScreen(
                         modifier = Modifier
                             .size(38.dp)
                             .clip(CircleShape)
-                            .background(Color(0x1AFFFFFF))
+                            .background(MaterialTheme.colorScheme.surfaceContainerHighest)
                             .clickable { onBack() },
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
                             contentDescription = "Back",
-                            tint = Color.White,
+                            tint = MaterialTheme.colorScheme.onSurface,
                             modifier = Modifier.size(20.dp)
                         )
                     }
@@ -204,7 +196,7 @@ fun PrivacyVaultScreen(
                             Icon(
                                 imageVector = Icons.Rounded.Lock,
                                 contentDescription = null,
-                                tint = AudiophileGold,
+                                tint = MaterialTheme.colorScheme.primary,
                                 modifier = Modifier.size(16.dp)
                             )
                             Spacer(modifier = Modifier.width(6.dp))
@@ -212,13 +204,13 @@ fun PrivacyVaultScreen(
                                 text = "Privacy Vault",
                                 style = MaterialTheme.typography.titleLarge,
                                 fontWeight = FontWeight.Bold,
-                                color = Color.White
+                                color = MaterialTheme.colorScheme.onSurface
                             )
                         }
                         Text(
                             text = "${videos.size} Videos • ${audios.size} Audio Tracks",
                             style = MaterialTheme.typography.bodySmall,
-                            color = AudiophileCyan,
+                            color = MaterialTheme.colorScheme.primary,
                             fontSize = 11.sp
                         )
                     }
@@ -233,7 +225,7 @@ fun PrivacyVaultScreen(
                         modifier = Modifier
                             .size(38.dp)
                             .clip(CircleShape)
-                            .background(Color(0x2600E5FF))
+                            .background(MaterialTheme.colorScheme.primaryContainer)
                             .clickable {
                                 addFilesLauncher.launch(arrayOf("video/*", "audio/*"))
                             },
@@ -242,7 +234,7 @@ fun PrivacyVaultScreen(
                         Icon(
                             imageVector = Icons.Rounded.Add,
                             contentDescription = "Add to Vault",
-                            tint = AudiophileCyan,
+                            tint = MaterialTheme.colorScheme.onPrimaryContainer,
                             modifier = Modifier.size(22.dp)
                         )
                     }
@@ -252,7 +244,7 @@ fun PrivacyVaultScreen(
                         modifier = Modifier
                             .size(38.dp)
                             .clip(CircleShape)
-                            .background(Color(0x33FFD54F))
+                            .background(MaterialTheme.colorScheme.secondaryContainer)
                             .clickable {
                                 securityManager.lock()
                                 onLockVault()
@@ -262,93 +254,24 @@ fun PrivacyVaultScreen(
                         Icon(
                             imageVector = Icons.Rounded.Lock,
                             contentDescription = "Lock Vault",
-                            tint = AudiophileGold,
+                            tint = MaterialTheme.colorScheme.onSecondaryContainer,
                             modifier = Modifier.size(18.dp)
                         )
                     }
                 }
             }
 
-            HorizontalDivider(color = Color(0x1FFFFFFF), thickness = 0.5.dp)
-
-            // In-Place Hiding Mode Banner (0ms Instant Hiding via MANAGE_EXTERNAL_STORAGE)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && !Environment.isExternalStorageManager()) {
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 14.dp, vertical = 6.dp),
-                    shape = RoundedCornerShape(12.dp),
-                    colors = CardDefaults.cardColors(containerColor = Color(0x2200E5FF)),
-                    border = BorderStroke(1.dp, Color(0x5500E5FF))
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(10.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Row(
-                            modifier = Modifier.weight(1f),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(
-                                imageVector = Icons.Rounded.Speed,
-                                contentDescription = null,
-                                tint = AudiophileCyan,
-                                modifier = Modifier.size(22.dp)
-                            )
-                            Spacer(Modifier.width(10.dp))
-                            Column {
-                                Text(
-                                    text = "Enable In-Place Hiding (0ms)",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color.White
-                                )
-                                Text(
-                                    text = "Grant All Files Access to hide files from Gallery & Files directly in their folder without moving.",
-                                    fontSize = 11.sp,
-                                    color = Color(0xFFD0D0E0),
-                                    lineHeight = 14.sp
-                                )
-                            }
-                        }
-                        Spacer(Modifier.width(8.dp))
-                        Button(
-                            onClick = {
-                                try {
-                                    val intent = Intent(
-                                        Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
-                                        Uri.parse("package:${context.packageName}")
-                                    )
-                                    context.startActivity(intent)
-                                } catch (_: Exception) {
-                                    try {
-                                        val intent = Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)
-                                        context.startActivity(intent)
-                                    } catch (_: Exception) {}
-                                }
-                            },
-                            colors = ButtonDefaults.buttonColors(containerColor = AudiophileCyan),
-                            shape = RoundedCornerShape(8.dp),
-                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
-                        ) {
-                            Text("Grant", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 11.sp)
-                        }
-                    }
-                }
-            }
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant, thickness = 0.5.dp)
 
             // Tabs
             TabRow(
                 selectedTabIndex = selectedTab,
-                containerColor = Color(0xFF0F111A),
-                contentColor = AudiophileCyan,
+                containerColor = MaterialTheme.colorScheme.surfaceContainer,
+                contentColor = MaterialTheme.colorScheme.primary,
                 indicator = { tabPositions ->
                     TabRowDefaults.SecondaryIndicator(
                         Modifier.tabIndicatorOffset(tabPositions[selectedTab]),
-                        color = if (selectedTab == 0) AudiophileCyan else AudiophileGold,
+                        color = MaterialTheme.colorScheme.primary,
                         height = 2.5.dp
                     )
                 }
@@ -363,8 +286,8 @@ fun PrivacyVaultScreen(
                             Text("Videos (${videos.size})", fontWeight = FontWeight.Bold, fontSize = 13.sp)
                         }
                     },
-                    selectedContentColor = AudiophileCyan,
-                    unselectedContentColor = Color(0xFF8E8E9E)
+                    selectedContentColor = MaterialTheme.colorScheme.primary,
+                    unselectedContentColor = MaterialTheme.colorScheme.onSurfaceVariant
                 )
 
                 Tab(
@@ -377,15 +300,15 @@ fun PrivacyVaultScreen(
                             Text("Audio (${audios.size})", fontWeight = FontWeight.Bold, fontSize = 13.sp)
                         }
                     },
-                    selectedContentColor = AudiophileGold,
-                    unselectedContentColor = Color(0xFF8E8E9E)
+                    selectedContentColor = MaterialTheme.colorScheme.primary,
+                    unselectedContentColor = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
 
             // Content Area
             if (isLoading) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator(color = AudiophileGold, modifier = Modifier.size(36.dp))
+                    CircularProgressIndicator(color = MaterialTheme.colorScheme.primary, modifier = Modifier.size(36.dp))
                 }
             } else if ((selectedTab == 0 && videos.isEmpty()) || (selectedTab == 1 && audios.isEmpty())) {
                 // Empty Vault state
@@ -400,13 +323,13 @@ fun PrivacyVaultScreen(
                         modifier = Modifier
                             .size(72.dp)
                             .clip(CircleShape)
-                            .background(Color(0x22FFD54F)),
+                            .background(MaterialTheme.colorScheme.primaryContainer),
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
                             imageVector = Icons.Rounded.Security,
                             contentDescription = null,
-                            tint = AudiophileGold,
+                            tint = MaterialTheme.colorScheme.onPrimaryContainer,
                             modifier = Modifier.size(36.dp)
                         )
                     }
@@ -417,7 +340,7 @@ fun PrivacyVaultScreen(
                         text = if (selectedTab == 0) "No Private Videos" else "No Private Audio",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
-                        color = Color.White
+                        color = MaterialTheme.colorScheme.onSurface
                     )
 
                     Spacer(modifier = Modifier.height(6.dp))
@@ -425,7 +348,7 @@ fun PrivacyVaultScreen(
                     Text(
                         text = "Files moved to the Privacy Vault are removed from public MediaStore and completely hidden from other apps and galleries.",
                         fontSize = 12.sp,
-                        color = Color(0xFF9E9EAE),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         textAlign = TextAlign.Center,
                         lineHeight = 16.sp
                     )
@@ -436,14 +359,17 @@ fun PrivacyVaultScreen(
                         onClick = {
                             addFilesLauncher.launch(if (selectedTab == 0) arrayOf("video/*") else arrayOf("audio/*"))
                         },
-                        colors = ButtonDefaults.buttonColors(containerColor = AudiophileCyan),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.primary,
+                            contentColor = MaterialTheme.colorScheme.onPrimary
+                        ),
                         shape = RoundedCornerShape(12.dp)
                     ) {
-                        Icon(Icons.Rounded.Add, contentDescription = null, tint = Color.Black, modifier = Modifier.size(16.dp))
+                        Icon(Icons.Rounded.Add, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.size(16.dp))
                         Spacer(Modifier.width(6.dp))
                         Text(
                             text = if (selectedTab == 0) "Import Videos" else "Import Audio",
-                            color = Color.Black,
+                            color = MaterialTheme.colorScheme.onPrimary,
                             fontWeight = FontWeight.Bold
                         )
                     }
@@ -490,13 +416,13 @@ fun PrivacyVaultScreen(
     itemForOptions?.let { item ->
         AlertDialog(
             onDismissRequest = { itemForOptions = null },
-            containerColor = Color(0xFF161822),
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
             title = {
                 Text(
                     text = item.title,
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
-                    color = Color.White,
+                    color = MaterialTheme.colorScheme.onSurface,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -511,9 +437,9 @@ fun PrivacyVaultScreen(
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Rounded.PlayArrow, contentDescription = null, tint = AudiophileCyan)
+                            Icon(Icons.Rounded.PlayArrow, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                             Spacer(Modifier.width(12.dp))
-                            Text("Play Now", color = Color.White)
+                            Text("Play Now", color = MaterialTheme.colorScheme.onSurface)
                         }
                     }
 
@@ -537,10 +463,10 @@ fun PrivacyVaultScreen(
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Rounded.Restore, contentDescription = null, tint = AudiophileGold)
+                            Icon(Icons.Rounded.Restore, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                             Spacer(Modifier.width(12.dp))
                             val folderInfo = if (item.originalFolderName.isNotEmpty() && item.originalFolderName != "Vault") " (${item.originalFolderName})" else ""
-                            Text("Unhide / Make Visible in Gallery$folderInfo", color = Color.White)
+                            Text("Unhide / Make Visible in Gallery$folderInfo", color = MaterialTheme.colorScheme.onSurface)
                         }
                     }
 
@@ -552,9 +478,9 @@ fun PrivacyVaultScreen(
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Rounded.Info, contentDescription = null, tint = Color.White)
+                            Icon(Icons.Rounded.Info, contentDescription = null, tint = MaterialTheme.colorScheme.onSurface)
                             Spacer(Modifier.width(12.dp))
-                            Text("File Info", color = Color.White)
+                            Text("File Info", color = MaterialTheme.colorScheme.onSurface)
                         }
                     }
 
@@ -567,9 +493,9 @@ fun PrivacyVaultScreen(
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Rounded.DeleteForever, contentDescription = null, tint = Color(0xFFFF5252))
+                            Icon(Icons.Rounded.DeleteForever, contentDescription = null, tint = MaterialTheme.colorScheme.error)
                             Spacer(Modifier.width(12.dp))
-                            Text("Delete Permanently", color = Color(0xFFFF5252))
+                            Text("Delete Permanently", color = MaterialTheme.colorScheme.error)
                         }
                     }
                 }
@@ -582,14 +508,14 @@ fun PrivacyVaultScreen(
     itemToDeletePermanently?.let { item ->
         AlertDialog(
             onDismissRequest = { itemToDeletePermanently = null },
-            containerColor = Color(0xFF161822),
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
             title = {
-                Text("Delete Permanently?", color = Color.White, fontWeight = FontWeight.Bold)
+                Text("Delete Permanently?", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold)
             },
             text = {
                 Text(
                     text = "Are you sure you want to permanently erase '${item.title}'? This action cannot be undone.",
-                    color = Color(0xFFD0D0E0),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 13.sp
                 )
             },
@@ -604,14 +530,17 @@ fun PrivacyVaultScreen(
                             Toast.makeText(context, "File permanently deleted", Toast.LENGTH_SHORT).show()
                         }
                     },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFF453A))
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.error,
+                        contentColor = MaterialTheme.colorScheme.onError
+                    )
                 ) {
-                    Text("Delete", color = Color.White, fontWeight = FontWeight.Bold)
+                    Text("Delete", color = MaterialTheme.colorScheme.onError, fontWeight = FontWeight.Bold)
                 }
             },
             dismissButton = {
                 TextButton(onClick = { itemToDeletePermanently = null }) {
-                    Text("Cancel", color = Color.White)
+                    Text("Cancel", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
         )
@@ -621,9 +550,9 @@ fun PrivacyVaultScreen(
     itemForDetails?.let { item ->
         AlertDialog(
             onDismissRequest = { itemForDetails = null },
-            containerColor = Color(0xFF161822),
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
             title = {
-                Text("File Details", color = Color.White, fontWeight = FontWeight.Bold)
+                Text("File Details", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold)
             },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -637,7 +566,7 @@ fun PrivacyVaultScreen(
             },
             confirmButton = {
                 TextButton(onClick = { itemForDetails = null }) {
-                    Text("Close", color = Color.White)
+                    Text("Close", color = MaterialTheme.colorScheme.primary)
                 }
             }
         )
@@ -655,9 +584,9 @@ private fun VaultVideoCard(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onPlay),
-        colors = CardDefaults.cardColors(containerColor = OledSurfaceVariant),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
         shape = RoundedCornerShape(14.dp),
-        border = BorderStroke(1.dp, OledBorder)
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
     ) {
         Column {
             Box(
@@ -695,7 +624,7 @@ private fun VaultVideoCard(
                     Icon(
                         imageVector = Icons.Rounded.Lock,
                         contentDescription = null,
-                        tint = AudiophileGold,
+                        tint = Color.White,
                         modifier = Modifier.size(12.dp)
                     )
                 }
@@ -732,14 +661,14 @@ private fun VaultVideoCard(
                         text = item.title,
                         style = MaterialTheme.typography.bodyMedium,
                         fontWeight = FontWeight.Bold,
-                        color = Color.White,
+                        color = MaterialTheme.colorScheme.onSurface,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
                     Text(
                         text = formatFileSize(item.sizeBytes),
                         fontSize = 10.sp,
-                        color = Color(0xFF8E8E9E)
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
 
@@ -750,7 +679,7 @@ private fun VaultVideoCard(
                     Icon(
                         imageVector = Icons.Rounded.MoreVert,
                         contentDescription = "Options",
-                        tint = Color.Gray,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.size(16.dp)
                     )
                 }
@@ -769,9 +698,9 @@ private fun VaultAudioCard(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onPlay),
-        colors = CardDefaults.cardColors(containerColor = OledSurfaceVariant),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
         shape = RoundedCornerShape(14.dp),
-        border = BorderStroke(1.dp, OledBorder)
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
     ) {
         Row(
             modifier = Modifier
@@ -788,13 +717,13 @@ private fun VaultAudioCard(
                     modifier = Modifier
                         .size(42.dp)
                         .clip(RoundedCornerShape(10.dp))
-                        .background(Color(0x26FFD54F)),
+                        .background(MaterialTheme.colorScheme.primaryContainer),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
                         imageVector = Icons.Rounded.Lock,
                         contentDescription = null,
-                        tint = AudiophileGold,
+                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
                         modifier = Modifier.size(20.dp)
                     )
                 }
@@ -806,7 +735,7 @@ private fun VaultAudioCard(
                         text = item.title,
                         style = MaterialTheme.typography.bodyMedium,
                         fontWeight = FontWeight.Bold,
-                        color = Color.White,
+                        color = MaterialTheme.colorScheme.onSurface,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -814,7 +743,7 @@ private fun VaultAudioCard(
                     Text(
                         text = "${item.artist} • ${formatFileSize(item.sizeBytes)}" + if (item.durationMs > 0) " • ${formatTimeMs(item.durationMs)}" else "",
                         fontSize = 11.sp,
-                        color = Color(0xFF8E8E9E),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -828,7 +757,7 @@ private fun VaultAudioCard(
                 Icon(
                     imageVector = Icons.Rounded.MoreVert,
                     contentDescription = "Options",
-                    tint = Color.Gray,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.size(18.dp)
                 )
             }
@@ -842,8 +771,8 @@ private fun DetailRow(label: String, value: String) {
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
-        Text(text = label, fontSize = 12.sp, color = Color(0xFFA0A0B0), fontWeight = FontWeight.SemiBold)
-        Text(text = value, fontSize = 12.sp, color = Color.White, fontWeight = FontWeight.Bold)
+        Text(text = label, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.SemiBold)
+        Text(text = value, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold)
     }
 }
 

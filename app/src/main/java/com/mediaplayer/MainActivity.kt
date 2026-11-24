@@ -37,7 +37,7 @@ import kotlin.math.roundToInt
 class MainActivity : ComponentActivity() {
 
     companion object {
-        private const val ACTION_PIP_CONTROL = "com.mediaplayer.ACTION_PIP_CONTROL"
+        private const val ACTION_PIP_CONTROL = "com.bkm.player.ACTION_PIP_CONTROL"
         private const val EXTRA_CONTROL_TYPE = "control_type"
         private const val CONTROL_TYPE_PLAY_PAUSE = 1
         private const val CONTROL_TYPE_REPLAY = 2
@@ -114,7 +114,7 @@ class MainActivity : ComponentActivity() {
         }
 
         setContent {
-            MediaPlayerTheme(oledMode = true) {
+            MediaPlayerTheme {
                 MainContent(
                     repository = repository,
                     vaultRepository = vaultRepository,

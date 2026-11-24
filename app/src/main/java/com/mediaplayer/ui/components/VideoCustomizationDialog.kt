@@ -16,17 +16,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import com.mediaplayer.ui.theme.AudiophileCyan
-import com.mediaplayer.ui.theme.AudiophileGreen
-import com.mediaplayer.ui.theme.OledBorder
-import com.mediaplayer.ui.theme.OledSurface
-import com.mediaplayer.ui.theme.OledSurfaceVariant
 import com.mediaplayer.util.AppSettingsManager
 
 @Composable
@@ -59,8 +55,8 @@ fun VideoCustomizationDialog(
                 .fillMaxWidth(0.92f)
                 .fillMaxHeight(0.88f)
                 .clip(RoundedCornerShape(26.dp))
-                .border(1.dp, OledBorder, RoundedCornerShape(26.dp)),
-            color = OledSurface,
+                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(26.dp)),
+            color = MaterialTheme.colorScheme.surfaceContainerHigh,
             tonalElevation = 6.dp
         ) {
             Column(
@@ -78,7 +74,7 @@ fun VideoCustomizationDialog(
                         text = "Video Settings",
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold,
-                        color = Color.White
+                        color = MaterialTheme.colorScheme.onSurface
                     )
 
                     IconButton(
@@ -86,12 +82,12 @@ fun VideoCustomizationDialog(
                         modifier = Modifier
                             .size(34.dp)
                             .clip(CircleShape)
-                            .background(Color(0x1AFFFFFF))
+                            .background(MaterialTheme.colorScheme.surfaceContainerHighest)
                     ) {
                         Icon(
                             imageVector = Icons.Rounded.Close,
                             contentDescription = "Close",
-                            tint = Color.White,
+                            tint = MaterialTheme.colorScheme.onSurface,
                             modifier = Modifier.size(18.dp)
                         )
                     }
@@ -114,7 +110,7 @@ fun VideoCustomizationDialog(
                                 text = "Decoder",
                                 style = MaterialTheme.typography.bodyMedium,
                                 fontWeight = FontWeight.SemiBold,
-                                color = Color.White
+                                color = MaterialTheme.colorScheme.onSurface
                             )
                             Spacer(modifier = Modifier.height(8.dp))
                             SegmentedBar(
@@ -135,7 +131,7 @@ fun VideoCustomizationDialog(
                                 text = "Double-Tap Seek",
                                 style = MaterialTheme.typography.bodyMedium,
                                 fontWeight = FontWeight.SemiBold,
-                                color = Color.White
+                                color = MaterialTheme.colorScheme.onSurface
                             )
                             Spacer(modifier = Modifier.height(8.dp))
                             SegmentedBar(
@@ -171,7 +167,7 @@ fun VideoCustomizationDialog(
                                 text = "Default Aspect Ratio",
                                 style = MaterialTheme.typography.bodyMedium,
                                 fontWeight = FontWeight.SemiBold,
-                                color = Color.White
+                                color = MaterialTheme.colorScheme.onSurface
                             )
                             Spacer(modifier = Modifier.height(8.dp))
                             SegmentedBar(
@@ -245,7 +241,7 @@ fun VideoCustomizationDialog(
                                 text = "Size",
                                 style = MaterialTheme.typography.bodyMedium,
                                 fontWeight = FontWeight.SemiBold,
-                                color = Color.White
+                                color = MaterialTheme.colorScheme.onSurface
                             )
                             Spacer(modifier = Modifier.height(8.dp))
                             SegmentedBar(
@@ -276,9 +272,10 @@ fun VideoCustomizationDialog(
                                 text = "Color",
                                 style = MaterialTheme.typography.bodyMedium,
                                 fontWeight = FontWeight.SemiBold,
-                                color = Color.White
+                                color = MaterialTheme.colorScheme.onSurface
                             )
                             Spacer(modifier = Modifier.height(8.dp))
+                            val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -286,19 +283,39 @@ fun VideoCustomizationDialog(
                                 listOf(
                                     "#FFFFFF" to ("White" to Color.White),
                                     "#FFFF00" to ("Yellow" to Color(0xFFFFEB3B)),
-                                    "#00E5FF" to ("Cyan" to AudiophileCyan),
-                                    "#00E676" to ("Green" to AudiophileGreen)
+                                    "#00E5FF" to ("Cyan" to Color(0xFF00E5FF)),
+                                    "#00E676" to ("Green" to Color(0xFF00E676))
                                 ).forEach { (hex, pair) ->
                                     val (name, color) = pair
                                     val selected = subtitleColor.equals(hex, ignoreCase = true)
+                                    val isWhiteColor = hex.equals("#FFFFFF", ignoreCase = true)
+
+                                    val chipBg = when {
+                                        selected && isWhiteColor && !isDark -> MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)
+                                        selected -> color.copy(alpha = if (isDark) 0.18f else 0.22f)
+                                        else -> MaterialTheme.colorScheme.surfaceContainerHigh
+                                    }
+
+                                    val chipBorder = when {
+                                        selected && isWhiteColor && !isDark -> MaterialTheme.colorScheme.primary
+                                        selected -> color
+                                        else -> MaterialTheme.colorScheme.outlineVariant
+                                    }
+
+                                    val chipTextColor = when {
+                                        selected && isDark -> color
+                                        selected && !isDark -> MaterialTheme.colorScheme.onSurface
+                                        else -> MaterialTheme.colorScheme.onSurface
+                                    }
+
                                     Box(
                                         modifier = Modifier
                                             .weight(1f)
                                             .clip(RoundedCornerShape(10.dp))
-                                            .background(if (selected) color.copy(alpha = 0.18f) else Color(0x0DFFFFFF))
+                                            .background(chipBg)
                                             .border(
                                                 1.dp,
-                                                if (selected) color else Color(0x1AFFFFFF),
+                                                chipBorder,
                                                 RoundedCornerShape(10.dp)
                                             )
                                             .clickable {
@@ -315,13 +332,20 @@ fun VideoCustomizationDialog(
                                                     .size(8.dp)
                                                     .clip(CircleShape)
                                                     .background(color)
+                                                    .border(
+                                                        1.dp,
+                                                        if (isWhiteColor && !isDark) MaterialTheme.colorScheme.outline.copy(alpha = 0.8f)
+                                                        else if (isWhiteColor) Color(0x66FFFFFF)
+                                                        else Color.Transparent,
+                                                        CircleShape
+                                                    )
                                             )
                                             Spacer(modifier = Modifier.width(6.dp))
                                             Text(
                                                 text = name,
                                                 style = MaterialTheme.typography.labelMedium,
                                                 fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
-                                                color = if (selected) color else Color.White
+                                                color = chipTextColor
                                             )
                                         }
                                     }
@@ -330,20 +354,20 @@ fun VideoCustomizationDialog(
 
                             Spacer(modifier = Modifier.height(10.dp))
 
-                            // Compact Subtitle Preview
+                            // Compact Subtitle Preview (Intentional cinema dark background for video subtitle preview)
                             Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .clip(RoundedCornerShape(10.dp))
                                     .background(Color(0xFF0A0C12))
-                                    .border(1.dp, Color(0x1FFFFFFF), RoundedCornerShape(10.dp))
+                                    .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(10.dp))
                                     .padding(vertical = 10.dp, horizontal = 14.dp),
                                 contentAlignment = Alignment.Center
                             ) {
                                 val textColor = when (subtitleColor.uppercase()) {
                                     "#FFFF00" -> Color(0xFFFFEB3B)
-                                    "#00E5FF" -> AudiophileCyan
-                                    "#00E676" -> AudiophileGreen
+                                    "#00E5FF" -> Color(0xFF00E5FF)
+                                    "#00E676" -> Color(0xFF00E676)
                                     else -> Color.White
                                 }
                                 Text(
@@ -399,7 +423,7 @@ private fun SettingsGroup(
             text = title,
             style = MaterialTheme.typography.labelSmall,
             fontWeight = FontWeight.Bold,
-            color = Color(0xFF6B7280),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
             letterSpacing = 1.2.sp,
             modifier = Modifier.padding(start = 6.dp, bottom = 6.dp)
         )
@@ -407,8 +431,8 @@ private fun SettingsGroup(
             modifier = Modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(16.dp))
-                .background(OledSurfaceVariant)
-                .border(1.dp, OledBorder, RoundedCornerShape(16.dp))
+                .background(MaterialTheme.colorScheme.surfaceContainer)
+                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(16.dp))
         ) {
             content()
         }
@@ -420,7 +444,7 @@ private fun GroupDivider() {
     HorizontalDivider(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
         thickness = 0.5.dp,
-        color = Color(0x14FFFFFF)
+        color = MaterialTheme.colorScheme.outlineVariant
     )
 }
 
@@ -444,13 +468,13 @@ private fun SettingsSwitchRow(
                 text = title,
                 style = MaterialTheme.typography.bodyMedium,
                 fontWeight = FontWeight.SemiBold,
-                color = Color.White
+                color = MaterialTheme.colorScheme.onSurface
             )
             Spacer(modifier = Modifier.height(2.dp))
             Text(
                 text = subtitle,
                 style = MaterialTheme.typography.bodySmall,
-                color = Color(0xFF8E8E9E),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontSize = 12.sp
             )
         }
@@ -458,10 +482,10 @@ private fun SettingsSwitchRow(
             checked = checked,
             onCheckedChange = onCheckedChange,
             colors = SwitchDefaults.colors(
-                checkedThumbColor = Color.Black,
-                checkedTrackColor = AudiophileCyan,
-                uncheckedThumbColor = Color(0xFF8E8E9E),
-                uncheckedTrackColor = Color(0x33FFFFFF)
+                checkedThumbColor = MaterialTheme.colorScheme.onPrimary,
+                checkedTrackColor = MaterialTheme.colorScheme.primary,
+                uncheckedThumbColor = MaterialTheme.colorScheme.outline,
+                uncheckedTrackColor = MaterialTheme.colorScheme.surfaceContainerHighest
             )
         )
     }
@@ -477,8 +501,8 @@ private fun SegmentedBar(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(10.dp))
-            .background(Color(0xFF0C0E14))
-            .border(1.dp, Color(0x14FFFFFF), RoundedCornerShape(10.dp))
+            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(10.dp))
             .padding(3.dp),
         horizontalArrangement = Arrangement.spacedBy(3.dp)
     ) {
@@ -488,10 +512,10 @@ private fun SegmentedBar(
                 modifier = Modifier
                     .weight(1f)
                     .clip(RoundedCornerShape(8.dp))
-                    .background(if (isSelected) AudiophileCyan.copy(alpha = 0.22f) else Color.Transparent)
+                    .background(if (isSelected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent)
                     .border(
                         1.dp,
-                        if (isSelected) AudiophileCyan.copy(alpha = 0.6f) else Color.Transparent,
+                        if (isSelected) MaterialTheme.colorScheme.primary else Color.Transparent,
                         RoundedCornerShape(8.dp)
                     )
                     .clickable { onSelect(item) }
@@ -502,7 +526,7 @@ private fun SegmentedBar(
                     text = item,
                     style = MaterialTheme.typography.labelMedium,
                     fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                    color = if (isSelected) AudiophileCyan else Color(0xFF9E9EAE),
+                    color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1
                 )
             }

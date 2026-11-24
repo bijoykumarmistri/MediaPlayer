@@ -80,7 +80,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -95,11 +94,6 @@ import androidx.compose.ui.unit.sp
 import androidx.core.net.toUri
 import com.mediaplayer.R
 import com.mediaplayer.playback.StreamHistoryItem
-import com.mediaplayer.ui.theme.AudiophileCyan
-import com.mediaplayer.ui.theme.AudiophileGold
-import com.mediaplayer.ui.theme.AudiophileGreen
-import com.mediaplayer.ui.theme.OledBorder
-import com.mediaplayer.ui.theme.OledSurfaceVariant
 import com.mediaplayer.util.AppUpdateManager
 import kotlinx.coroutines.launch
 
@@ -178,8 +172,8 @@ fun MediaHubPage(
             modifier = Modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(16.dp))
-                .background(Color(0xFF12141F))
-                .border(1.dp, Color(0x1AFFFFFF), RoundedCornerShape(16.dp))
+                .background(MaterialTheme.colorScheme.surfaceContainer)
+                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(16.dp))
                 .padding(4.dp),
             horizontalArrangement = Arrangement.spacedBy(4.dp)
         ) {
@@ -208,7 +202,7 @@ fun MediaHubPage(
                 selected = selectedTab == 3,
                 title = "About",
                 icon = Icons.Rounded.Info,
-                badgeColor = AudiophileGold,
+                badgeColor = MaterialTheme.colorScheme.primary,
                 onClick = { selectedTab = 3 },
                 modifier = Modifier.weight(0.95f)
             )
@@ -231,8 +225,8 @@ fun MediaHubPage(
                             title = "Browse Media Files",
                             subtitle = "Directly open audio or video from storage or USB",
                             icon = Icons.Rounded.FileOpen,
-                            iconTint = AudiophileCyan,
-                            iconBg = Color(0x2600E5FF),
+                            iconTint = MaterialTheme.colorScheme.primary,
+                            iconBg = MaterialTheme.colorScheme.primaryContainer,
                             tags = listOf("MP4", "MKV", "FLAC", "MP3", "WAV"),
                             onClick = onPickFiles
                         )
@@ -242,8 +236,8 @@ fun MediaHubPage(
                             title = "Scan Folder / SD Card",
                             subtitle = "Index specific folder or external storage into library",
                             icon = Icons.Rounded.FolderOpen,
-                            iconTint = AudiophileGold,
-                            iconBg = Color(0x26FFD54F),
+                            iconTint = MaterialTheme.colorScheme.tertiary,
+                            iconBg = MaterialTheme.colorScheme.tertiaryContainer,
                             tags = listOf("Directory Scan", "SD Card", "Auto-Index"),
                             onClick = onPickFolder
                         )
@@ -253,8 +247,8 @@ fun MediaHubPage(
                             title = "Privacy Vault",
                             subtitle = "Encrypted local media safe • PIN & Biometric lock",
                             icon = Icons.Rounded.Lock,
-                            iconTint = AudiophileGreen,
-                            iconBg = Color(0x2600E676),
+                            iconTint = MaterialTheme.colorScheme.secondary,
+                            iconBg = MaterialTheme.colorScheme.secondaryContainer,
                             tags = listOf("AES-256", "Hidden Storage", "Zero Cloud"),
                             onClick = onOpenPrivacyVault
                         )
@@ -274,15 +268,15 @@ fun MediaHubPage(
                                 Box(
                                     modifier = Modifier
                                         .clip(RoundedCornerShape(8.dp))
-                                        .background(Color(0x1A00E5FF))
-                                        .border(1.dp, Color(0x3300E5FF), RoundedCornerShape(8.dp))
+                                        .background(MaterialTheme.colorScheme.secondaryContainer)
+                                        .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(8.dp))
                                         .padding(horizontal = 10.dp, vertical = 5.dp)
                                 ) {
                                     Text(
                                         text = proto,
                                         fontSize = 11.sp,
                                         fontWeight = FontWeight.SemiBold,
-                                        color = AudiophileCyan
+                                        color = MaterialTheme.colorScheme.onSecondaryContainer
                                     )
                                 }
                             }
@@ -300,9 +294,9 @@ fun MediaHubPage(
                                             streamUrlInput = clipUrl
                                             detectedClipboardUrl = null
                                         },
-                                    colors = CardDefaults.cardColors(containerColor = Color(0x1FFF6D00)),
+                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer),
                                     shape = RoundedCornerShape(16.dp),
-                                    border = BorderStroke(1.dp, Color(0x66FF6D00))
+                                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.tertiary)
                                 ) {
                                     Row(
                                         modifier = Modifier.padding(14.dp),
@@ -316,7 +310,7 @@ fun MediaHubPage(
                                             Icon(
                                                 imageVector = Icons.Rounded.ContentPaste,
                                                 contentDescription = null,
-                                                tint = Color(0xFFFF9100),
+                                                tint = MaterialTheme.colorScheme.onTertiaryContainer,
                                                 modifier = Modifier.size(20.dp)
                                             )
                                             Spacer(modifier = Modifier.width(10.dp))
@@ -325,12 +319,12 @@ fun MediaHubPage(
                                                     text = "Stream URL detected in clipboard",
                                                     fontSize = 12.sp,
                                                     fontWeight = FontWeight.Bold,
-                                                    color = Color(0xFFFFD180)
+                                                    color = MaterialTheme.colorScheme.onTertiaryContainer
                                                 )
                                                 Text(
                                                     text = clipUrl,
                                                     fontSize = 11.sp,
-                                                    color = Color(0xFFB0B0C0),
+                                                    color = MaterialTheme.colorScheme.onTertiaryContainer.copy(alpha = 0.8f),
                                                     maxLines = 1,
                                                     overflow = TextOverflow.Ellipsis
                                                 )
@@ -340,7 +334,7 @@ fun MediaHubPage(
                                             text = "Tap to Paste",
                                             fontSize = 12.sp,
                                             fontWeight = FontWeight.Bold,
-                                            color = AudiophileGold,
+                                            color = MaterialTheme.colorScheme.primary,
                                             modifier = Modifier.padding(start = 8.dp)
                                         )
                                     }
@@ -353,12 +347,12 @@ fun MediaHubPage(
                             value = streamUrlInput,
                             onValueChange = { streamUrlInput = it },
                             label = { Text("Stream URL (HLS / DASH / MP4 / FLAC / RTSP)") },
-                            placeholder = { Text("https://example.com/live/master.m3u8", color = Color.Gray) },
+                            placeholder = { Text("https://example.com/live/master.m3u8") },
                             leadingIcon = {
                                 Icon(
                                     imageVector = Icons.Rounded.Link,
                                     contentDescription = null,
-                                    tint = AudiophileGold
+                                    tint = MaterialTheme.colorScheme.primary
                                 )
                             },
                             trailingIcon = {
@@ -367,7 +361,7 @@ fun MediaHubPage(
                                         Icon(
                                             imageVector = Icons.Rounded.Clear,
                                             contentDescription = "Clear",
-                                            tint = Color.Gray
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant
                                         )
                                     }
                                 } else {
@@ -387,7 +381,7 @@ fun MediaHubPage(
                                         Icon(
                                             imageVector = Icons.Rounded.ContentPaste,
                                             contentDescription = "Paste",
-                                            tint = AudiophileCyan
+                                            tint = MaterialTheme.colorScheme.primary
                                         )
                                     }
                                 }
@@ -396,12 +390,12 @@ fun MediaHubPage(
                             modifier = Modifier.fillMaxWidth(),
                             shape = RoundedCornerShape(16.dp),
                             colors = OutlinedTextFieldDefaults.colors(
-                                focusedBorderColor = AudiophileGold,
-                                unfocusedBorderColor = OledBorder,
-                                focusedTextColor = Color.White,
-                                unfocusedTextColor = Color.White,
-                                focusedContainerColor = Color(0x0AFFFFFF),
-                                unfocusedContainerColor = Color(0x05FFFFFF)
+                                focusedBorderColor = MaterialTheme.colorScheme.primary,
+                                unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
+                                focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                                unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
+                                focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                                unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainer
                             )
                         )
 
@@ -410,17 +404,17 @@ fun MediaHubPage(
                             value = streamTitleInput,
                             onValueChange = { streamTitleInput = it },
                             label = { Text("Stream Title (Optional)") },
-                            placeholder = { Text("Custom Stream Name", color = Color.Gray) },
+                            placeholder = { Text("Custom Stream Name") },
                             singleLine = true,
                             modifier = Modifier.fillMaxWidth(),
                             shape = RoundedCornerShape(16.dp),
                             colors = OutlinedTextFieldDefaults.colors(
-                                focusedBorderColor = AudiophileCyan,
-                                unfocusedBorderColor = OledBorder,
-                                focusedTextColor = Color.White,
-                                unfocusedTextColor = Color.White,
-                                focusedContainerColor = Color(0x0AFFFFFF),
-                                unfocusedContainerColor = Color(0x05FFFFFF)
+                                focusedBorderColor = MaterialTheme.colorScheme.primary,
+                                unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
+                                focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                                unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
+                                focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                                unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainer
                             )
                         )
 
@@ -441,9 +435,9 @@ fun MediaHubPage(
                                     )
                                 },
                                 colors = FilterChipDefaults.filterChipColors(
-                                    selectedContainerColor = Color(0x3300E5FF),
-                                    selectedLabelColor = AudiophileCyan,
-                                    selectedLeadingIconColor = AudiophileCyan
+                                    selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                                    selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                                    selectedLeadingIconColor = MaterialTheme.colorScheme.onPrimaryContainer
                                 ),
                                 shape = RoundedCornerShape(12.dp),
                                 modifier = Modifier.weight(1f)
@@ -461,9 +455,9 @@ fun MediaHubPage(
                                     )
                                 },
                                 colors = FilterChipDefaults.filterChipColors(
-                                    selectedContainerColor = Color(0x33FFD54F),
-                                    selectedLabelColor = AudiophileGold,
-                                    selectedLeadingIconColor = AudiophileGold
+                                    selectedContainerColor = MaterialTheme.colorScheme.secondaryContainer,
+                                    selectedLabelColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                                    selectedLeadingIconColor = MaterialTheme.colorScheme.onSecondaryContainer
                                 ),
                                 shape = RoundedCornerShape(12.dp),
                                 modifier = Modifier.weight(1f)
@@ -475,7 +469,7 @@ fun MediaHubPage(
                             text = "QUICK TEST PRESETS",
                             fontSize = 10.sp,
                             fontWeight = FontWeight.Bold,
-                            color = Color(0xFFA0A5B5),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                             letterSpacing = 1.sp
                         )
 
@@ -494,8 +488,8 @@ fun MediaHubPage(
                                 Box(
                                     modifier = Modifier
                                         .clip(RoundedCornerShape(12.dp))
-                                        .background(Color(0x14FFFFFF))
-                                        .border(1.dp, Color(0x22FFFFFF), RoundedCornerShape(12.dp))
+                                        .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                                        .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(12.dp))
                                         .clickable {
                                             streamUrlInput = url
                                             streamTitleInput = title
@@ -507,7 +501,7 @@ fun MediaHubPage(
                                         Icon(
                                             imageVector = if (isVid) Icons.Rounded.Movie else Icons.Rounded.MusicNote,
                                             contentDescription = null,
-                                            tint = if (isVid) AudiophileCyan else AudiophileGold,
+                                            tint = if (isVid) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondary,
                                             modifier = Modifier.size(14.dp)
                                         )
                                         Spacer(modifier = Modifier.width(6.dp))
@@ -515,7 +509,7 @@ fun MediaHubPage(
                                             text = title,
                                             fontSize = 11.sp,
                                             fontWeight = FontWeight.Medium,
-                                            color = Color.White
+                                            color = MaterialTheme.colorScheme.onSurface
                                         )
                                     }
                                 }
@@ -537,8 +531,9 @@ fun MediaHubPage(
                             },
                             enabled = streamUrlInput.isNotBlank(),
                             colors = ButtonDefaults.buttonColors(
-                                containerColor = AudiophileGold,
-                                disabledContainerColor = Color(0x33888888)
+                                containerColor = MaterialTheme.colorScheme.primary,
+                                contentColor = MaterialTheme.colorScheme.onPrimary,
+                                disabledContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.38f)
                             ),
                             shape = RoundedCornerShape(16.dp),
                             modifier = Modifier
@@ -548,12 +543,12 @@ fun MediaHubPage(
                             Icon(
                                 imageVector = Icons.Rounded.PlayArrow,
                                 contentDescription = null,
-                                tint = Color.Black
+                                tint = MaterialTheme.colorScheme.onPrimary
                             )
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
                                 text = "Play Live Stream Now",
-                                color = Color.Black,
+                                color = MaterialTheme.colorScheme.onPrimary,
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 15.sp
                             )
@@ -568,9 +563,9 @@ fun MediaHubPage(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .padding(vertical = 24.dp),
-                                colors = CardDefaults.cardColors(containerColor = Color(0xFF10121C)),
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
                                 shape = RoundedCornerShape(20.dp),
-                                border = BorderStroke(1.dp, Color(0x1AFFFFFF))
+                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
                             ) {
                                 Column(
                                     modifier = Modifier
@@ -582,13 +577,13 @@ fun MediaHubPage(
                                         modifier = Modifier
                                             .size(60.dp)
                                             .clip(CircleShape)
-                                            .background(Color(0x1A00E5FF)),
+                                            .background(MaterialTheme.colorScheme.primaryContainer),
                                         contentAlignment = Alignment.Center
                                     ) {
                                         Icon(
                                             imageVector = Icons.Rounded.History,
                                             contentDescription = null,
-                                            tint = AudiophileCyan,
+                                            tint = MaterialTheme.colorScheme.onPrimaryContainer,
                                             modifier = Modifier.size(30.dp)
                                         )
                                     }
@@ -597,22 +592,25 @@ fun MediaHubPage(
                                         text = "No Stream History Yet",
                                         fontWeight = FontWeight.Bold,
                                         fontSize = 16.sp,
-                                        color = Color.White
+                                        color = MaterialTheme.colorScheme.onSurface
                                     )
                                     Spacer(modifier = Modifier.height(6.dp))
                                     Text(
                                         text = "Direct network streams you play will appear here for 1-tap instant replay.",
                                         fontSize = 12.sp,
-                                        color = Color(0xFF888899),
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         textAlign = TextAlign.Center
                                     )
                                     Spacer(modifier = Modifier.height(18.dp))
                                     Button(
                                         onClick = { selectedTab = 1 },
-                                        colors = ButtonDefaults.buttonColors(containerColor = AudiophileCyan),
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = MaterialTheme.colorScheme.primary,
+                                            contentColor = MaterialTheme.colorScheme.onPrimary
+                                        ),
                                         shape = RoundedCornerShape(12.dp)
                                     ) {
-                                        Text("Open Stream Player", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                        Text("Open Stream Player", color = MaterialTheme.colorScheme.onPrimary, fontWeight = FontWeight.Bold, fontSize = 12.sp)
                                     }
                                 }
                             }
@@ -626,13 +624,13 @@ fun MediaHubPage(
                                     text = "RECENT STREAMS (${recentStreams.size})",
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = Color(0xFFA0A5B5),
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     letterSpacing = 1.sp
                                 )
                                 TextButton(onClick = onClearAllRecentStreams) {
                                     Text(
                                         text = "Clear All",
-                                        color = Color(0xFFE57373),
+                                        color = MaterialTheme.colorScheme.error,
                                         fontSize = 12.sp,
                                         fontWeight = FontWeight.SemiBold
                                     )
@@ -646,9 +644,9 @@ fun MediaHubPage(
                                         .clickable {
                                             onPlayStream(streamUrl, streamTitle, isItemVideo)
                                         },
-                                    colors = CardDefaults.cardColors(containerColor = Color(0xFF141722)),
+                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
                                     shape = RoundedCornerShape(16.dp),
-                                    border = BorderStroke(1.dp, Color(0x1AFFFFFF))
+                                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
                                 ) {
                                     Row(
                                         modifier = Modifier.padding(14.dp),
@@ -664,14 +662,14 @@ fun MediaHubPage(
                                                     .size(40.dp)
                                                     .clip(CircleShape)
                                                     .background(
-                                                        if (isItemVideo) Color(0x2600E5FF) else Color(0x26FFD54F)
+                                                        if (isItemVideo) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.secondaryContainer
                                                     ),
                                                 contentAlignment = Alignment.Center
                                             ) {
                                                 Icon(
                                                     imageVector = if (isItemVideo) Icons.Rounded.Movie else Icons.Rounded.MusicNote,
                                                     contentDescription = null,
-                                                    tint = if (isItemVideo) AudiophileCyan else AudiophileGold,
+                                                    tint = if (isItemVideo) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSecondaryContainer,
                                                     modifier = Modifier.size(20.dp)
                                                 )
                                             }
@@ -681,14 +679,14 @@ fun MediaHubPage(
                                                     text = streamTitle,
                                                     fontWeight = FontWeight.Bold,
                                                     fontSize = 14.sp,
-                                                    color = Color.White,
+                                                    color = MaterialTheme.colorScheme.onSurface,
                                                     maxLines = 1,
                                                     overflow = TextOverflow.Ellipsis
                                                 )
                                                 Text(
                                                     text = streamUrl,
                                                     fontSize = 11.sp,
-                                                    color = Color(0xFF888899),
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                                                     maxLines = 1,
                                                     overflow = TextOverflow.Ellipsis
                                                 )
@@ -703,7 +701,7 @@ fun MediaHubPage(
                                                 Icon(
                                                     imageVector = Icons.Rounded.PlayArrow,
                                                     contentDescription = "Play",
-                                                    tint = AudiophileCyan,
+                                                    tint = MaterialTheme.colorScheme.primary,
                                                     modifier = Modifier.size(20.dp)
                                                 )
                                             }
@@ -714,7 +712,7 @@ fun MediaHubPage(
                                                 Icon(
                                                     imageVector = Icons.Rounded.DeleteOutline,
                                                     contentDescription = "Remove",
-                                                    tint = Color(0xFF888899),
+                                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                                     modifier = Modifier.size(20.dp)
                                                 )
                                             }
@@ -781,9 +779,9 @@ private fun AboutAppSection(
         // 1. APP BRAND HEADER CARD
         Card(
             modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = Color(0xFF0F111C)),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
             shape = RoundedCornerShape(24.dp),
-            border = BorderStroke(1.dp, Color(0x3300E5FF))
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
         ) {
             Column(
                 modifier = Modifier
@@ -796,21 +794,21 @@ private fun AboutAppSection(
                     modifier = Modifier
                         .size(72.dp)
                         .clip(RoundedCornerShape(20.dp))
-                        .background(Color(0xFF141724)),
+                        .background(MaterialTheme.colorScheme.surfaceContainerHigh),
                     contentAlignment = Alignment.Center
                 ) {
                     if (appIcon != null) {
                         Image(
                             bitmap = appIcon,
-                            contentDescription = "Media Player",
+                            contentDescription = "BKM Player",
                             modifier = Modifier.fillMaxSize(),
                             contentScale = ContentScale.Fit
                         )
                     } else {
                         Icon(
                             imageVector = Icons.Rounded.PlayArrow,
-                            contentDescription = "Media Player",
-                            tint = AudiophileCyan,
+                            contentDescription = "BKM Player",
+                            tint = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.size(40.dp)
                         )
                     }
@@ -819,10 +817,10 @@ private fun AboutAppSection(
                 Spacer(modifier = Modifier.height(12.dp))
 
                 Text(
-                    text = "Media Player",
+                    text = "BKM Player",
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
-                    color = Color.White
+                    color = MaterialTheme.colorScheme.onSurface
                 )
 
                 Spacer(modifier = Modifier.height(4.dp))
@@ -830,7 +828,7 @@ private fun AboutAppSection(
                 Text(
                     text = "Version $currentVersion",
                     fontSize = 12.sp,
-                    color = Color(0xFFB0B0C0),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontFamily = FontFamily.Monospace
                 )
 
@@ -839,7 +837,7 @@ private fun AboutAppSection(
                 Text(
                     text = "A clean, private, and modern audio and video player for Android.",
                     fontSize = 12.sp,
-                    color = Color(0xFF9E9EAE),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center
                 )
             }
@@ -848,9 +846,9 @@ private fun AboutAppSection(
         // 2. DEVELOPER PROFILE CARD
         Card(
             modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = Color(0xFF111422)),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
             shape = RoundedCornerShape(22.dp),
-            border = BorderStroke(1.dp, Color(0x33FFD54F))
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
         ) {
             Column(modifier = Modifier.padding(18.dp)) {
                 Row(
@@ -864,21 +862,17 @@ private fun AboutAppSection(
                             modifier = Modifier
                                 .size(48.dp)
                                 .clip(RoundedCornerShape(14.dp))
-                                .background(
-                                    Brush.linearGradient(
-                                        listOf(AudiophileCyan, AudiophileGold)
-                                    )
-                                )
+                                .background(MaterialTheme.colorScheme.primaryContainer)
                                 .padding(2.dp)
                                 .clip(RoundedCornerShape(12.dp))
-                                .background(Color(0xFF0C0D14)),
+                                .background(MaterialTheme.colorScheme.surfaceContainerHigh),
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
                                 text = HUB_DEVELOPER_NAME,
                                 fontSize = 16.sp,
                                 fontWeight = FontWeight.Black,
-                                color = AudiophileCyan
+                                color = MaterialTheme.colorScheme.primary
                             )
                         }
                         Spacer(modifier = Modifier.width(14.dp))
@@ -888,20 +882,20 @@ private fun AboutAppSection(
                                     text = HUB_DEVELOPER_NAME,
                                     style = MaterialTheme.typography.titleMedium,
                                     fontWeight = FontWeight.Bold,
-                                    color = Color.White
+                                    color = MaterialTheme.colorScheme.onSurface
                                 )
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Box(
                                     modifier = Modifier
                                         .clip(RoundedCornerShape(6.dp))
-                                        .background(Color(0x2200E5FF))
+                                        .background(MaterialTheme.colorScheme.secondaryContainer)
                                         .padding(horizontal = 6.dp, vertical = 2.dp)
                                 ) {
                                     Text(
                                         text = "DEVELOPER",
                                         fontSize = 9.sp,
                                         fontWeight = FontWeight.Bold,
-                                        color = AudiophileCyan
+                                        color = MaterialTheme.colorScheme.onSecondaryContainer
                                     )
                                 }
                             }
@@ -909,7 +903,7 @@ private fun AboutAppSection(
                             Text(
                                 text = "Lead Developer",
                                 fontSize = 11.sp,
-                                color = Color(0xFFB0B0C0)
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
                     }
@@ -917,26 +911,26 @@ private fun AboutAppSection(
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(8.dp))
-                            .background(Color(0x1AFFFFFF))
+                            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
                             .padding(horizontal = 8.dp, vertical = 4.dp)
                     ) {
                         Text(
                             text = "🇮🇳 India",
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
-                            color = Color.White
+                            color = MaterialTheme.colorScheme.onSurface
                         )
                     }
                 }
 
                 Spacer(modifier = Modifier.height(12.dp))
-                HorizontalDivider(color = Color(0x1AFFFFFF))
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                 Spacer(modifier = Modifier.height(12.dp))
 
                 Text(
                     text = "Developed by BKM using Kotlin, Jetpack Compose, and AndroidX Media3.",
                     fontSize = 12.sp,
-                    color = Color(0xFFC0C0D0),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     lineHeight = 17.sp
                 )
 
@@ -947,29 +941,32 @@ private fun AboutAppSection(
                         try {
                             val shareIntent = Intent(Intent.ACTION_SEND).apply {
                                 type = "text/plain"
-                                putExtra(Intent.EXTRA_SUBJECT, "Check out Media Player")
+                                putExtra(Intent.EXTRA_SUBJECT, "Check out BKM Player")
                                 putExtra(
                                     Intent.EXTRA_TEXT,
-                                    "Check out Media Player by $HUB_DEVELOPER_NAME: ${AppUpdateManager.GITHUB_RELEASES_WEB_URL}"
+                                    "Check out BKM Player by $HUB_DEVELOPER_NAME: ${AppUpdateManager.GITHUB_RELEASES_WEB_URL}"
                                 )
                             }
-                            context.startActivity(Intent.createChooser(shareIntent, "Share Media Player"))
+                            context.startActivity(Intent.createChooser(shareIntent, "Share BKM Player"))
                         } catch (e: Exception) {
                             e.printStackTrace()
                         }
                     },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0x22FFFFFF)),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                        contentColor = MaterialTheme.colorScheme.onSurface
+                    ),
                     shape = RoundedCornerShape(12.dp),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Icon(
                         imageVector = Icons.Rounded.Share,
                         contentDescription = null,
-                        tint = Color.White,
+                        tint = MaterialTheme.colorScheme.onSurface,
                         modifier = Modifier.size(16.dp)
                     )
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("Share Media Player", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                    Text("Share BKM Player", color = MaterialTheme.colorScheme.onSurface, fontSize = 13.sp, fontWeight = FontWeight.Bold)
                 }
             }
         }
@@ -977,9 +974,9 @@ private fun AboutAppSection(
         // 3. SUPPORT & DONATION CARD (UPI)
         Card(
             modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = Color(0xFF16130D)),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
             shape = RoundedCornerShape(22.dp),
-            border = BorderStroke(1.dp, Color(0x55FFD54F))
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
         ) {
             Column(modifier = Modifier.padding(18.dp)) {
                 Row(
@@ -990,14 +987,14 @@ private fun AboutAppSection(
                         modifier = Modifier
                             .size(40.dp)
                             .clip(RoundedCornerShape(12.dp))
-                            .background(Color(0x33FFD54F))
-                            .border(1.dp, Color(0x66FFD54F), RoundedCornerShape(12.dp)),
+                            .background(MaterialTheme.colorScheme.tertiaryContainer)
+                            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(12.dp)),
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
                             imageVector = Icons.Rounded.Favorite,
                             contentDescription = null,
-                            tint = AudiophileGold,
+                            tint = MaterialTheme.colorScheme.onTertiaryContainer,
                             modifier = Modifier.size(22.dp)
                         )
                     }
@@ -1007,12 +1004,12 @@ private fun AboutAppSection(
                             text = "Support Development ☕",
                             fontWeight = FontWeight.Bold,
                             fontSize = 15.sp,
-                            color = AudiophileGold
+                            color = MaterialTheme.colorScheme.onSurface
                         )
                         Text(
                             text = "100% Free & Ad-Free",
                             fontSize = 11.sp,
-                            color = Color(0xFFC0A870)
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 }
@@ -1020,9 +1017,9 @@ private fun AboutAppSection(
                 Spacer(modifier = Modifier.height(10.dp))
 
                 Text(
-                    text = "Media Player is completely free and ad-free. If you find this app helpful, consider supporting future development with a donation via UPI!",
+                    text = "BKM Player is completely free and ad-free. If you find this app helpful, consider supporting future development with a donation via UPI!",
                     fontSize = 12.sp,
-                    color = Color(0xFFD4C8B0),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     lineHeight = 17.sp
                 )
 
@@ -1033,8 +1030,8 @@ private fun AboutAppSection(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(14.dp))
-                        .background(Color(0x44000000))
-                        .border(1.dp, Color(0x44FFD54F), RoundedCornerShape(14.dp))
+                        .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                        .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(14.dp))
                         .clickable {
                             onCopyUpi()
                             isUpiCopied = true
@@ -1051,7 +1048,7 @@ private fun AboutAppSection(
                                 text = "DEVELOPER UPI ID (TAP TO COPY)",
                                 fontSize = 9.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = Color(0xFF9E8E6A),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 letterSpacing = 0.8.sp
                             )
                             Spacer(modifier = Modifier.height(2.dp))
@@ -1059,7 +1056,7 @@ private fun AboutAppSection(
                                 text = HUB_DEVELOPER_UPI_ID,
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = Color.White,
+                                color = MaterialTheme.colorScheme.onSurface,
                                 fontFamily = FontFamily.Monospace
                             )
                         }
@@ -1068,13 +1065,13 @@ private fun AboutAppSection(
                             modifier = Modifier
                                 .size(32.dp)
                                 .clip(CircleShape)
-                                .background(if (isUpiCopied) Color(0x3300E676) else Color(0x22FFD54F)),
+                                .background(if (isUpiCopied) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHighest),
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
                                 imageVector = if (isUpiCopied) Icons.Rounded.Check else Icons.Rounded.ContentCopy,
                                 contentDescription = "Copy UPI ID",
-                                tint = if (isUpiCopied) AudiophileGreen else AudiophileGold,
+                                tint = if (isUpiCopied) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.size(15.dp)
                             )
                         }
@@ -1086,7 +1083,7 @@ private fun AboutAppSection(
                 Text(
                     text = "Accepted via Google Pay, PhonePe, Paytm, BHIM & any UPI app",
                     fontSize = 10.sp,
-                    color = Color(0xFF9E8E6A),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center,
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -1103,8 +1100,8 @@ private fun AboutAppSection(
                             modifier = Modifier
                                 .weight(1f)
                                 .clip(RoundedCornerShape(10.dp))
-                                .background(Color(0x22FFD54F))
-                                .border(1.dp, Color(0x44FFD54F), RoundedCornerShape(10.dp))
+                                .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(10.dp))
                                 .clickable { onPayUpi(amount) }
                                 .padding(vertical = 8.dp),
                             contentAlignment = Alignment.Center
@@ -1113,7 +1110,7 @@ private fun AboutAppSection(
                                 text = label,
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = AudiophileGold
+                                color = MaterialTheme.colorScheme.primary
                             )
                         }
                     }
@@ -1129,8 +1126,8 @@ private fun AboutAppSection(
                     Button(
                         onClick = { onPayUpi(null) },
                         colors = ButtonDefaults.buttonColors(
-                            containerColor = AudiophileGold,
-                            contentColor = Color.Black
+                            containerColor = MaterialTheme.colorScheme.primary,
+                            contentColor = MaterialTheme.colorScheme.onPrimary
                         ),
                         shape = RoundedCornerShape(12.dp),
                         modifier = Modifier.weight(1.3f)
@@ -1138,11 +1135,11 @@ private fun AboutAppSection(
                         Icon(
                             imageVector = Icons.Rounded.AccountBalanceWallet,
                             contentDescription = null,
-                            tint = Color.Black,
+                            tint = MaterialTheme.colorScheme.onPrimary,
                             modifier = Modifier.size(16.dp)
                         )
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text("Pay via UPI App", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                        Text("Pay via UPI App", color = MaterialTheme.colorScheme.onPrimary, fontWeight = FontWeight.Bold, fontSize = 12.sp)
                     }
 
                     OutlinedButton(
@@ -1150,15 +1147,15 @@ private fun AboutAppSection(
                             onCopyUpi()
                             isUpiCopied = true
                         },
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = AudiophileGold),
-                        border = BorderStroke(1.dp, AudiophileGold.copy(alpha = 0.6f)),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.primary),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                         shape = RoundedCornerShape(12.dp),
                         modifier = Modifier.weight(1f)
                     ) {
                         Icon(
                             imageVector = Icons.Rounded.ContentCopy,
                             contentDescription = null,
-                            tint = AudiophileGold,
+                            tint = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.size(15.dp)
                         )
                         Spacer(modifier = Modifier.width(5.dp))
@@ -1171,9 +1168,9 @@ private fun AboutAppSection(
         // 4. SOFTWARE UPDATES & RELEASES
         Card(
             modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = Color(0xFF10131E)),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
             shape = RoundedCornerShape(22.dp),
-            border = BorderStroke(1.dp, Color(0x3300E5FF))
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
         ) {
             Column(modifier = Modifier.padding(18.dp)) {
                 Row(
@@ -1184,14 +1181,14 @@ private fun AboutAppSection(
                         modifier = Modifier
                             .size(38.dp)
                             .clip(RoundedCornerShape(10.dp))
-                            .background(Color(0x2200E5FF))
-                            .border(1.dp, Color(0x4400E5FF), RoundedCornerShape(10.dp)),
+                            .background(MaterialTheme.colorScheme.primaryContainer)
+                            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(10.dp)),
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
                             imageVector = Icons.Rounded.CloudDownload,
                             contentDescription = null,
-                            tint = AudiophileCyan,
+                            tint = MaterialTheme.colorScheme.onPrimaryContainer,
                             modifier = Modifier.size(18.dp)
                         )
                     }
@@ -1201,12 +1198,12 @@ private fun AboutAppSection(
                             text = "Software Updates",
                             fontWeight = FontWeight.Bold,
                             fontSize = 15.sp,
-                            color = Color.White
+                            color = MaterialTheme.colorScheme.onSurface
                         )
                         Text(
                             text = "v$currentVersion • GitHub Releases",
                             fontSize = 11.sp,
-                            color = Color(0xFFA0A5B5)
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 }
@@ -1242,8 +1239,8 @@ private fun AboutAppSection(
                             }
                         },
                         colors = ButtonDefaults.buttonColors(
-                            containerColor = AudiophileCyan,
-                            contentColor = Color.Black
+                            containerColor = MaterialTheme.colorScheme.primary,
+                            contentColor = MaterialTheme.colorScheme.onPrimary
                         ),
                         shape = RoundedCornerShape(12.dp),
                         modifier = Modifier.weight(1.3f)
@@ -1251,20 +1248,20 @@ private fun AboutAppSection(
                         if (isCheckingUpdate) {
                             CircularProgressIndicator(
                                 modifier = Modifier.size(14.dp),
-                                color = Color.Black,
+                                color = MaterialTheme.colorScheme.onPrimary,
                                 strokeWidth = 2.dp
                             )
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text("Checking...", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                            Text("Checking...", color = MaterialTheme.colorScheme.onPrimary, fontWeight = FontWeight.Bold, fontSize = 12.sp)
                         } else {
                             Icon(
                                 imageVector = Icons.Rounded.CloudDownload,
                                 contentDescription = null,
-                                tint = Color.Black,
+                                tint = MaterialTheme.colorScheme.onPrimary,
                                 modifier = Modifier.size(16.dp)
                             )
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text("Check Updates", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                            Text("Check Updates", color = MaterialTheme.colorScheme.onPrimary, fontWeight = FontWeight.Bold, fontSize = 12.sp)
                         }
                     }
 
@@ -1272,15 +1269,15 @@ private fun AboutAppSection(
                         onClick = {
                             AppUpdateManager.openUrl(context, AppUpdateManager.GITHUB_RELEASES_WEB_URL)
                         },
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = AudiophileCyan),
-                        border = BorderStroke(1.dp, AudiophileCyan.copy(alpha = 0.6f)),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.primary),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                         shape = RoundedCornerShape(12.dp),
                         modifier = Modifier.weight(1f)
                     ) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Rounded.Launch,
                             contentDescription = null,
-                            tint = AudiophileCyan,
+                            tint = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.size(14.dp)
                         )
                         Spacer(modifier = Modifier.width(5.dp))
@@ -1296,7 +1293,7 @@ private fun AboutAppSection(
         Text(
             text = "Crafted with ❤️ by $HUB_DEVELOPER_NAME • Open Source",
             fontSize = 11.sp,
-            color = Color(0xFF6B7280),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center
         )
     }
@@ -1314,7 +1311,7 @@ private fun HubTabItem(
     Box(
         modifier = modifier
             .clip(RoundedCornerShape(12.dp))
-            .background(if (selected) Color(0x2E00E5FF) else Color.Transparent)
+            .background(if (selected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent)
             .clickable(onClick = onClick)
             .padding(vertical = 10.dp, horizontal = 4.dp),
         contentAlignment = Alignment.Center
@@ -1326,7 +1323,7 @@ private fun HubTabItem(
             Icon(
                 imageVector = icon,
                 contentDescription = null,
-                tint = if (selected) AudiophileCyan else (badgeColor ?: Color(0xFF888899)),
+                tint = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else (badgeColor ?: MaterialTheme.colorScheme.onSurfaceVariant),
                 modifier = Modifier.size(15.dp)
             )
             Spacer(modifier = Modifier.width(4.dp))
@@ -1334,7 +1331,7 @@ private fun HubTabItem(
                 text = title,
                 fontSize = 11.sp,
                 fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
-                color = if (selected) Color.White else Color(0xFF888899),
+                color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
@@ -1356,9 +1353,9 @@ private fun HubSourceCard(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick),
-        colors = CardDefaults.cardColors(containerColor = OledSurfaceVariant),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
         shape = RoundedCornerShape(20.dp),
-        border = BorderStroke(1.dp, OledBorder)
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
     ) {
         Column(modifier = Modifier.padding(18.dp)) {
             Row(
@@ -1390,13 +1387,13 @@ private fun HubSourceCard(
                             text = title,
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
-                            color = Color.White
+                            color = MaterialTheme.colorScheme.onSurface
                         )
                         Spacer(modifier = Modifier.height(3.dp))
                         Text(
                             text = subtitle,
                             style = MaterialTheme.typography.bodySmall,
-                            color = Color(0xFF9E9EAE),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                             fontSize = 12.sp
                         )
                     }
@@ -1404,7 +1401,7 @@ private fun HubSourceCard(
                 Icon(
                     imageVector = Icons.AutoMirrored.Rounded.ArrowForward,
                     contentDescription = null,
-                    tint = Color.Gray,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.size(20.dp)
                 )
             }
@@ -1419,15 +1416,15 @@ private fun HubSourceCard(
                         Box(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(6.dp))
-                                .background(Color(0x14FFFFFF))
-                                .border(0.8.dp, Color(0x1FFFFFFF), RoundedCornerShape(6.dp))
+                                .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                                .border(0.8.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(6.dp))
                                 .padding(horizontal = 8.dp, vertical = 3.dp)
                         ) {
                             Text(
                                 text = tag,
                                 fontSize = 10.sp,
                                 fontWeight = FontWeight.SemiBold,
-                                color = Color(0xFFB0B0C0)
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
                     }

@@ -30,20 +30,18 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.mediaplayer.ui.theme.AudiophileCyan
-import com.mediaplayer.ui.theme.AudiophileGreen
 import com.mediaplayer.util.AppReleaseInfo
 import com.mediaplayer.util.AppUpdateManager
 
@@ -56,11 +54,11 @@ fun AppUpdateDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        containerColor = Color(0xFF13151F),
+        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
         shape = RoundedCornerShape(24.dp),
         modifier = Modifier
             .fillMaxWidth()
-            .border(BorderStroke(1.dp, Color(0x3300E5FF)), RoundedCornerShape(24.dp)),
+            .border(BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant), RoundedCornerShape(24.dp)),
         title = {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -76,11 +74,11 @@ fun AppUpdateDialog(
                             .size(42.dp)
                             .clip(RoundedCornerShape(12.dp))
                             .background(
-                                if (releaseInfo.isUpdateAvailable) Color(0x2600E5FF) else Color(0x2600E676)
+                                if (releaseInfo.isUpdateAvailable) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.secondaryContainer
                             )
                             .border(
                                 1.dp,
-                                if (releaseInfo.isUpdateAvailable) Color(0x6600E5FF) else Color(0x6600E676),
+                                if (releaseInfo.isUpdateAvailable) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondary,
                                 RoundedCornerShape(12.dp)
                             ),
                         contentAlignment = Alignment.Center
@@ -88,7 +86,7 @@ fun AppUpdateDialog(
                         Icon(
                             imageVector = if (releaseInfo.isUpdateAvailable) Icons.Rounded.CloudDownload else Icons.Rounded.CheckCircle,
                             contentDescription = null,
-                            tint = if (releaseInfo.isUpdateAvailable) AudiophileCyan else AudiophileGreen,
+                            tint = if (releaseInfo.isUpdateAvailable) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSecondaryContainer,
                             modifier = Modifier.size(24.dp)
                         )
                     }
@@ -99,7 +97,7 @@ fun AppUpdateDialog(
                         Text(
                             text = if (releaseInfo.isUpdateAvailable) "Update Available" else "App is Up to Date",
                             fontWeight = FontWeight.Bold,
-                            color = Color.White,
+                            color = MaterialTheme.colorScheme.onSurface,
                             fontSize = 17.sp
                         )
                         Spacer(modifier = Modifier.height(2.dp))
@@ -108,14 +106,14 @@ fun AppUpdateDialog(
                                 Text(
                                     text = "v${releaseInfo.currentVersionName}",
                                     fontSize = 12.sp,
-                                    color = Color(0xFF8E8E9E),
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     fontFamily = FontFamily.Monospace
                                 )
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Icon(
                                     imageVector = Icons.AutoMirrored.Rounded.ArrowForward,
                                     contentDescription = null,
-                                    tint = AudiophileCyan,
+                                    tint = MaterialTheme.colorScheme.primary,
                                     modifier = Modifier.size(12.dp)
                                 )
                                 Spacer(modifier = Modifier.width(6.dp))
@@ -123,7 +121,7 @@ fun AppUpdateDialog(
                                     text = releaseInfo.tagName,
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = AudiophileCyan,
+                                    color = MaterialTheme.colorScheme.primary,
                                     fontFamily = FontFamily.Monospace
                                 )
                             }
@@ -131,7 +129,7 @@ fun AppUpdateDialog(
                             Text(
                                 text = "v${releaseInfo.currentVersionName} • Latest version",
                                 fontSize = 12.sp,
-                                color = AudiophileGreen,
+                                color = MaterialTheme.colorScheme.primary,
                                 fontFamily = FontFamily.Monospace
                             )
                         }
@@ -142,7 +140,7 @@ fun AppUpdateDialog(
                     modifier = Modifier
                         .size(32.dp)
                         .clip(CircleShape)
-                        .background(Color(0x1AFFFFFF)),
+                        .background(MaterialTheme.colorScheme.surfaceContainerHighest),
                     contentAlignment = Alignment.Center
                 ) {
                     IconButton(
@@ -152,7 +150,7 @@ fun AppUpdateDialog(
                         Icon(
                             imageVector = Icons.Rounded.Close,
                             contentDescription = "Close",
-                            tint = Color.White,
+                            tint = MaterialTheme.colorScheme.onSurface,
                             modifier = Modifier.size(16.dp)
                         )
                     }
@@ -171,8 +169,8 @@ fun AppUpdateDialog(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(14.dp))
-                            .background(Color(0xFF181B26))
-                            .border(1.dp, Color(0x22FFFFFF), RoundedCornerShape(14.dp))
+                            .background(MaterialTheme.colorScheme.surfaceContainer)
+                            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(14.dp))
                             .padding(14.dp)
                     ) {
                         Column {
@@ -180,7 +178,7 @@ fun AppUpdateDialog(
                                 text = "WHAT'S NEW",
                                 fontSize = 10.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = AudiophileCyan,
+                                color = MaterialTheme.colorScheme.primary,
                                 letterSpacing = 1.sp
                             )
                             if (releaseInfo.releaseTitle.isNotBlank() && releaseInfo.releaseTitle != releaseInfo.tagName) {
@@ -189,7 +187,7 @@ fun AppUpdateDialog(
                                     text = releaseInfo.releaseTitle,
                                     fontSize = 13.sp,
                                     fontWeight = FontWeight.SemiBold,
-                                    color = Color.White
+                                    color = MaterialTheme.colorScheme.onSurface
                                 )
                             }
                             Spacer(modifier = Modifier.height(6.dp))
@@ -204,7 +202,7 @@ fun AppUpdateDialog(
                                 Text(
                                     text = releaseInfo.releaseNotes.trim().ifBlank { "Performance improvements and bug fixes." },
                                     fontSize = 12.sp,
-                                    color = Color(0xFFC8CCDC),
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     lineHeight = 17.sp
                                 )
                             }
@@ -221,14 +219,14 @@ fun AppUpdateDialog(
                         Icon(
                             imageVector = Icons.Rounded.Verified,
                             contentDescription = null,
-                            tint = Color(0xFF00E676),
+                            tint = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.size(14.dp)
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            text = "Verified GitHub Release • Direct APK Install",
+                            text = "Official Release • Google Play Store",
                             fontSize = 11.sp,
-                            color = Color(0xFF8E8E9E)
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 } else {
@@ -236,14 +234,14 @@ fun AppUpdateDialog(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(14.dp))
-                            .background(Color(0xFF181B26))
-                            .border(1.dp, Color(0x22FFFFFF), RoundedCornerShape(14.dp))
+                            .background(MaterialTheme.colorScheme.surfaceContainer)
+                            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(14.dp))
                             .padding(16.dp)
                     ) {
                         Text(
-                            text = "You are running the newest release of Media Player with the latest playback features, codecs, and optimizations.",
+                            text = "You are running the newest release of BKM Player with the latest playback features, codecs, and optimizations.",
                             fontSize = 12.sp,
-                            color = Color(0xFFA0A5B5),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                             lineHeight = 18.sp
                         )
                     }
@@ -258,13 +256,12 @@ fun AppUpdateDialog(
                 ) {
                     Button(
                         onClick = {
-                            val targetUrl = releaseInfo.downloadUrl ?: releaseInfo.releaseUrl
-                            AppUpdateManager.openUrl(context, targetUrl)
+                            AppUpdateManager.openPlayStore(context)
                             onDismiss()
                         },
                         colors = ButtonDefaults.buttonColors(
-                            containerColor = AudiophileCyan,
-                            contentColor = Color.Black
+                            containerColor = MaterialTheme.colorScheme.primary,
+                            contentColor = MaterialTheme.colorScheme.onPrimary
                         ),
                         shape = RoundedCornerShape(14.dp),
                         modifier = Modifier
@@ -274,15 +271,15 @@ fun AppUpdateDialog(
                         Icon(
                             imageVector = Icons.Rounded.CloudDownload,
                             contentDescription = null,
-                            tint = Color.Black,
+                            tint = MaterialTheme.colorScheme.onPrimary,
                             modifier = Modifier.size(18.dp)
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "Download & Install",
+                            text = "Update on Google Play",
                             fontWeight = FontWeight.Bold,
                             fontSize = 13.sp,
-                            color = Color.Black
+                            color = MaterialTheme.colorScheme.onPrimary
                         )
                     }
 
@@ -300,13 +297,13 @@ fun AppUpdateDialog(
                             Icon(
                                 imageVector = Icons.AutoMirrored.Rounded.Launch,
                                 contentDescription = null,
-                                tint = Color(0xFFA0A5B5),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.size(14.dp)
                             )
                             Spacer(modifier = Modifier.width(4.dp))
                             Text(
                                 text = "GitHub Release",
-                                color = Color(0xFFA0A5B5),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 fontSize = 11.sp
                             )
                         }
@@ -314,7 +311,7 @@ fun AppUpdateDialog(
                         TextButton(onClick = onDismiss) {
                             Text(
                                 text = "Later",
-                                color = Color.White,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 fontWeight = FontWeight.SemiBold,
                                 fontSize = 12.sp
                             )
@@ -330,13 +327,13 @@ fun AppUpdateDialog(
                         onClick = onDismiss,
                         shape = RoundedCornerShape(12.dp),
                         colors = ButtonDefaults.buttonColors(
-                            containerColor = Color(0x22FFFFFF),
-                            contentColor = Color.White
+                            containerColor = MaterialTheme.colorScheme.primary,
+                            contentColor = MaterialTheme.colorScheme.onPrimary
                         )
                     ) {
                         Text(
                             text = "Done",
-                            color = Color.White,
+                            color = MaterialTheme.colorScheme.onPrimary,
                             fontWeight = FontWeight.Bold,
                             fontSize = 12.sp
                         )
