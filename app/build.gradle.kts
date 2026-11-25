@@ -24,7 +24,7 @@ android {
     defaultConfig {
         applicationId = "com.bkm.player"
         minSdk = 26
-        targetSdk = 35
+        targetSdk = 36
         versionCode = 9
         versionName = "1.8"
 
@@ -33,6 +33,18 @@ android {
         }
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    }
+
+    flavorDimensions += "distribution"
+    productFlavors {
+        create("playstore") {
+            dimension = "distribution"
+            buildConfigField("boolean", "IS_PLAY_STORE", "true")
+        }
+        create("github") {
+            dimension = "distribution"
+            buildConfigField("boolean", "IS_PLAY_STORE", "false")
+        }
     }
 
     signingConfigs {
@@ -64,6 +76,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
     testOptions {
         unitTests.isReturnDefaultValues = true
@@ -102,6 +115,11 @@ dependencies {
     implementation(libs.androidx.palette.ktx)
     implementation(libs.coil.compose)
     implementation(libs.coil.video)
+
+    // Play Store distribution only (excluded from GitHub APK)
+    "playstoreImplementation"(libs.play.billing.ktx)
+    "playstoreImplementation"(libs.play.app.update.ktx)
+    "playstoreImplementation"(libs.androidx.fragment.ktx)
 
     testImplementation(libs.junit)
     androidTestImplementation(platform(libs.androidx.compose.bom))

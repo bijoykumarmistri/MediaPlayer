@@ -37,27 +37,36 @@ BKM Player includes an optional local Privacy Vault feature:
 
 ---
 
-### 4. Third-Party Libraries
+### 4. Optional Support & In-App Purchases
+BKM Player is **100% free, ad-free, and does not require any subscriptions or paid features**.
+* On Google Play, optional one-time developer tips (when enabled) are processed securely by **Google Play Billing**.
+* BKM Player does not collect, process, or store your credit card, UPI, or billing details. All transactions are governed by [Google Play's Privacy Policy](https://policies.google.com/privacy).
+
+---
+
+### 5. Third-Party Libraries
 BKM Player utilizes open-source libraries to ensure high-performance playback:
 * **Jetpack Media3 & ExoPlayer:** Standard Android media framework developed by Google.
 * **libmpv & FFmpeg:** High-performance hardware-accelerated video/audio decoding.
 * **Coil:** Efficient on-device image and thumbnail caching.
+* **Google Play Billing & App Update Libraries (Play Store build only):** Used solely for optional one-time tips and official Google Play update checks.
 
-None of these libraries collect or transmit personal user data.
+None of these libraries are used by BKM Player to collect or sell personal user data.
 
 ---
 
-### 5. Children's Privacy
+### 6. Children's Privacy
 BKM Player does not target or knowingly collect data from children under the age of 13. The app is a standalone local media player with no user accounts or social interactions.
 
 ---
 
-### 6. Changes to This Privacy Policy
+### 7. Changes to This Privacy Policy
 We may update this Privacy Policy from time to time. Any revisions will be reflected with an updated "Last Updated" date.
 
 ---
 
-### 7. Contact Us
+### 8. Contact Us
 If you have any questions or suggestions regarding this Privacy Policy, please contact:
 * **Developer:** Bijoy Kumar Mistri
-* **GitHub:** [https://github.com/bijoykumarmistri/MediaPlayer](https://github.com/bijoykumarmistri/MediaPlayer)
+* **GitHub Profile:** [https://github.com/bijoykumarmistri](https://github.com/bijoykumarmistri)
+* **Project & Support:** [https://github.com/bijoykumarmistri/MediaPlayer](https://github.com/bijoykumarmistri/MediaPlayer)

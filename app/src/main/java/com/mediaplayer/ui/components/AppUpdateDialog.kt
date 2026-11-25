@@ -42,6 +42,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.mediaplayer.distribution.DistributionPlatform
 import com.mediaplayer.util.AppReleaseInfo
 import com.mediaplayer.util.AppUpdateManager
 
@@ -224,7 +225,7 @@ fun AppUpdateDialog(
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            text = "Official Release • Google Play Store",
+                            text = DistributionPlatform.updateBadgeText,
                             fontSize = 11.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -256,7 +257,7 @@ fun AppUpdateDialog(
                 ) {
                     Button(
                         onClick = {
-                            AppUpdateManager.openPlayStore(context)
+                            DistributionPlatform.openUpdateDestination(context, releaseInfo)
                             onDismiss()
                         },
                         colors = ButtonDefaults.buttonColors(
@@ -276,7 +277,7 @@ fun AppUpdateDialog(
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "Update on Google Play",
+                            text = DistributionPlatform.updatePrimaryButtonLabel,
                             fontWeight = FontWeight.Bold,
                             fontSize = 13.sp,
                             color = MaterialTheme.colorScheme.onPrimary
@@ -285,27 +286,33 @@ fun AppUpdateDialog(
 
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
+                        horizontalArrangement = if (DistributionPlatform.showSecondaryReleaseButton) {
+                            Arrangement.SpaceBetween
+                        } else {
+                            Arrangement.End
+                        },
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        TextButton(
-                            onClick = {
-                                AppUpdateManager.openUrl(context, releaseInfo.releaseUrl)
-                                onDismiss()
+                        if (DistributionPlatform.showSecondaryReleaseButton) {
+                            TextButton(
+                                onClick = {
+                                    AppUpdateManager.openUrl(context, releaseInfo.releaseUrl)
+                                    onDismiss()
+                                }
+                            ) {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Rounded.Launch,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = "GitHub Release",
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    fontSize = 11.sp
+                                )
                             }
-                        ) {
-                            Icon(
-                                imageVector = Icons.AutoMirrored.Rounded.Launch,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(14.dp)
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = "GitHub Release",
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                fontSize = 11.sp
-                            )
                         }
 
                         TextButton(onClick = onDismiss) {

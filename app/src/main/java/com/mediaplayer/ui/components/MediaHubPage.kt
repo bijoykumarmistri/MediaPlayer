@@ -1,6 +1,5 @@
 package com.mediaplayer.ui.components
 
-import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
@@ -36,17 +35,13 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.rounded.Launch
-import androidx.compose.material.icons.rounded.AccountBalanceWallet
-import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Clear
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.CloudDownload
-import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.ContentPaste
 import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.DeleteSweep
 import androidx.compose.material.icons.rounded.Edit
-import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.FileOpen
 import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.FolderOpen
@@ -95,15 +90,14 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.graphics.createBitmap
-import androidx.core.net.toUri
 import coil.Coil
 import coil.annotation.ExperimentalCoilApi
+import com.mediaplayer.distribution.DistributionPlatform
 import com.mediaplayer.playback.StreamHistoryItem
 import com.mediaplayer.util.AppUpdateManager
 import com.mediaplayer.util.AudioArtworkFetcher
@@ -113,9 +107,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
-
-private const val HUB_DEVELOPER_NAME = "Bijoy"
-private const val HUB_DEVELOPER_UPI_ID = "bijoymistri367@okaxis"
 
 @OptIn(ExperimentalCoilApi::class)
 @Composable
@@ -182,25 +173,6 @@ fun MediaHubPage(
                 clean.endsWith(".ogg") || clean.endsWith(".opus") || clean.endsWith(".wav") ||
                 clean.endsWith(".m4a") -> false
             else -> true
-        }
-    }
-
-    fun copyUpiId() {
-        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
-        val clip = ClipData.newPlainText("Developer UPI ID", HUB_DEVELOPER_UPI_ID)
-        clipboard?.setPrimaryClip(clip)
-        Toast.makeText(context, "UPI ID copied: $HUB_DEVELOPER_UPI_ID", Toast.LENGTH_SHORT).show()
-    }
-
-    fun openUpiPayment(amount: String? = null) {
-        try {
-            val amountParam = if (amount.isNullOrBlank()) "" else "&am=$amount"
-            val uri = "upi://pay?pa=$HUB_DEVELOPER_UPI_ID&pn=$HUB_DEVELOPER_NAME&tn=Support%20Media%20Player$amountParam&cu=INR".toUri()
-            val intent = Intent(Intent.ACTION_VIEW, uri)
-            context.startActivity(Intent.createChooser(intent, "Pay via UPI App"))
-        } catch (_: Exception) {
-            copyUpiId()
-            Toast.makeText(context, "No UPI app detected. UPI ID copied to clipboard!", Toast.LENGTH_LONG).show()
         }
     }
 
@@ -344,9 +316,7 @@ fun MediaHubPage(
                 else -> {
                     AboutAppSection(
                         currentVersion = currentVersion,
-                        onCheckAppUpdate = onCheckAppUpdate,
-                        onCopyUpi = { copyUpiId() },
-                        onPayUpi = { amount -> openUpiPayment(amount) }
+                        onCheckAppUpdate = onCheckAppUpdate
                     )
                 }
             }
@@ -1025,15 +995,12 @@ private fun StreamHubTab(
 private fun AboutAppSection(
     currentVersion: String,
     onCheckAppUpdate: (() -> Unit)?,
-    onCopyUpi: () -> Unit,
-    onPayUpi: (amount: String?) -> Unit,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var isCheckingUpdate by remember { mutableStateOf(false) }
     var isExportingLogs by remember { mutableStateOf(false) }
     var hasCrashLog by remember { mutableStateOf(false) }
-    var isUpiCopied by remember { mutableStateOf(false) }
 
     LaunchedEffect(context) {
         hasCrashLog = withContext(Dispatchers.IO) {
@@ -1120,7 +1087,7 @@ private fun AboutAppSection(
                 Spacer(modifier = Modifier.height(4.dp))
 
                 Text(
-                    text = "By $HUB_DEVELOPER_NAME • India 🇮🇳",
+                    text = DistributionPlatform.DEVELOPER_SUBTITLE,
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Medium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -1132,7 +1099,7 @@ private fun AboutAppSection(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    listOf("Ad-Free", "Offline", "Private").forEach { badge ->
+                    listOf("100% Free", "Ad-Free", "No Subscriptions").forEach { badge ->
                         Surface(
                             shape = RoundedCornerShape(50),
                             color = MaterialTheme.colorScheme.surfaceContainerHigh,
@@ -1160,10 +1127,10 @@ private fun AboutAppSection(
                                 isCheckingUpdate = false
                             } else {
                                 scope.launch {
-                                    val result = AppUpdateManager.checkForUpdates(context)
+                                    val result = DistributionPlatform.checkForUpdates(context, isManual = true)
                                     isCheckingUpdate = false
                                     result.onSuccess { info ->
-                                        val msg = if (info.isUpdateAvailable) {
+                                        val msg = if (info?.isUpdateAvailable == true) {
                                             "New version ${info.tagName} available!"
                                         } else {
                                             "You are on the latest version v$currentVersion"
@@ -1216,7 +1183,7 @@ private fun AboutAppSection(
                 ) {
                     OutlinedButton(
                         onClick = {
-                            AppUpdateManager.openUrl(context, AppUpdateManager.GITHUB_RELEASES_WEB_URL)
+                            DistributionPlatform.openPrimaryAction(context)
                         },
                         colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.onSurface),
                         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
@@ -1232,7 +1199,11 @@ private fun AboutAppSection(
                             modifier = Modifier.size(16.dp)
                         )
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text("What's New", fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
+                        Text(
+                            DistributionPlatform.primaryActionLabel,
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 12.sp
+                        )
                     }
 
                     OutlinedButton(
@@ -1243,7 +1214,7 @@ private fun AboutAppSection(
                                     putExtra(Intent.EXTRA_SUBJECT, "BKM Player")
                                     putExtra(
                                         Intent.EXTRA_TEXT,
-                                        "Check out BKM Player: ${AppUpdateManager.GITHUB_RELEASES_WEB_URL}"
+                                        "Check out BKM Player: ${DistributionPlatform.shareUrl}"
                                     )
                                 }
                                 context.startActivity(Intent.createChooser(shareIntent, "Share BKM Player"))
@@ -1270,165 +1241,8 @@ private fun AboutAppSection(
             }
         }
 
-        // 2. Support Development Card
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
-            shape = RoundedCornerShape(24.dp),
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
-        ) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(40.dp)
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(MaterialTheme.colorScheme.tertiaryContainer),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Rounded.Favorite,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onTertiaryContainer,
-                            modifier = Modifier.size(19.dp)
-                        )
-                    }
-                    Spacer(modifier = Modifier.width(12.dp))
-                    Column {
-                        Text(
-                            text = "Support Development",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 15.sp,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                        Text(
-                            text = "Optional tip via UPI",
-                            fontSize = 12.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(12.dp))
-
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(14.dp))
-                        .background(MaterialTheme.colorScheme.surfaceContainerHigh)
-                        .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(14.dp))
-                        .clickable {
-                            onCopyUpi()
-                            isUpiCopied = true
-                        }
-                        .padding(horizontal = 14.dp, vertical = 11.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Text(
-                        text = HUB_DEVELOPER_UPI_ID,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        fontFamily = FontFamily.Monospace,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(50))
-                            .background(
-                                if (isUpiCopied) {
-                                    MaterialTheme.colorScheme.primaryContainer
-                                } else {
-                                    MaterialTheme.colorScheme.surfaceContainerHighest
-                                }
-                            )
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
-                        ) {
-                            Icon(
-                                imageVector = if (isUpiCopied) Icons.Rounded.Check else Icons.Rounded.ContentCopy,
-                                contentDescription = "Copy UPI ID",
-                                tint = if (isUpiCopied) {
-                                    MaterialTheme.colorScheme.primary
-                                } else {
-                                    MaterialTheme.colorScheme.onSurfaceVariant
-                                },
-                                modifier = Modifier.size(14.dp)
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = if (isUpiCopied) "Copied" else "Copy",
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                color = if (isUpiCopied) {
-                                    MaterialTheme.colorScheme.primary
-                                } else {
-                                    MaterialTheme.colorScheme.onSurfaceVariant
-                                }
-                            )
-                        }
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    listOf("50" to "₹50", "100" to "₹100", "250" to "₹250", "500" to "₹500").forEach { (amount, label) ->
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(MaterialTheme.colorScheme.surfaceContainerHigh)
-                                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(12.dp))
-                                .clickable { onPayUpi(amount) }
-                                .padding(vertical = 9.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = label,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                        }
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(12.dp))
-
-                Button(
-                    onClick = { onPayUpi(null) },
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.primary,
-                        contentColor = MaterialTheme.colorScheme.onPrimary
-                    ),
-                    shape = RoundedCornerShape(14.dp),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(46.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Rounded.AccountBalanceWallet,
-                        contentDescription = null,
-                        modifier = Modifier.size(17.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Pay via UPI App", fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                }
-            }
-        }
+        // 2. Distribution-specific Support & Developer Links Cards
+        DistributionPlatform.SupportAndDeveloperCards()
 
         // 3. Diagnostics & Debug Logs Card
         Card(

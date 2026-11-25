@@ -127,6 +127,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.mediaplayer.data.MediaItemModel
 import com.mediaplayer.data.MediaLibraryRepository
+import com.mediaplayer.distribution.DistributionPlatform
 import com.mediaplayer.playback.MediaPlayerManager
 import com.mediaplayer.ui.components.AppUpdateDialog
 import com.mediaplayer.ui.components.BottomMiniPlayer
@@ -276,12 +277,12 @@ fun MainMediaPlayerScreen(
         }
     }
 
-    // Automatic silent check for GitHub releases on app startup (deferred to prioritize cold-start render)
+    // Automatic silent check for app updates on startup (deferred to prioritize cold-start render)
     LaunchedEffect(Unit) {
         kotlinx.coroutines.delay(3000.milliseconds)
-        val updateResult = AppUpdateManager.checkForUpdates(context)
+        val updateResult = DistributionPlatform.checkForUpdates(context, isManual = false)
         updateResult.onSuccess { info ->
-            if (info.isUpdateAvailable) {
+            if (info != null && info.isUpdateAvailable) {
                 appReleaseInfo = info
                 showAutoUpdateDialog = true
             }
@@ -920,10 +921,12 @@ fun MainMediaPlayerScreen(
                             onOpenPrivacyVault = ::openPrivacyVault,
                             onCheckAppUpdate = {
                                 scope.launch {
-                                    val result = AppUpdateManager.checkForUpdates(context)
+                                    val result = DistributionPlatform.checkForUpdates(context, isManual = true)
                                     result.onSuccess { info ->
-                                        appReleaseInfo = info
-                                        showAutoUpdateDialog = true
+                                        if (info != null) {
+                                            appReleaseInfo = info
+                                            showAutoUpdateDialog = true
+                                        }
                                     }.onFailure { err ->
                                         Toast.makeText(
                                             context,
