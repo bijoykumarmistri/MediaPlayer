@@ -1,9 +1,11 @@
 package com.bkm.player.mpv
 
 import android.content.Context
+import android.graphics.Bitmap
 import android.media.AudioAttributes
 import android.media.AudioFocusRequest
 import android.media.AudioManager
+import android.media.MediaCodecList
 import android.net.Uri
 import android.os.Build
 import android.os.Handler
@@ -11,15 +13,16 @@ import android.os.Looper
 import android.os.ParcelFileDescriptor
 import android.system.ErrnoException
 import android.util.Log
+import android.view.PixelCopy
 import android.view.SurfaceHolder
 import android.view.SurfaceView
 import dev.jdtech.mpv.MPVLib
+import org.json.JSONArray
 import java.io.File
 import java.io.FileOutputStream
 import java.lang.ref.WeakReference
 import java.util.Locale
 import java.util.concurrent.atomic.AtomicBoolean
-import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * Hardware/Software decoder modes matching MX Player's HW+, HW, and SW pipeline:
@@ -89,6 +92,15 @@ data class MediaTrack(
 }
 
 /**
+ * Represents an embedded chapter marker parsed from libmpv's `chapter-list`.
+ */
+data class MediaChapter(
+    val index: Int,
+    val title: String,
+    val timeSeconds: Double
+)
+
+/**
  * Technical media information displayed in the media info dialog.
  */
 data class MediaInfo(
@@ -115,6 +127,8 @@ interface MpvEngineListener {
     fun onHwdecChanged(activeHwdec: String) {}
     fun onVideoSizeChanged(width: Int, height: Int) {}
     fun onTracksChanged() {}
+    fun onChaptersChanged() {}
+    fun onCurrentChapterChanged(chapterIndex: Int) {}
     fun onFileLoaded() {}
     fun onEndOfFile() {}
     fun onError(message: String) {}
@@ -124,7 +138,7 @@ interface MpvEngineListener {
  * Production-ready controller wrapping [MPVLib] (FFmpeg + MediaCodec + OpenGL ES).
  *
  * Engineered for MX Player HW+ playback characteristics:
- * - Aggressive in-RAM demuxer ring buffer (`150MiB` forward / `50MiB` backward)
+ * - Mobile-tuned in-RAM demuxer ring buffer (`48MiB` forward / `16MiB` backward)
  * - OpenGL ES hardware video output (`vo=gpu`, `gpu-context=android`)
  * - Multi-audio and subtitle track selection with sync delay adjustment
  * - Video scaling modes (Fit, Stretch, Crop/Zoom, 100%, 16:9, 4:3)
@@ -141,7 +155,10 @@ class NativeMpvEngine(
     private val isSurfaceAttached = AtomicBoolean(false)
 
     private var surfaceViewRef: WeakReference<SurfaceView>? = null
-    private val activeDetachedFd = AtomicInteger(NO_FD)
+    private val fdLock = Any()
+    private var pendingOpenFd: Int = NO_FD
+    private var activePlayingFd: Int = NO_FD
+    private val drainingFds = mutableListOf<Int>()
 
     @Volatile
     private var pendingMediaPath: String? = null
@@ -164,8 +181,13 @@ class NativeMpvEngine(
     @Volatile
     private var lastVideoHeight: Int = 0
 
+    @Volatile
+    private var hasFileLoadedForSurfaceRefresh: Boolean = false
+
+    private val engineLock = Any()
     private var contextRef: WeakReference<Context>? = null
     private var audioFocusRequest: AudioFocusRequest? = null
+    private var legacyAudioFocusListener: AudioManager.OnAudioFocusChangeListener? = null
     private var tracksChangedRunnable: Runnable? = null
 
     private fun requestAudioFocus(context: Context) {
@@ -181,9 +203,7 @@ class NativeMpvEngine(
                 )
                 .setOnAudioFocusChangeListener { focusChange ->
                     when (focusChange) {
-                        AudioManager.AUDIOFOCUS_LOSS -> {
-                            setPaused(true)
-                        }
+                        AudioManager.AUDIOFOCUS_LOSS,
                         AudioManager.AUDIOFOCUS_LOSS_TRANSIENT,
                         AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
                             setPaused(true)
@@ -194,14 +214,16 @@ class NativeMpvEngine(
             audioFocusRequest = req
             am.requestAudioFocus(req)
         } else {
+            val afListener = legacyAudioFocusListener ?: AudioManager.OnAudioFocusChangeListener { focusChange ->
+                if (focusChange == AudioManager.AUDIOFOCUS_LOSS ||
+                    focusChange == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT
+                ) {
+                    setPaused(true)
+                }
+            }.also { legacyAudioFocusListener = it }
             @Suppress("DEPRECATION")
             am.requestAudioFocus(
-                { focusChange ->
-                    if (focusChange == AudioManager.AUDIOFOCUS_LOSS ||
-                        focusChange == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT) {
-                        setPaused(true)
-                    }
-                },
+                afListener,
                 AudioManager.STREAM_MUSIC,
                 AudioManager.AUDIOFOCUS_GAIN
             )
@@ -215,39 +237,43 @@ class NativeMpvEngine(
             audioFocusRequest?.let { am.abandonAudioFocusRequest(it) }
             audioFocusRequest = null
         } else {
-            @Suppress("DEPRECATION")
-            am.abandonAudioFocus(null)
+            legacyAudioFocusListener?.let {
+                @Suppress("DEPRECATION")
+                am.abandonAudioFocus(it)
+            }
+            legacyAudioFocusListener = null
         }
     }
 
     /**
      * Initializes the native libmpv context and applies MX Player HW+ options.
-     * Safe to call multiple times; subsequent calls are no-ops until [destroy].
+     * Safe to call multiple times; subsequent calls are no-ops until [releaseEngine] or [destroy].
      */
     fun initialize(context: Context) {
-        if (isDestroyed.get() || !isInitialized.compareAndSet(false, true)) return
+        synchronized(engineLock) {
+            if (isDestroyed.get() || !isInitialized.compareAndSet(false, true)) return
 
-        val appContext = context.applicationContext
-        contextRef = WeakReference(appContext)
-        MPVLib.create(appContext)
-        configureEngineOptions()
-        MPVLib.init()
+            val appContext = context.applicationContext
+            contextRef = WeakReference(appContext)
+            MPVLib.create(appContext)
+            configureEngineOptions()
+            MPVLib.init()
 
-        MPVLib.addObserver(this)
-        MPVLib.addLogObserver(this)
-        observeCoreProperties()
+            MPVLib.addObserver(this)
+            MPVLib.addLogObserver(this)
+            observeCoreProperties()
+        }
     }
 
     private fun configureEngineOptions() {
-        // Video output: OpenGL ES hardware rendering pipeline
-        MPVLib.setOptionString("vo", "gpu")
+        // Start with vo=null until a valid Android Surface attaches to avoid headless GPU init errors
+        MPVLib.setOptionString("vo", "null")
         MPVLib.setOptionString("gpu-context", "android")
         MPVLib.setOptionString("opengl-es", "yes")
-        MPVLib.setOptionString("force-window", "yes")
 
         // Default decoder: Hardware-accelerated MediaCodec zero-copy (HW+)
         MPVLib.setOptionString("hwdec", DecoderMode.HW_PLUS.hwdecValue)
-        MPVLib.setOptionString("hwdec-codecs", "all")
+        MPVLib.setOptionString("hwdec-codecs", buildSupportedHwdecCodecs())
 
         // High-performance multi-threaded decoding
         MPVLib.setOptionString("vd-lavc-threads", "0") // Auto-detect all CPU cores
@@ -256,12 +282,12 @@ class NativeMpvEngine(
         MPVLib.setOptionString("framedrop", "vo") // Drop late frames in vo to maintain smooth playback without stutter
         MPVLib.setOptionString("demuxer-thread", "yes") // Isolated native demuxer thread
 
-        // Aggressive in-RAM demuxer ring buffer
+        // Mobile-tuned in-RAM demuxer ring buffer (64MiB total prevents OOM/LMK while keeping 30s readahead)
         MPVLib.setOptionString("cache", "yes")
         MPVLib.setOptionString("cache-pause", "no")
         MPVLib.setOptionString("demuxer-seekable-cache", "yes")
-        MPVLib.setOptionString("demuxer-max-bytes", "150MiB")
-        MPVLib.setOptionString("demuxer-max-back-bytes", "50MiB")
+        MPVLib.setOptionString("demuxer-max-bytes", "48MiB")
+        MPVLib.setOptionString("demuxer-max-back-bytes", "16MiB")
         MPVLib.setOptionString("demuxer-readahead-secs", "30")
 
         // Seeking matching HW+
@@ -275,8 +301,8 @@ class NativeMpvEngine(
         MPVLib.setOptionString("hls-bitrate", "max")
         MPVLib.setOptionString("stream-lavf-o", "reconnect=1,reconnect_streamed=1,reconnect_delay_max=5")
 
-        // Logging
-        MPVLib.setOptionString("msg-level", "all=v")
+        // Logging (avoid flooding logcat on every seek/property query)
+        MPVLib.setOptionString("msg-level", "all=warn")
 
         // Preserve full theatrical dynamic range (ZERO DRC on AC-3 / E-AC-3 / TrueHD)
         MPVLib.setOptionString("ad-lavc-ac3drc", "0")
@@ -318,6 +344,8 @@ class NativeMpvEngine(
         MPVLib.observeProperty("video-params/h", MPVLib.MPV_FORMAT_INT64)
         MPVLib.observeProperty("eof-reached", MPVLib.MPV_FORMAT_FLAG)
         MPVLib.observeProperty("track-list", MPVLib.MPV_FORMAT_NONE)
+        MPVLib.observeProperty("chapter-list", MPVLib.MPV_FORMAT_NONE)
+        MPVLib.observeProperty("chapter", MPVLib.MPV_FORMAT_INT64)
     }
 
     /**
@@ -351,6 +379,8 @@ class NativeMpvEngine(
             attachSurfaceInternal(holder, w, h)
         }
     }
+
+    fun hasAttachedSurface(): Boolean = isSurfaceAttached.get()
 
     fun detachFromSurfaceView() {
         val oldView = surfaceViewRef?.get()
@@ -417,7 +447,7 @@ class NativeMpvEngine(
             pendingMediaPath = null
             pendingStartPositionMs = 0L
             loadPathInternal(queued, queuedStart)
-        } else {
+        } else if (hasFileLoadedForSurfaceRefresh) {
             // Force redraw/refresh on newly attached surface if video is already loaded
             try {
                 MPVLib.command(arrayOf("seek", "0", "relative+exact"))
@@ -429,7 +459,8 @@ class NativeMpvEngine(
         if (isDestroyed.get() || !isInitialized.get()) return
         if (isSurfaceAttached.getAndSet(false)) {
             try {
-                // Immediately shut down OpenGL rendering pipeline to prevent abandoned BufferQueue dequeue crashes
+                // Disable video decoding before detaching surface to avoid background 9-thread SW decode & BufferQueue leaks
+                MPVLib.setPropertyString("vid", "no")
                 MPVLib.setPropertyString("vo", "null")
                 MPVLib.detachSurface()
             } catch (e: Exception) {
@@ -443,7 +474,12 @@ class NativeMpvEngine(
      * the raw POSIX file descriptor and passing `fd://<fd>` straight to libmpv's C++ demuxer.
      * Optionally resumes from [startPositionMs].
      */
-    fun openContentUri(context: Context, uri: Uri, startPositionMs: Long = 0L): Boolean {
+    fun openContentUri(
+        context: Context,
+        uri: Uri,
+        startPositionMs: Long = 0L,
+        allowAudioOnlyWithoutSurface: Boolean = false
+    ): Boolean {
         if (isDestroyed.get()) return false
         if (!isInitialized.get()) {
             initialize(context)
@@ -453,11 +489,17 @@ class NativeMpvEngine(
         // Direct network streams (http, https, rtsp, rtmp, mms, etc.) bypass ContentResolver and pass directly to libmpv
         if (scheme in listOf("http", "https", "rtsp", "rtmp", "mms")) {
             val urlString = uri.toString()
-            val previousFd = activeDetachedFd.getAndSet(NO_FD)
-            closeFdQuietly(previousFd)
+            val supersededPendingFd = synchronized(fdLock) {
+                val oldPending = pendingOpenFd
+                pendingOpenFd = NO_FD
+                oldPending
+            }
+            closeFdQuietly(supersededPendingFd)
 
-            if (isSurfaceAttached.get()) {
-                mainHandler.post { loadPathInternal(urlString, startPositionMs) }
+            if (isSurfaceAttached.get() || allowAudioOnlyWithoutSurface) {
+                pendingMediaPath = null
+                pendingStartPositionMs = 0L
+                mainHandler.post { loadPathInternal(urlString, startPositionMs, NO_FD) }
             } else {
                 pendingMediaPath = urlString
                 pendingStartPositionMs = startPositionMs
@@ -478,17 +520,23 @@ class NativeMpvEngine(
             }
 
             val rawFd = pfd.detachFd()
-            val previousFd = activeDetachedFd.getAndSet(rawFd)
+            val supersededPendingFd = synchronized(fdLock) {
+                val oldPending = pendingOpenFd
+                pendingOpenFd = rawFd
+                oldPending
+            }
+            closeFdQuietly(supersededPendingFd)
             val fdPath = "fd://$rawFd"
 
-            if (isSurfaceAttached.get()) {
-                mainHandler.post { loadPathInternal(fdPath, startPositionMs) }
+            if (isSurfaceAttached.get() || allowAudioOnlyWithoutSurface) {
+                pendingMediaPath = null
+                pendingStartPositionMs = 0L
+                mainHandler.post { loadPathInternal(fdPath, startPositionMs, rawFd) }
             } else {
                 pendingMediaPath = fdPath
                 pendingStartPositionMs = startPositionMs
             }
 
-            closeFdQuietly(previousFd)
             true
         } catch (se: SecurityException) {
             Log.e(TAG, "Permission denied opening URI: $uri", se)
@@ -501,7 +549,47 @@ class NativeMpvEngine(
         }
     }
 
-    private fun loadPathInternal(path: String, startPositionMs: Long = 0L) {
+    private fun loadPathInternal(
+        path: String,
+        startPositionMs: Long = 0L,
+        expectedPendingFd: Int? = null
+    ) {
+        if (isDestroyed.get() || !isInitialized.get()) {
+            if (expectedPendingFd != null && expectedPendingFd >= 0) {
+                synchronized(fdLock) {
+                    if (pendingOpenFd == expectedPendingFd) {
+                        pendingOpenFd = NO_FD
+                    }
+                }
+                closeFdQuietly(expectedPendingFd)
+            }
+            return
+        }
+
+        synchronized(fdLock) {
+            val fdToActivate = when {
+                expectedPendingFd == NO_FD -> NO_FD
+                expectedPendingFd != null -> {
+                    // If a newer openContentUri already superseded this fd, skip stale load
+                    if (pendingOpenFd != expectedPendingFd) {
+                        return
+                    }
+                    pendingOpenFd = NO_FD
+                    expectedPendingFd
+                }
+                else -> {
+                    val pending = pendingOpenFd
+                    pendingOpenFd = NO_FD
+                    pending
+                }
+            }
+            if (activePlayingFd >= 0 && activePlayingFd != fdToActivate) {
+                drainingFds.add(activePlayingFd)
+            }
+            activePlayingFd = fdToActivate
+        }
+        hasFileLoadedForSurfaceRefresh = false
+
         if (startPositionMs > 1000L) {
             val startSec = String.format(Locale.US, "%.3f", startPositionMs / 1000.0)
             MPVLib.setOptionString("start", startSec)
@@ -527,6 +615,11 @@ class NativeMpvEngine(
             } catch (e: Exception) {
                 Log.w(TAG, "Failed setting options before loadfile: ${e.message}")
             }
+        } else {
+            try {
+                MPVLib.setPropertyString("vid", "no")
+                MPVLib.setPropertyString("vo", "null")
+            } catch (_: Exception) {}
         }
 
         isPausedState = false
@@ -537,6 +630,11 @@ class NativeMpvEngine(
             try {
                 MPVLib.setPropertyString("vo", "gpu")
                 MPVLib.setPropertyString("vid", "auto")
+            } catch (_: Exception) {}
+        } else {
+            try {
+                MPVLib.setPropertyString("vid", "no")
+                MPVLib.setPropertyString("vo", "null")
             } catch (_: Exception) {}
         }
 
@@ -581,6 +679,7 @@ class NativeMpvEngine(
     fun stop() {
         if (isDestroyed.get() || !isInitialized.get()) return
         isPausedState = true
+        hasFileLoadedForSurfaceRefresh = false
         try {
             MPVLib.setPropertyBoolean("pause", true)
             MPVLib.command(arrayOf("stop"))
@@ -589,7 +688,8 @@ class NativeMpvEngine(
             }
         } catch (_: Exception) {}
         contextRef?.get()?.let { abandonAudioFocus(it) }
-        closeFdQuietly(activeDetachedFd.getAndSet(NO_FD))
+        closeDrainingFds()
+        closeAllFds()
         cleanTempSubtitleFiles()
         mainHandler.post { listener.onPausedChanged(true) }
     }
@@ -601,13 +701,43 @@ class NativeMpvEngine(
      */
     fun queryTracks(): List<MediaTrack> {
         if (isDestroyed.get() || !isInitialized.get()) return emptyList()
+        try {
+            val jsonStr = MPVLib.getPropertyString("track-list")
+            if (!jsonStr.isNullOrBlank()) {
+                val arr = JSONArray(jsonStr)
+                val list = ArrayList<MediaTrack>(arr.length())
+                for (i in 0 until arr.length()) {
+                    val obj = arr.optJSONObject(i) ?: continue
+                    val type = obj.optString("type", "").ifBlank { continue }
+                    val id = obj.optInt("id", i + 1)
+                    val title = obj.optString("title", "").ifBlank { null }
+                    val lang = if (type != "video") obj.optString("lang", "").ifBlank { null } else null
+                    val codec = obj.optString("codec", "").ifBlank { null }
+                    val selected = obj.optBoolean("selected", false)
+                    val channels = if (type == "audio") obj.optInt("audio-channels", 0) else 0
+                    val sampleRate = if (type == "audio") obj.optInt("demux-samplerate", 0) else 0
+                    list.add(
+                        MediaTrack(
+                            id = id,
+                            type = type,
+                            title = title,
+                            language = lang,
+                            codec = codec,
+                            channels = channels,
+                            sampleRate = sampleRate,
+                            isSelected = selected
+                        )
+                    )
+                }
+                return list
+            }
+        } catch (_: Exception) {}
+
         val count = MPVLib.getPropertyInt("track-list/count") ?: 0
         val list = mutableListOf<MediaTrack>()
         for (i in 0 until count) {
             val type = MPVLib.getPropertyString("track-list/$i/type") ?: continue
             val id = MPVLib.getPropertyInt("track-list/$i/id") ?: (i + 1)
-            val title = MPVLib.getPropertyString("track-list/$i/title")
-            val lang = if (type != "video") MPVLib.getPropertyString("track-list/$i/lang") else null
             val codec = MPVLib.getPropertyString("track-list/$i/codec")
             val selected = MPVLib.getPropertyBoolean("track-list/$i/selected") ?: false
             val channels = if (type == "audio") MPVLib.getPropertyInt("track-list/$i/audio-channels") ?: 0 else 0
@@ -617,8 +747,8 @@ class NativeMpvEngine(
                 MediaTrack(
                     id = id,
                     type = type,
-                    title = title,
-                    language = lang,
+                    title = null,
+                    language = null,
                     codec = codec,
                     channels = channels,
                     sampleRate = sampleRate,
@@ -635,8 +765,10 @@ class NativeMpvEngine(
             "audio" -> MPVLib.setPropertyInt("aid", id)
             "sub" -> MPVLib.setPropertyInt("sid", id)
             "video" -> {
-                MPVLib.setPropertyInt("vid", id)
-                MPVLib.setPropertyString("vo", "gpu")
+                if (isSurfaceAttached.get()) {
+                    MPVLib.setPropertyInt("vid", id)
+                    MPVLib.setPropertyString("vo", "gpu")
+                }
             }
         }
     }
@@ -697,28 +829,24 @@ class NativeMpvEngine(
                 MPVLib.setPropertyString("keepaspect", "yes")
                 MPVLib.setPropertyDouble("panscan", 0.0)
                 MPVLib.setPropertyString("video-aspect-override", "no")
-                MPVLib.setPropertyString("video-aspect-mode", "container")
             }
             ResizeMode.STRETCH -> {
                 MPVLib.setPropertyString("video-unscaled", "no")
                 MPVLib.setPropertyString("keepaspect", "no")
                 MPVLib.setPropertyDouble("panscan", 0.0)
                 MPVLib.setPropertyString("video-aspect-override", "no")
-                MPVLib.setPropertyString("video-aspect-mode", "container")
             }
             ResizeMode.CROP -> {
                 MPVLib.setPropertyString("video-unscaled", "no")
                 MPVLib.setPropertyString("keepaspect", "yes")
                 MPVLib.setPropertyDouble("panscan", 1.0)
                 MPVLib.setPropertyString("video-aspect-override", "no")
-                MPVLib.setPropertyString("video-aspect-mode", "container")
             }
             ResizeMode.ORIGINAL_100 -> {
                 MPVLib.setPropertyString("video-unscaled", "yes")
                 MPVLib.setPropertyString("keepaspect", "yes")
                 MPVLib.setPropertyDouble("panscan", 0.0)
                 MPVLib.setPropertyString("video-aspect-override", "no")
-                MPVLib.setPropertyString("video-aspect-mode", "container")
             }
             ResizeMode.SIXTEEN_NINE -> {
                 MPVLib.setPropertyString("video-unscaled", "no")
@@ -784,7 +912,7 @@ class NativeMpvEngine(
             audioChannels = aChannels,
             sampleRate = aRate,
             hwdec = hwdec,
-            demuxerCache = "150MiB RAM Ring Buffer ($cacheSec)"
+            demuxerCache = "64MiB RAM Ring Buffer ($cacheSec)"
         )
     }
 
@@ -798,6 +926,68 @@ class NativeMpvEngine(
         }
     }
 
+    fun setMuted(muted: Boolean) {
+        if (isDestroyed.get() || !isInitialized.get()) return
+        MPVLib.setPropertyBoolean("mute", muted)
+    }
+
+    fun setVideoBrightness(value: Int) {
+        if (isDestroyed.get() || !isInitialized.get()) return
+        MPVLib.setPropertyInt("brightness", value.coerceIn(-100, 100))
+    }
+
+    fun setVideoContrast(value: Int) {
+        if (isDestroyed.get() || !isInitialized.get()) return
+        MPVLib.setPropertyInt("contrast", value.coerceIn(-100, 100))
+    }
+
+    fun setVideoSaturation(value: Int) {
+        if (isDestroyed.get() || !isInitialized.get()) return
+        MPVLib.setPropertyInt("saturation", value.coerceIn(-100, 100))
+    }
+
+    fun setVideoGamma(value: Int) {
+        if (isDestroyed.get() || !isInitialized.get()) return
+        MPVLib.setPropertyInt("gamma", value.coerceIn(-100, 100))
+    }
+
+    fun resetVideoEqualizer() {
+        if (isDestroyed.get() || !isInitialized.get()) return
+        MPVLib.setPropertyInt("brightness", 0)
+        MPVLib.setPropertyInt("contrast", 0)
+        MPVLib.setPropertyInt("saturation", 0)
+        MPVLib.setPropertyInt("gamma", 0)
+    }
+
+    fun queryChapters(): List<MediaChapter> {
+        if (isDestroyed.get() || !isInitialized.get()) return emptyList()
+        return try {
+            val jsonStr = MPVLib.getPropertyString("chapter-list") ?: return emptyList()
+            if (jsonStr.isBlank()) return emptyList()
+            val arr = JSONArray(jsonStr)
+            val result = ArrayList<MediaChapter>(arr.length())
+            for (i in 0 until arr.length()) {
+                val obj = arr.optJSONObject(i) ?: continue
+                val time = obj.optDouble("time", 0.0).coerceAtLeast(0.0)
+                val title = obj.optString("title", "").ifBlank { "Chapter ${i + 1}" }
+                result.add(MediaChapter(index = i, title = title, timeSeconds = time))
+            }
+            result
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
+
+    fun getCurrentChapterIndex(): Int {
+        if (isDestroyed.get() || !isInitialized.get()) return -1
+        return MPVLib.getPropertyInt("chapter") ?: -1
+    }
+
+    fun seekToChapter(index: Int) {
+        if (isDestroyed.get() || !isInitialized.get() || index < 0) return
+        MPVLib.setPropertyInt("chapter", index)
+    }
+
     fun setSubtitleFontSize(size: Int) {
         if (isDestroyed.get() || !isInitialized.get()) return
         MPVLib.setPropertyInt("sub-font-size", size.coerceIn(24, 96))
@@ -806,6 +996,39 @@ class NativeMpvEngine(
     fun setSubtitleColor(colorHex: String) {
         if (isDestroyed.get() || !isInitialized.get()) return
         MPVLib.setPropertyString("sub-color", colorHex)
+    }
+
+    fun captureSurfaceFrame(onResult: (Bitmap?) -> Unit) {
+        if (isDestroyed.get() || !isInitialized.get()) {
+            onResult(null)
+            return
+        }
+        val view = surfaceViewRef?.get()
+        val surface = view?.holder?.surface
+        if (view == null || surface == null || !surface.isValid || view.width <= 0 || view.height <= 0) {
+            onResult(null)
+            return
+        }
+        try {
+            val bitmap = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888)
+            PixelCopy.request(
+                view,
+                bitmap,
+                { copyResult ->
+                    if (copyResult == PixelCopy.SUCCESS) {
+                        onResult(bitmap)
+                    } else {
+                        Log.e(TAG, "PixelCopy failed with code=$copyResult")
+                        bitmap.recycle()
+                        onResult(null)
+                    }
+                },
+                mainHandler
+            )
+        } catch (e: Exception) {
+            Log.e(TAG, "captureSurfaceFrame failed: ${e.message}", e)
+            onResult(null)
+        }
     }
 
     fun captureScreenshot(outputFile: File): Boolean {
@@ -856,31 +1079,48 @@ class NativeMpvEngine(
         )
     }
 
+    /**
+     * Releases the native libmpv context and EGL surface memory (re-creatable on next playback).
+     */
+    fun releaseEngine() {
+        synchronized(engineLock) {
+            if (!isInitialized.compareAndSet(true, false)) return
+            isPausedState = false
+            hasFileLoadedForSurfaceRefresh = false
+            lastVideoWidth = 0
+            lastVideoHeight = 0
+            pendingMediaPath = null
+            pendingStartPositionMs = 0L
+
+            try {
+                tracksChangedRunnable?.let { mainHandler.removeCallbacks(it) }
+                tracksChangedRunnable = null
+                contextRef?.get()?.let { abandonAudioFocus(it) }
+                mainHandler.removeCallbacksAndMessages(null)
+                MPVLib.removeObserver(this)
+                MPVLib.removeLogObserver(this)
+                surfaceViewRef?.get()?.holder?.removeCallback(this)
+                surfaceViewRef = null
+
+                if (isSurfaceAttached.compareAndSet(true, false)) {
+                    MPVLib.setPropertyString("vid", "no")
+                    MPVLib.setPropertyString("vo", "null")
+                    MPVLib.detachSurface()
+                }
+
+                MPVLib.destroy()
+            } catch (t: Throwable) {
+                Log.e(TAG, "Error during libmpv release", t)
+            } finally {
+                closeAllFds()
+                cleanTempSubtitleFiles()
+            }
+        }
+    }
+
     fun destroy() {
         if (!isDestroyed.compareAndSet(false, true)) return
-        if (!isInitialized.get()) return
-
-        try {
-            tracksChangedRunnable?.let { mainHandler.removeCallbacks(it) }
-            tracksChangedRunnable = null
-            contextRef?.get()?.let { abandonAudioFocus(it) }
-            mainHandler.removeCallbacksAndMessages(null)
-            MPVLib.removeObserver(this)
-            MPVLib.removeLogObserver(this)
-            surfaceViewRef?.get()?.holder?.removeCallback(this)
-            surfaceViewRef = null
-
-            if (isSurfaceAttached.compareAndSet(true, false)) {
-                MPVLib.detachSurface()
-            }
-
-            MPVLib.destroy()
-        } catch (t: Throwable) {
-            Log.e(TAG, "Error during libmpv teardown", t)
-        } finally {
-            closeFdQuietly(activeDetachedFd.getAndSet(NO_FD))
-            cleanTempSubtitleFiles()
-        }
+        releaseEngine()
     }
 
     // region MPVLib.EventObserver
@@ -891,6 +1131,8 @@ class NativeMpvEngine(
             val r = Runnable { listener.onTracksChanged() }
             tracksChangedRunnable = r
             mainHandler.postDelayed(r, 60L)
+        } else if (property == "chapter-list") {
+            mainHandler.post { listener.onChaptersChanged() }
         }
     }
 
@@ -907,6 +1149,9 @@ class NativeMpvEngine(
                 if (lastVideoWidth > 0 && lastVideoHeight > 0) {
                     mainHandler.post { listener.onVideoSizeChanged(lastVideoWidth, lastVideoHeight) }
                 }
+            }
+            "chapter" -> {
+                mainHandler.post { listener.onCurrentChapterChanged(value.toInt()) }
             }
         }
     }
@@ -938,7 +1183,12 @@ class NativeMpvEngine(
 
     override fun event(eventId: Int) {
         when (eventId) {
+            MPVLib.MPV_EVENT_END_FILE -> {
+                closeOldestDrainingFd()
+            }
             MPVLib.MPV_EVENT_FILE_LOADED -> {
+                hasFileLoadedForSurfaceRefresh = true
+                closeDrainingFds()
                 if (isSurfaceAttached.get()) {
                     try {
                         MPVLib.setPropertyString("vo", "gpu")
@@ -956,6 +1206,7 @@ class NativeMpvEngine(
                     listener.onFileLoaded()
                 }
             }
+            else -> Unit
             // Note: MPV_EVENT_END_FILE is intentionally NOT mapped to onEndOfFile()
             // because libmpv fires MPV_EVENT_END_FILE when stopping, replacing, or loading files.
             // Natural playback end-of-file is detected exclusively via the observed "eof-reached" property.
@@ -967,13 +1218,12 @@ class NativeMpvEngine(
     // region MPVLib.LogObserver
 
     override fun logMessage(prefix: String, level: Int, text: String) {
+        if (level > MPVLib.MPV_LOG_LEVEL_INFO) return
         val clean = text.trimEnd()
         when (level) {
             MPVLib.MPV_LOG_LEVEL_FATAL, MPVLib.MPV_LOG_LEVEL_ERROR -> Log.e(TAG, "[$prefix] $clean")
             MPVLib.MPV_LOG_LEVEL_WARN -> Log.w(TAG, "[$prefix] $clean")
             MPVLib.MPV_LOG_LEVEL_INFO -> Log.i(TAG, "[$prefix] $clean")
-            MPVLib.MPV_LOG_LEVEL_V, MPVLib.MPV_LOG_LEVEL_DEBUG -> Log.d(TAG, "[$prefix] $clean")
-            else -> Log.v(TAG, "[$prefix] $clean")
         }
     }
 
@@ -985,6 +1235,61 @@ class NativeMpvEngine(
             val tempFiles = dir.listFiles { file -> file.name.startsWith("ext_sub_") }
             tempFiles?.forEach { it.delete() }
         } catch (_: Exception) {}
+    }
+
+    private fun buildSupportedHwdecCodecs(): String {
+        val base = mutableListOf("h264", "hevc", "vp8", "vp9", "mpeg2video", "mpeg4", "vc1")
+        val hasHardwareAv1 = try {
+            MediaCodecList(MediaCodecList.REGULAR_CODECS).codecInfos.any { info ->
+                !info.isEncoder &&
+                    (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q || info.isHardwareAccelerated) &&
+                    info.supportedTypes.any { it.equals("video/av01", ignoreCase = true) }
+            }
+        } catch (_: Throwable) {
+            false
+        }
+        if (hasHardwareAv1) {
+            base.add("av1")
+        }
+        return base.joinToString(",")
+    }
+
+    private fun closeOldestDrainingFd() {
+        val fdToClose = synchronized(fdLock) {
+            if (drainingFds.isEmpty()) return
+            drainingFds.removeAt(0)
+        }
+        closeFdQuietly(fdToClose)
+    }
+
+    private fun closeDrainingFds() {
+        val toClose = synchronized(fdLock) {
+            if (drainingFds.isEmpty()) return
+            val copy = drainingFds.toList()
+            drainingFds.clear()
+            copy
+        }
+        toClose.forEach { closeFdQuietly(it) }
+    }
+
+    private fun closeAllFds() {
+        val toClose = synchronized(fdLock) {
+            val list = mutableListOf<Int>()
+            if (pendingOpenFd >= 0) {
+                list.add(pendingOpenFd)
+                pendingOpenFd = NO_FD
+            }
+            if (activePlayingFd >= 0) {
+                list.add(activePlayingFd)
+                activePlayingFd = NO_FD
+            }
+            if (drainingFds.isNotEmpty()) {
+                list.addAll(drainingFds)
+                drainingFds.clear()
+            }
+            list
+        }
+        toClose.forEach { closeFdQuietly(it) }
     }
 
     private fun closeFdQuietly(fdInt: Int) {

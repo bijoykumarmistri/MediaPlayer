@@ -111,7 +111,10 @@ fun shareMediaFiles(ctx: Context, items: List<MediaItemModel>) {
 
 fun formatFileSize(bytes: Long): String {
     if (bytes <= 0) return "Direct Stream"
-    val mb = bytes / (1024.0 * 1024.0)
+    if (bytes < 1024L) return "$bytes B"
+    val kb = bytes / 1024.0
+    if (kb < 1024.0) return String.format(java.util.Locale.US, "%.0f KB", kb)
+    val mb = kb / 1024.0
     return if (mb >= 1024.0) {
         String.format(java.util.Locale.US, "%.1f GB", mb / 1024.0)
     } else {

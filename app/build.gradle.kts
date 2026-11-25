@@ -14,7 +14,7 @@ if (hasKeystore) {
 }
 
 base {
-    archivesName.set("BKMPlayer-v1.7")
+    archivesName.set("BKMPlayer-v1.8")
 }
 
 android {
@@ -25,8 +25,8 @@ android {
         applicationId = "com.bkm.player"
         minSdk = 26
         targetSdk = 35
-        versionCode = 8
-        versionName = "1.7"
+        versionCode = 9
+        versionName = "1.8"
 
         ndk {
             abiFilters.add("arm64-v8a")
@@ -50,8 +50,8 @@ android {
     buildTypes {
         release {
             signingConfig = if (hasKeystore) signingConfigs.getByName("release") else signingConfigs.getByName("debug")
-            isMinifyEnabled = false
-            isShrinkResources = false
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"

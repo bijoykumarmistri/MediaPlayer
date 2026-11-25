@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.Movie
 import androidx.compose.material.icons.rounded.Pause
@@ -41,6 +42,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -70,6 +72,16 @@ fun BottomMiniPlayer(
 
     val accentColor = if (isVideo) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.primary
 
+    val imageRequest = remember(item.artworkUri, item.id) {
+        item.artworkUri?.let { uri ->
+            ImageRequest.Builder(context)
+                .data(uri)
+                .size(128, 128)
+                .crossfade(false)
+                .build()
+        }
+    }
+
     Surface(
         onClick = onExpand,
         modifier = modifier
@@ -90,20 +102,9 @@ fun BottomMiniPlayer(
         shadowElevation = 16.dp
     ) {
         Column(modifier = Modifier.fillMaxWidth()) {
-            // Live Playback Progress Bar (Subtle top line indicator)
-            val currentPos by playerManager.currentPositionMs.collectAsState()
-            val totalDur by playerManager.durationMs.collectAsState()
-            val progressFraction = remember(currentPos, totalDur) {
-                if (totalDur > 0) (currentPos.toFloat() / totalDur.toFloat()).coerceIn(0f, 1f) else 0f
-            }
-
-            LinearProgressIndicator(
-                progress = { progressFraction },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(2.5.dp),
-                color = accentColor,
-                trackColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+            MiniPlayerProgressBar(
+                playerManager = playerManager,
+                accentColor = accentColor
             )
 
             Row(
@@ -119,12 +120,9 @@ fun BottomMiniPlayer(
                         .clip(RoundedCornerShape(12.dp)),
                     contentAlignment = Alignment.Center
                 ) {
-                    if (item.artworkUri != null) {
+                    if (imageRequest != null) {
                         AsyncImage(
-                            model = ImageRequest.Builder(context)
-                                .data(item.artworkUri)
-                                .crossfade(true)
-                                .build(),
+                            model = imageRequest,
                             contentDescription = if (isVideo) "Video Thumbnail" else "Artwork",
                             modifier = Modifier.matchParentSize(),
                             contentScale = ContentScale.Crop
@@ -184,7 +182,7 @@ fun BottomMiniPlayer(
                 Spacer(modifier = Modifier.width(12.dp))
 
                 // Title & Subtitle Column
-                Column(modifier = Modifier.weight(1f)) {
+                Column(modifier = Modifier.weight(1f).clipToBounds()) {
                     Text(
                         text = item.title.ifEmpty { if (isVideo) "Video" else "Unknown Track" },
                         style = MaterialTheme.typography.titleSmall,
@@ -194,16 +192,10 @@ fun BottomMiniPlayer(
                         modifier = Modifier.basicMarquee()
                     )
                     Spacer(modifier = Modifier.height(2.dp))
-                    val subtitleText = if (isVideo) {
-                        if (totalDur > 0) "Video • ${formatTimeMs(totalDur)}" else "Video Playback"
-                    } else {
-                        item.artist.ifEmpty { "BKM Player" }
-                    }
-                    Text(
-                        text = subtitleText,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1
+                    MiniPlayerSubtitle(
+                        playerManager = playerManager,
+                        isVideo = isVideo,
+                        artist = item.artist
                     )
                 }
 
@@ -214,13 +206,13 @@ fun BottomMiniPlayer(
                     onClick = {
                         if (isVideo) playerManager.playPreviousVideo() else playerManager.skipPrevious()
                     },
-                    modifier = Modifier.size(34.dp)
+                    modifier = Modifier.size(32.dp)
                 ) {
                     Icon(
                         imageVector = Icons.Rounded.SkipPrevious,
                         contentDescription = "Previous",
                         tint = MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier.size(20.dp)
+                        modifier = Modifier.size(19.dp)
                     )
                 }
 
@@ -254,16 +246,76 @@ fun BottomMiniPlayer(
                     onClick = {
                         if (isVideo) playerManager.playNextVideo() else playerManager.skipNext()
                     },
-                    modifier = Modifier.size(34.dp)
+                    modifier = Modifier.size(32.dp)
                 ) {
                     Icon(
                         imageVector = Icons.Rounded.SkipNext,
                         contentDescription = "Next",
                         tint = MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier.size(20.dp)
+                        modifier = Modifier.size(19.dp)
+                    )
+                }
+
+                // Dismiss / Stop Mini Player
+                IconButton(
+                    onClick = {
+                        if (isVideo) playerManager.stopVideo() else playerManager.stop()
+                    },
+                    modifier = Modifier.size(30.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.Close,
+                        contentDescription = "Close",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(17.dp)
                     )
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun MiniPlayerProgressBar(
+    playerManager: MediaPlayerManager,
+    accentColor: Color
+) {
+    val currentPos by playerManager.currentPositionMs.collectAsState()
+    val totalDur by playerManager.durationMs.collectAsState()
+    val progressFraction = if (totalDur > 0) (currentPos.toFloat() / totalDur.toFloat()).coerceIn(0f, 1f) else 0f
+
+    LinearProgressIndicator(
+        progress = { progressFraction },
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(2.5.dp),
+        color = accentColor,
+        trackColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+    )
+}
+
+@Composable
+private fun MiniPlayerSubtitle(
+    playerManager: MediaPlayerManager,
+    isVideo: Boolean,
+    artist: String
+) {
+    if (isVideo) {
+        val currentPos by playerManager.currentPositionMs.collectAsState()
+        val totalDur by playerManager.durationMs.collectAsState()
+        val subtitleText = if (totalDur > 0) "${formatTimeMs(currentPos)} / ${formatTimeMs(totalDur)}" else "Video Playback"
+        Text(
+            text = subtitleText,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1
+        )
+    } else {
+        Text(
+            text = artist.ifEmpty { "BKM Player" },
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1
+        )
     }
 }

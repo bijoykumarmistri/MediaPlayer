@@ -1,13 +1,16 @@
 package com.mediaplayer.data
 
 import android.content.ContentUris
+import android.content.ContentValues
 import android.content.Context
 import android.media.MediaMetadataRetriever
+import android.media.MediaScannerConnection
 import android.net.Uri
 import android.os.Build
 import android.provider.DocumentsContract
 import android.provider.MediaStore
 import android.util.Log
+import android.webkit.MimeTypeMap
 import androidx.core.net.toUri
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -88,6 +91,146 @@ class MediaLibraryRepository(context: Context) {
             inMemoryAudios = list
             saveCacheToFile(audioCacheFile, list)
         }
+    }
+
+    suspend fun updateCachedItem(oldItem: MediaItemModel, newItem: MediaItemModel) = withContext(Dispatchers.IO) {
+        if (oldItem.isVideo) {
+            val list = getCachedVideos().map { if (it.id == oldItem.id || it.uri == oldItem.uri) newItem else it }
+            inMemoryVideos = list
+            saveCacheToFile(videosCacheFile, list)
+        } else {
+            val list = getCachedAudios().map { if (it.id == oldItem.id || it.uri == oldItem.uri) newItem else it }
+            inMemoryAudios = list
+            saveCacheToFile(audioCacheFile, list)
+        }
+    }
+
+    suspend fun renameMediaFile(
+        item: MediaItemModel,
+        desiredName: String,
+        onRequiresConsent: (android.content.IntentSender, String) -> Unit,
+    ): MediaItemModel? = withContext(Dispatchers.IO) {
+        val contentResolver = context.contentResolver
+        val uri = item.uri
+        val cleanInput = desiredName.trim()
+        if (cleanInput.isEmpty()) return@withContext null
+
+        // Determine extension
+        val currentExt = when {
+            item.title.contains(".") -> item.title.substringAfterLast(".")
+            item.folderPath.isNotEmpty() -> {
+                val f = File(item.folderPath, item.title)
+                if (f.exists() && f.extension.isNotEmpty()) f.extension
+                else MimeTypeMap.getSingleton().getExtensionFromMimeType(item.mimeType) ?: ""
+            }
+            else -> MimeTypeMap.getSingleton().getExtensionFromMimeType(item.mimeType) ?: ""
+        }
+
+        val newDisplayName = if (currentExt.isNotEmpty() && !cleanInput.endsWith(".$currentExt", ignoreCase = true)) {
+            "$cleanInput.$currentExt"
+        } else {
+            cleanInput
+        }
+        val newTitle = if (newDisplayName.contains(".")) newDisplayName.substringBeforeLast(".") else newDisplayName
+
+        // 1. SAF document tree URI
+        if (DocumentsContract.isDocumentUri(context, uri)) {
+            try {
+                val renamedUri = DocumentsContract.renameDocument(contentResolver, uri, newDisplayName)
+                if (renamedUri != null) {
+                    val updatedItem = item.copy(uri = renamedUri, title = newTitle)
+                    updateCachedItem(item, updatedItem)
+                    return@withContext updatedItem
+                }
+            } catch (e: Exception) {
+                Log.w(tag, "DocumentsContract.renameDocument failed: ${e.message}")
+            }
+        }
+
+        // 2. Direct MediaStore update (Android Q+ Scoped Storage & pre-Q)
+        try {
+            val values = ContentValues().apply {
+                put(MediaStore.MediaColumns.DISPLAY_NAME, newDisplayName)
+                put(MediaStore.MediaColumns.TITLE, newTitle)
+            }
+            val rows = contentResolver.update(uri, values, null, null)
+            if (rows > 0) {
+                val updatedItem = item.copy(title = newTitle)
+                updateCachedItem(item, updatedItem)
+                return@withContext updatedItem
+            }
+        } catch (secEx: SecurityException) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                try {
+                    val pendingIntent = MediaStore.createWriteRequest(contentResolver, listOf(uri))
+                    withContext(Dispatchers.Main) {
+                        onRequiresConsent(pendingIntent.intentSender, newDisplayName)
+                    }
+                    return@withContext null
+                } catch (e: Exception) {
+                    Log.e(tag, "Failed to create write request on Android R+", e)
+                }
+            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && secEx is android.app.RecoverableSecurityException) {
+                withContext(Dispatchers.Main) {
+                    onRequiresConsent(secEx.userAction.actionIntent.intentSender, newDisplayName)
+                }
+                return@withContext null
+            }
+        } catch (e: Exception) {
+            Log.w(tag, "contentResolver.update failed: ${e.message}")
+        }
+
+        // 3. Direct File rename fallback (e.g., file:// URI or direct access path)
+        try {
+            val oldFile = if (uri.scheme == "file") {
+                uri.path?.let { File(it) }
+            } else if (item.folderPath.isNotEmpty()) {
+                val direct = File(item.folderPath, item.title)
+                if (direct.exists()) direct else {
+                    File(item.folderPath).listFiles()?.firstOrNull { it.nameWithoutExtension == item.title }
+                }
+            } else null
+
+            if (oldFile != null && oldFile.exists()) {
+                val newFile = File(oldFile.parentFile, newDisplayName)
+                if (oldFile.renameTo(newFile)) {
+                    MediaScannerConnection.scanFile(context, arrayOf(newFile.absolutePath), null, null)
+                    val updatedItem = item.copy(
+                        uri = if (uri.scheme == "file") Uri.fromFile(newFile) else uri,
+                        title = newTitle
+                    )
+                    updateCachedItem(item, updatedItem)
+                    return@withContext updatedItem
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(tag, "File rename fallback failed: ${e.message}")
+        }
+
+        null
+    }
+
+    suspend fun completeRenameAfterConsent(
+        item: MediaItemModel,
+        newDisplayName: String
+    ): MediaItemModel? = withContext(Dispatchers.IO) {
+        val contentResolver = context.contentResolver
+        val newTitle = if (newDisplayName.contains(".")) newDisplayName.substringBeforeLast(".") else newDisplayName
+        try {
+            val values = ContentValues().apply {
+                put(MediaStore.MediaColumns.DISPLAY_NAME, newDisplayName)
+                put(MediaStore.MediaColumns.TITLE, newTitle)
+            }
+            val rows = contentResolver.update(item.uri, values, null, null)
+            if (rows > 0) {
+                val updatedItem = item.copy(title = newTitle)
+                updateCachedItem(item, updatedItem)
+                return@withContext updatedItem
+            }
+        } catch (e: Exception) {
+            Log.e(tag, "Failed to complete rename after consent", e)
+        }
+        null
     }
 
     @Suppress("unused")
@@ -219,17 +362,25 @@ class MediaLibraryRepository(context: Context) {
                 } else {
                     rawArtUri
                 }
+                val parsedMime = obj.optString("mimeType", "")
+                val rawBadge = obj.optString("codecBadge", "")
+                val parsedTitle = obj.getString("title")
+                val resolvedBadge = if (!isVideo && (rawBadge.isBlank() || rawBadge == "PCM Audio")) {
+                    formatAudioCodecBadge(parsedMime, parsedTitle)
+                } else {
+                    rawBadge
+                }
                 list.add(
                     MediaItemModel(
                         id = obj.getLong("id"),
                         uri = parsedUri,
-                        title = obj.getString("title"),
-                        artist = obj.optString("artist", "Unknown Artist"),
-                        album = obj.optString("album", "Unknown Album"),
+                        title = parsedTitle,
+                        artist = sanitizeMetadata(obj.optString("artist", "Unknown Artist"), "Unknown Artist"),
+                        album = sanitizeMetadata(obj.optString("album", "Unknown Album"), "Unknown Album"),
                         durationMs = obj.optLong("durationMs", 0L),
                         artworkUri = sanitizedArtUri,
                         isVideo = isVideo,
-                        mimeType = obj.optString("mimeType", ""),
+                        mimeType = parsedMime,
                         sizeBytes = obj.optLong("sizeBytes", 0L),
                         sampleRate = obj.optInt("sampleRate", 44100),
                         bitDepth = obj.optInt("bitDepth", 16),
@@ -237,7 +388,7 @@ class MediaLibraryRepository(context: Context) {
                         resolution = obj.optString("resolution", ""),
                         folderName = obj.optString("folderName", ""),
                         folderPath = obj.optString("folderPath", ""),
-                        codecBadge = obj.optString("codecBadge", ""),
+                        codecBadge = resolvedBadge,
                         dateAdded = obj.optLong("dateAdded", 0L),
                         isNew = obj.optBoolean("isNew", false),
                     )
@@ -329,9 +480,9 @@ class MediaLibraryRepository(context: Context) {
                 while (cursor.moveToNext()) {
                     val id = cursor.getLong(idCol)
                     val contentUri = ContentUris.withAppendedId(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, id)
-                    val title = cursor.getString(titleCol) ?: "Unknown Track"
-                    val artist = cursor.getString(artistCol) ?: "Unknown Artist"
-                    val album = cursor.getString(albumCol) ?: "Unknown Album"
+                    val title = cursor.getString(titleCol)?.takeIf { it.isNotBlank() } ?: "Unknown Track"
+                    val artist = sanitizeMetadata(cursor.getString(artistCol), "Unknown Artist")
+                    val album = sanitizeMetadata(cursor.getString(albumCol), "Unknown Album")
                     val albumId = if (albumIdCol >= 0) cursor.getLong(albumIdCol) else -1L
                     val duration = cursor.getLong(durationCol)
                     val size = cursor.getLong(sizeCol)
@@ -346,7 +497,7 @@ class MediaLibraryRepository(context: Context) {
                     val artworkUri = if (albumId > 0) {
                         ContentUris.withAppendedId("content://media/external/audio/albumart".toUri(), albumId)
                     } else null
-                    val codecInfo = formatAudioCodecBadge(mime)
+                    val codecInfo = formatAudioCodecBadge(mime, rawPath ?: title)
 
                     audioList.add(
                         MediaItemModel(
@@ -506,7 +657,7 @@ class MediaLibraryRepository(context: Context) {
                 mimeType = mime,
                 resolution = resolution,
                 artworkUri = uri,
-                codecBadge = if (!isVideo) formatAudioCodecBadge(mime) else ""
+                codecBadge = if (!isVideo) formatAudioCodecBadge(mime, uri.lastPathSegment.orEmpty()) else ""
             )
         } catch (e: Exception) {
             Log.e(tag, "Error importing SAF document", e)
@@ -557,7 +708,7 @@ class MediaLibraryRepository(context: Context) {
                                 isVideo = false,
                                 mimeType = mime,
                                 sizeBytes = size,
-                                codecBadge = formatAudioCodecBadge(mime)
+                                codecBadge = formatAudioCodecBadge(mime, name)
                             )
                         )
                     } else if (mime.startsWith("video/")) {
@@ -583,16 +734,13 @@ class MediaLibraryRepository(context: Context) {
         Pair(audioList, videoList)
     }
 
-    private fun formatAudioCodecBadge(mimeType: String): String {
-        return when {
-            mimeType.contains("flac", ignoreCase = true) -> "FLAC Hi-Res"
-            mimeType.contains("alac", ignoreCase = true) -> "ALAC Lossless"
-            mimeType.contains("wav", ignoreCase = true) -> "WAV PCM"
-            mimeType.contains("dsd", ignoreCase = true) -> "DSD Direct"
-            mimeType.contains("aac", ignoreCase = true) -> "AAC"
-            mimeType.contains("opus", ignoreCase = true) -> "Opus"
-            mimeType.contains("mp3", ignoreCase = true) -> "MP3"
-            else -> "PCM Audio"
+    private fun sanitizeMetadata(raw: String?, fallback: String): String {
+        if (raw.isNullOrBlank()) return fallback
+        val trimmed = raw.trim()
+        return if (trimmed.equals("<unknown>", ignoreCase = true) || trimmed.equals("unknown", ignoreCase = true)) {
+            fallback
+        } else {
+            trimmed
         }
     }
 
@@ -604,6 +752,48 @@ class MediaLibraryRepository(context: Context) {
             width >= 1280 || height >= 720 -> "720p HD"
             width > 0 && height > 0 -> "${width}x$height"
             else -> "HD Video"
+        }
+    }
+
+    companion object {
+        internal fun formatAudioCodecBadge(mimeType: String, filePathOrName: String = ""): String {
+            val ext = filePathOrName.substringAfterLast('.', "").lowercase()
+            when (ext) {
+                "opus" -> return "Opus"
+                "flac" -> return "FLAC Hi-Res"
+                "alac" -> return "ALAC Lossless"
+                "wav" -> return "WAV PCM"
+                "dsd", "dsf", "dff" -> return "DSD Direct"
+                "mp3" -> return "MP3"
+                "aac" -> return "AAC"
+                "m4a", "mp4" -> return "AAC / M4A"
+                "ogg", "oga" -> return "OGG Vorbis"
+                "wma" -> return "WMA"
+                "mka" -> return "MKA"
+                "ac3" -> return "AC3"
+                "eac3" -> return "E-AC3"
+                "dts" -> return "DTS"
+            }
+            val lowerMime = mimeType.lowercase()
+            return when {
+                lowerMime.contains("flac") -> "FLAC Hi-Res"
+                lowerMime.contains("alac") -> "ALAC Lossless"
+                lowerMime.contains("wav") || lowerMime.contains("wave") || lowerMime.contains("lpcm") -> "WAV PCM"
+                lowerMime.contains("dsd") -> "DSD Direct"
+                lowerMime.contains("opus") -> "Opus"
+                lowerMime.contains("mpeg") || lowerMime.contains("mp3") -> "MP3"
+                lowerMime.contains("aac") || lowerMime.contains("mp4a") || lowerMime == "audio/mp4" -> "AAC"
+                lowerMime.contains("ogg") || lowerMime.contains("vorbis") -> "OGG"
+                lowerMime.contains("webm") -> "WebM Audio"
+                lowerMime.contains("eac3") || lowerMime.contains("ec-3") -> "E-AC3"
+                lowerMime.contains("ac3") -> "AC3"
+                lowerMime.contains("dts") -> "DTS"
+                lowerMime.contains("amr") -> "AMR"
+                lowerMime.startsWith("audio/") && !lowerMime.endsWith("/*") -> {
+                    lowerMime.substringAfter("audio/").removePrefix("x-").uppercase()
+                }
+                else -> "Audio"
+            }
         }
     }
 }

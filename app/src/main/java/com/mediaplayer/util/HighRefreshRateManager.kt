@@ -68,6 +68,8 @@ class HighRefreshRateManager(private val activity: Activity) {
         if (isListening) {
             try {
                 displayManager?.unregisterDisplayListener(displayListener)
+            } catch (_: Exception) {}
+            try {
                 activity.unregisterReceiver(powerSaveReceiver)
             } catch (_: Exception) {}
             isListening = false
@@ -76,6 +78,7 @@ class HighRefreshRateManager(private val activity: Activity) {
 
     fun applyOptimalRefreshRate() {
         try {
+            if (activity.isFinishing || activity.isDestroyed) return
             val window = activity.window ?: return
             val layoutParams = window.attributes ?: return
 

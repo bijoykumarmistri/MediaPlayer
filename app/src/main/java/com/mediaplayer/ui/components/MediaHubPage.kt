@@ -4,11 +4,12 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.text.format.DateUtils
 import android.widget.Toast
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.EnterTransition
-import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
@@ -19,6 +20,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -32,15 +34,18 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.ArrowForward
+import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.rounded.Launch
 import androidx.compose.material.icons.rounded.AccountBalanceWallet
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Clear
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.CloudDownload
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.ContentPaste
 import androidx.compose.material.icons.rounded.DeleteOutline
+import androidx.compose.material.icons.rounded.DeleteSweep
+import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.FileOpen
 import androidx.compose.material.icons.rounded.Folder
@@ -52,7 +57,9 @@ import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.Movie
 import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.BugReport
 import androidx.compose.material.icons.rounded.Share
+import androidx.compose.material.icons.rounded.Storage
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -67,12 +74,14 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -80,6 +89,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -87,19 +97,27 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.graphics.createBitmap
 import androidx.core.net.toUri
-import com.mediaplayer.R
+import coil.Coil
+import coil.annotation.ExperimentalCoilApi
 import com.mediaplayer.playback.StreamHistoryItem
 import com.mediaplayer.util.AppUpdateManager
+import com.mediaplayer.util.AudioArtworkFetcher
+import com.mediaplayer.util.DiagnosticLogManager
+import com.mediaplayer.util.VideoThumbnailFetcher
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.File
 
-private const val HUB_DEVELOPER_NAME = "BKM"
+private const val HUB_DEVELOPER_NAME = "Bijoy"
 private const val HUB_DEVELOPER_UPI_ID = "bijoymistri367@okaxis"
 
+@OptIn(ExperimentalCoilApi::class)
 @Composable
 fun MediaHubPage(
     onPickFiles: () -> Unit,
@@ -110,41 +128,67 @@ fun MediaHubPage(
     onClearAllRecentStreams: () -> Unit,
     onOpenPrivacyVault: () -> Unit = {},
     onCheckAppUpdate: (() -> Unit)? = null,
+    videoTotalBytes: Long = 0L,
+    audioTotalBytes: Long = 0L,
+    vaultCount: Int = 0,
     initialTab: Int = 0,
 ) {
     val context = LocalContext.current
-    var selectedTab by remember { mutableIntStateOf(initialTab) } // 0: Storage, 1: Stream, 2: History, 3: About
+    val scope = rememberCoroutineScope()
+    var selectedTab by remember { mutableIntStateOf(initialTab.coerceIn(0, 2)) } // 0: Sources, 1: Stream, 2: About
 
     var streamUrlInput by remember { mutableStateOf("") }
     var streamTitleInput by remember { mutableStateOf("") }
-    var isVideoStream by remember { mutableStateOf(value = true) }
+    var isVideoStream by remember { mutableStateOf(true) }
+    var userPinnedStreamType by remember { mutableStateOf(false) }
     var detectedClipboardUrl by remember { mutableStateOf<String?>(null) }
+    var clipboardBannerDismissed by remember { mutableStateOf(false) }
+
     val currentVersion = remember { AppUpdateManager.getCurrentVersionName(context) }
 
-    // Auto-inspect system clipboard for streaming links
+    var cacheBytes by remember { mutableLongStateOf(0L) }
+    var isClearingCache by remember { mutableStateOf(false) }
+
+    LaunchedEffect(selectedTab) {
+        if (selectedTab == 0) {
+            cacheBytes = withContext(Dispatchers.IO) {
+                calculateDirSize(File(context.cacheDir, "coil_cache"))
+            }
+        }
+    }
+
     @Suppress("HttpUrlsUsage")
-    LaunchedEffect(Unit) {
+    LaunchedEffect(selectedTab) {
+        if (selectedTab != 1) return@LaunchedEffect
         try {
             val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
             val itemText = clipboard?.primaryClip?.getItemAt(0)?.text?.toString()?.trim()
             if (!itemText.isNullOrBlank() &&
                 (itemText.startsWith("http://", ignoreCase = true) ||
-                 itemText.startsWith("https://", ignoreCase = true) ||
-                 itemText.startsWith("rtsp://", ignoreCase = true) ||
-                 itemText.startsWith("rtmp://", ignoreCase = true))
+                    itemText.startsWith("https://", ignoreCase = true) ||
+                    itemText.startsWith("rtsp://", ignoreCase = true) ||
+                    itemText.startsWith("rtmp://", ignoreCase = true))
             ) {
                 detectedClipboardUrl = itemText
             }
-        } catch (e: Exception) {
-            e.printStackTrace()
+        } catch (_: Exception) {
         }
     }
 
-    // Helper functions for UPI payments
+    fun inferStreamIsVideo(url: String): Boolean {
+        val clean = url.substringBefore('?').substringBefore('#').lowercase()
+        return when {
+            clean.endsWith(".mp3") || clean.endsWith(".flac") || clean.endsWith(".aac") ||
+                clean.endsWith(".ogg") || clean.endsWith(".opus") || clean.endsWith(".wav") ||
+                clean.endsWith(".m4a") -> false
+            else -> true
+        }
+    }
+
     fun copyUpiId() {
-        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
         val clip = ClipData.newPlainText("Developer UPI ID", HUB_DEVELOPER_UPI_ID)
-        clipboard.setPrimaryClip(clip)
+        clipboard?.setPrimaryClip(clip)
         Toast.makeText(context, "UPI ID copied: $HUB_DEVELOPER_UPI_ID", Toast.LENGTH_SHORT).show()
     }
 
@@ -153,8 +197,7 @@ fun MediaHubPage(
             val amountParam = if (amount.isNullOrBlank()) "" else "&am=$amount"
             val uri = "upi://pay?pa=$HUB_DEVELOPER_UPI_ID&pn=$HUB_DEVELOPER_NAME&tn=Support%20Media%20Player$amountParam&cu=INR".toUri()
             val intent = Intent(Intent.ACTION_VIEW, uri)
-            val chooser = Intent.createChooser(intent, "Pay via UPI App")
-            context.startActivity(chooser)
+            context.startActivity(Intent.createChooser(intent, "Pay via UPI App"))
         } catch (_: Exception) {
             copyUpiId()
             Toast.makeText(context, "No UPI app detected. UPI ID copied to clipboard!", Toast.LENGTH_LONG).show()
@@ -167,7 +210,7 @@ fun MediaHubPage(
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 16.dp, vertical = 12.dp)
     ) {
-        // Modern Segmented Navigation Bar for Media Hub
+        // 3-Tab Segmented Switcher
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -179,552 +222,126 @@ fun MediaHubPage(
         ) {
             HubTabItem(
                 selected = selectedTab == 0,
-                title = "Storage",
+                title = "Sources",
                 icon = Icons.Rounded.Folder,
                 onClick = { selectedTab = 0 },
                 modifier = Modifier.weight(1f)
             )
             HubTabItem(
                 selected = selectedTab == 1,
-                title = "Stream",
+                title = if (recentStreams.isNotEmpty()) "Stream (${recentStreams.size})" else "Stream",
                 icon = Icons.Rounded.Link,
                 onClick = { selectedTab = 1 },
-                modifier = Modifier.weight(1f)
+                modifier = Modifier.weight(1.1f)
             )
             HubTabItem(
                 selected = selectedTab == 2,
-                title = if (recentStreams.isNotEmpty()) "History (${recentStreams.size})" else "History",
-                icon = Icons.Rounded.History,
-                onClick = { selectedTab = 2 },
-                modifier = Modifier.weight(1.05f)
-            )
-            HubTabItem(
-                selected = selectedTab == 3,
                 title = "About",
                 icon = Icons.Rounded.Info,
-                badgeColor = MaterialTheme.colorScheme.primary,
-                onClick = { selectedTab = 3 },
-                modifier = Modifier.weight(0.95f)
+                onClick = { selectedTab = 2 },
+                modifier = Modifier.weight(0.9f)
             )
         }
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // Content Switcher
         AnimatedContent(
             targetState = selectedTab,
-            transitionSpec = { EnterTransition.None togetherWith ExitTransition.None },
+            transitionSpec = { fadeIn() togetherWith fadeOut() },
             label = "MediaHubTabContent"
         ) { tab ->
             when (tab) {
                 0 -> {
-                    // TAB 0: LOCAL STORAGE (Clean & Focused)
-                    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                        // 1. Browse Files Tile
-                        HubSourceCard(
-                            title = "Browse Media Files",
-                            subtitle = "Directly open audio or video from storage or USB",
-                            icon = Icons.Rounded.FileOpen,
-                            iconTint = MaterialTheme.colorScheme.primary,
-                            iconBg = MaterialTheme.colorScheme.primaryContainer,
-                            tags = listOf("MP4", "MKV", "FLAC", "MP3", "WAV"),
-                            onClick = onPickFiles
-                        )
-
-                        // 2. Pick Folder / SD Card Tile
-                        HubSourceCard(
-                            title = "Scan Folder / SD Card",
-                            subtitle = "Index specific folder or external storage into library",
-                            icon = Icons.Rounded.FolderOpen,
-                            iconTint = MaterialTheme.colorScheme.tertiary,
-                            iconBg = MaterialTheme.colorScheme.tertiaryContainer,
-                            tags = listOf("Directory Scan", "SD Card", "Auto-Index"),
-                            onClick = onPickFolder
-                        )
-
-                        // 3. Privacy Folder / Secure Vault Tile
-                        HubSourceCard(
-                            title = "Privacy Vault",
-                            subtitle = "Encrypted local media safe • PIN & Biometric lock",
-                            icon = Icons.Rounded.Lock,
-                            iconTint = MaterialTheme.colorScheme.secondary,
-                            iconBg = MaterialTheme.colorScheme.secondaryContainer,
-                            tags = listOf("AES-256", "Hidden Storage", "Zero Cloud"),
-                            onClick = onOpenPrivacyVault
-                        )
-                    }
+                    SourcesAndStorageTab(
+                        videoTotalBytes = videoTotalBytes,
+                        audioTotalBytes = audioTotalBytes,
+                        vaultCount = vaultCount,
+                        cacheBytes = cacheBytes,
+                        isClearingCache = isClearingCache,
+                        onPickFiles = onPickFiles,
+                        onPickFolder = onPickFolder,
+                        onOpenPrivacyVault = onOpenPrivacyVault,
+                        onClearCache = {
+                            if (!isClearingCache) {
+                                isClearingCache = true
+                                scope.launch {
+                                    withContext(Dispatchers.IO) {
+                                        AudioArtworkFetcher.clearMemoryCache()
+                                        VideoThumbnailFetcher.clearMemoryCache()
+                                        try {
+                                            val loader = Coil.imageLoader(context)
+                                            loader.memoryCache?.clear()
+                                            loader.diskCache?.clear()
+                                        } catch (_: Exception) {
+                                        }
+                                        File(context.cacheDir, "coil_cache").deleteRecursively()
+                                    }
+                                    cacheBytes = 0L
+                                    isClearingCache = false
+                                    Toast.makeText(context, "Thumbnail & artwork cache cleared", Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        }
+                    )
                 }
                 1 -> {
-                    // TAB 1: DIRECT NETWORK STREAM
-                    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                        // Supported Protocol Badges
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .horizontalScroll(rememberScrollState()),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            listOf("HLS (.m3u8)", "DASH (.mpd)", "Direct MP4", "FLAC Audio", "RTSP / RTMP").forEach { proto ->
-                                Box(
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .background(MaterialTheme.colorScheme.secondaryContainer)
-                                        .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(8.dp))
-                                        .padding(horizontal = 10.dp, vertical = 5.dp)
-                                ) {
-                                    Text(
-                                        text = proto,
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.SemiBold,
-                                        color = MaterialTheme.colorScheme.onSecondaryContainer
-                                    )
-                                }
+                    StreamHubTab(
+                        streamUrlInput = streamUrlInput,
+                        onUrlChange = { newUrl ->
+                            streamUrlInput = newUrl
+                            if (!userPinnedStreamType && newUrl.isNotBlank()) {
+                                isVideoStream = inferStreamIsVideo(newUrl)
                             }
-                        }
-
-                        // Smart Clipboard Detection Banner
-                        AnimatedVisibility(
-                            visible = (detectedClipboardUrl != null) && streamUrlInput.isBlank()
-                        ) {
-                            detectedClipboardUrl?.let { clipUrl ->
-                                Card(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clickable {
-                                            streamUrlInput = clipUrl
-                                            detectedClipboardUrl = null
-                                        },
-                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer),
-                                    shape = RoundedCornerShape(16.dp),
-                                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.tertiary)
-                                ) {
-                                    Row(
-                                        modifier = Modifier.padding(14.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.SpaceBetween
-                                    ) {
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            modifier = Modifier.weight(1f)
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Rounded.ContentPaste,
-                                                contentDescription = null,
-                                                tint = MaterialTheme.colorScheme.onTertiaryContainer,
-                                                modifier = Modifier.size(20.dp)
-                                            )
-                                            Spacer(modifier = Modifier.width(10.dp))
-                                            Column {
-                                                Text(
-                                                    text = "Stream URL detected in clipboard",
-                                                    fontSize = 12.sp,
-                                                    fontWeight = FontWeight.Bold,
-                                                    color = MaterialTheme.colorScheme.onTertiaryContainer
-                                                )
-                                                Text(
-                                                    text = clipUrl,
-                                                    fontSize = 11.sp,
-                                                    color = MaterialTheme.colorScheme.onTertiaryContainer.copy(alpha = 0.8f),
-                                                    maxLines = 1,
-                                                    overflow = TextOverflow.Ellipsis
-                                                )
-                                            }
-                                        }
-                                        Text(
-                                            text = "Tap to Paste",
-                                            fontSize = 12.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            color = MaterialTheme.colorScheme.primary,
-                                            modifier = Modifier.padding(start = 8.dp)
-                                        )
-                                    }
-                                }
-                            }
-                        }
-
-                        // Stream URL Field
-                        OutlinedTextField(
-                            value = streamUrlInput,
-                            onValueChange = { streamUrlInput = it },
-                            label = { Text("Stream URL (HLS / DASH / MP4 / FLAC / RTSP)") },
-                            placeholder = { Text("https://example.com/live/master.m3u8") },
-                            leadingIcon = {
-                                Icon(
-                                    imageVector = Icons.Rounded.Link,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.primary
-                                )
-                            },
-                            trailingIcon = {
-                                if (streamUrlInput.isNotEmpty()) {
-                                    IconButton(onClick = { streamUrlInput = "" }) {
-                                        Icon(
-                                            imageVector = Icons.Rounded.Clear,
-                                            contentDescription = "Clear",
-                                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
+                        },
+                        streamTitleInput = streamTitleInput,
+                        onTitleChange = { streamTitleInput = it },
+                        isVideoStream = isVideoStream,
+                        onStreamTypeChange = { isVid ->
+                            userPinnedStreamType = true
+                            isVideoStream = isVid
+                        },
+                        detectedClipboardUrl = if (clipboardBannerDismissed) null else detectedClipboardUrl,
+                        onDismissClipboardBanner = { clipboardBannerDismissed = true },
+                        onPasteClipboard = {
+                            try {
+                                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+                                val paste = clipboard?.primaryClip?.getItemAt(0)?.text?.toString()?.trim()
+                                if (!paste.isNullOrBlank()) {
+                                    streamUrlInput = paste
+                                    if (!userPinnedStreamType) {
+                                        isVideoStream = inferStreamIsVideo(paste)
                                     }
                                 } else {
-                                    IconButton(
-                                        onClick = {
-                                            try {
-                                                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
-                                                val paste = clipboard?.primaryClip?.getItemAt(0)?.text?.toString()?.trim()
-                                                if (!paste.isNullOrBlank()) {
-                                                    streamUrlInput = paste
-                                                }
-                                            } catch (e: Exception) {
-                                                e.printStackTrace()
-                                            }
-                                        }
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Rounded.ContentPaste,
-                                            contentDescription = "Paste",
-                                            tint = MaterialTheme.colorScheme.primary
-                                        )
-                                    }
+                                    Toast.makeText(context, "Clipboard is empty", Toast.LENGTH_SHORT).show()
                                 }
-                            },
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(16.dp),
-                            colors = OutlinedTextFieldDefaults.colors(
-                                focusedBorderColor = MaterialTheme.colorScheme.primary,
-                                unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
-                                focusedTextColor = MaterialTheme.colorScheme.onSurface,
-                                unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
-                                focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-                                unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainer
-                            )
-                        )
-
-                        // Stream Title Field (Optional)
-                        OutlinedTextField(
-                            value = streamTitleInput,
-                            onValueChange = { streamTitleInput = it },
-                            label = { Text("Stream Title (Optional)") },
-                            placeholder = { Text("Custom Stream Name") },
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(16.dp),
-                            colors = OutlinedTextFieldDefaults.colors(
-                                focusedBorderColor = MaterialTheme.colorScheme.primary,
-                                unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
-                                focusedTextColor = MaterialTheme.colorScheme.onSurface,
-                                unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
-                                focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-                                unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainer
-                            )
-                        )
-
-                        // Stream Mode Selector (Video vs Audio)
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
-                        ) {
-                            FilterChip(
-                                selected = isVideoStream,
-                                onClick = { isVideoStream = true },
-                                label = { Text("Video Stream") },
-                                leadingIcon = {
-                                    Icon(
-                                        imageVector = Icons.Rounded.Movie,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(16.dp)
-                                    )
-                                },
-                                colors = FilterChipDefaults.filterChipColors(
-                                    selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
-                                    selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                                    selectedLeadingIconColor = MaterialTheme.colorScheme.onPrimaryContainer
-                                ),
-                                shape = RoundedCornerShape(12.dp),
-                                modifier = Modifier.weight(1f)
-                            )
-
-                            FilterChip(
-                                selected = !isVideoStream,
-                                onClick = { isVideoStream = false },
-                                label = { Text("Audio / Radio") },
-                                leadingIcon = {
-                                    Icon(
-                                        imageVector = Icons.Rounded.MusicNote,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(16.dp)
-                                    )
-                                },
-                                colors = FilterChipDefaults.filterChipColors(
-                                    selectedContainerColor = MaterialTheme.colorScheme.secondaryContainer,
-                                    selectedLabelColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                                    selectedLeadingIconColor = MaterialTheme.colorScheme.onSecondaryContainer
-                                ),
-                                shape = RoundedCornerShape(12.dp),
-                                modifier = Modifier.weight(1f)
-                            )
-                        }
-
-                        // Quick Test Streams Presets
-                        Text(
-                            text = "QUICK TEST PRESETS",
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            letterSpacing = 1.sp
-                        )
-
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .horizontalScroll(rememberScrollState()),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            listOf(
-                                Triple("Big Buck Bunny (HLS)", "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8", true),
-                                Triple("Oceans (MP4)", "https://vjs.zencdn.net/v/oceans.mp4", true),
-                                Triple("Akamai Live (HLS)", "https://cph-p2p-msl.akamaized.net/hls/live/2000341/test/master.m3u8", true),
-                                Triple("Web Radio Test", "https://stream.zeno.fm/f3wvbbqmdg8uv", false)
-                            ).forEach { (title, url, isVid) ->
-                                Box(
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(12.dp))
-                                        .background(MaterialTheme.colorScheme.surfaceContainerHigh)
-                                        .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(12.dp))
-                                        .clickable {
-                                            streamUrlInput = url
-                                            streamTitleInput = title
-                                            isVideoStream = isVid
-                                        }
-                                        .padding(horizontal = 12.dp, vertical = 8.dp)
-                                ) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Icon(
-                                            imageVector = if (isVid) Icons.Rounded.Movie else Icons.Rounded.MusicNote,
-                                            contentDescription = null,
-                                            tint = if (isVid) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondary,
-                                            modifier = Modifier.size(14.dp)
-                                        )
-                                        Spacer(modifier = Modifier.width(6.dp))
-                                        Text(
-                                            text = title,
-                                            fontSize = 11.sp,
-                                            fontWeight = FontWeight.Medium,
-                                            color = MaterialTheme.colorScheme.onSurface
-                                        )
-                                    }
-                                }
+                            } catch (_: Exception) {
                             }
-                        }
-
-                        Spacer(modifier = Modifier.height(4.dp))
-
-                        // Play Button
-                        Button(
-                            onClick = {
-                                if (streamUrlInput.isNotBlank()) {
-                                    onPlayStream(
-                                        streamUrlInput.trim(),
-                                        streamTitleInput.ifBlank { "Direct Network Stream" },
-                                        isVideoStream
-                                    )
-                                }
-                            },
-                            enabled = streamUrlInput.isNotBlank(),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = MaterialTheme.colorScheme.primary,
-                                contentColor = MaterialTheme.colorScheme.onPrimary,
-                                disabledContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.38f)
-                            ),
-                            shape = RoundedCornerShape(16.dp),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(52.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Rounded.PlayArrow,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onPrimary
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = "Play Live Stream Now",
-                                color = MaterialTheme.colorScheme.onPrimary,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 15.sp
-                            )
-                        }
-                    }
-                }
-                2 -> {
-                    // TAB 2: STREAM HISTORY
-                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        if (recentStreams.isEmpty()) {
-                            Card(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 24.dp),
-                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
-                                shape = RoundedCornerShape(20.dp),
-                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
-                            ) {
-                                Column(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(32.dp),
-                                    horizontalAlignment = Alignment.CenterHorizontally
-                                ) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(60.dp)
-                                            .clip(CircleShape)
-                                            .background(MaterialTheme.colorScheme.primaryContainer),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Rounded.History,
-                                            contentDescription = null,
-                                            tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                                            modifier = Modifier.size(30.dp)
-                                        )
-                                    }
-                                    Spacer(modifier = Modifier.height(16.dp))
-                                    Text(
-                                        text = "No Stream History Yet",
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 16.sp,
-                                        color = MaterialTheme.colorScheme.onSurface
-                                    )
-                                    Spacer(modifier = Modifier.height(6.dp))
-                                    Text(
-                                        text = "Direct network streams you play will appear here for 1-tap instant replay.",
-                                        fontSize = 12.sp,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        textAlign = TextAlign.Center
-                                    )
-                                    Spacer(modifier = Modifier.height(18.dp))
-                                    Button(
-                                        onClick = { selectedTab = 1 },
-                                        colors = ButtonDefaults.buttonColors(
-                                            containerColor = MaterialTheme.colorScheme.primary,
-                                            contentColor = MaterialTheme.colorScheme.onPrimary
-                                        ),
-                                        shape = RoundedCornerShape(12.dp)
-                                    ) {
-                                        Text("Open Stream Player", color = MaterialTheme.colorScheme.onPrimary, fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                                    }
-                                }
-                            }
-                        } else {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(
-                                    text = "RECENT STREAMS (${recentStreams.size})",
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    letterSpacing = 1.sp
+                        },
+                        onPlayCurrent = {
+                            val trimmed = streamUrlInput.trim()
+                            if (trimmed.isNotEmpty()) {
+                                onPlayStream(
+                                    trimmed,
+                                    streamTitleInput.trim().ifBlank { "Direct Network Stream" },
+                                    isVideoStream
                                 )
-                                TextButton(onClick = onClearAllRecentStreams) {
-                                    Text(
-                                        text = "Clear All",
-                                        color = MaterialTheme.colorScheme.error,
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.SemiBold
-                                    )
-                                }
                             }
-
-                            recentStreams.forEach { (streamUrl, streamTitle, isItemVideo) ->
-                                Card(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clickable {
-                                            onPlayStream(streamUrl, streamTitle, isItemVideo)
-                                        },
-                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
-                                    shape = RoundedCornerShape(16.dp),
-                                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
-                                ) {
-                                    Row(
-                                        modifier = Modifier.padding(14.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.SpaceBetween
-                                    ) {
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            modifier = Modifier.weight(1f)
-                                        ) {
-                                            Box(
-                                                modifier = Modifier
-                                                    .size(40.dp)
-                                                    .clip(CircleShape)
-                                                    .background(
-                                                        if (isItemVideo) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.secondaryContainer
-                                                    ),
-                                                contentAlignment = Alignment.Center
-                                            ) {
-                                                Icon(
-                                                    imageVector = if (isItemVideo) Icons.Rounded.Movie else Icons.Rounded.MusicNote,
-                                                    contentDescription = null,
-                                                    tint = if (isItemVideo) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSecondaryContainer,
-                                                    modifier = Modifier.size(20.dp)
-                                                )
-                                            }
-                                            Spacer(modifier = Modifier.width(12.dp))
-                                            Column {
-                                                Text(
-                                                    text = streamTitle,
-                                                    fontWeight = FontWeight.Bold,
-                                                    fontSize = 14.sp,
-                                                    color = MaterialTheme.colorScheme.onSurface,
-                                                    maxLines = 1,
-                                                    overflow = TextOverflow.Ellipsis
-                                                )
-                                                Text(
-                                                    text = streamUrl,
-                                                    fontSize = 11.sp,
-                                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                    maxLines = 1,
-                                                    overflow = TextOverflow.Ellipsis
-                                                )
-                                            }
-                                        }
-
-                                        Row(verticalAlignment = Alignment.CenterVertically) {
-                                            IconButton(
-                                                onClick = { onPlayStream(streamUrl, streamTitle, isItemVideo) },
-                                                modifier = Modifier.size(34.dp)
-                                            ) {
-                                                Icon(
-                                                    imageVector = Icons.Rounded.PlayArrow,
-                                                    contentDescription = "Play",
-                                                    tint = MaterialTheme.colorScheme.primary,
-                                                    modifier = Modifier.size(20.dp)
-                                                )
-                                            }
-                                            IconButton(
-                                                onClick = { onDeleteRecentStream(streamUrl) },
-                                                modifier = Modifier.size(34.dp)
-                                            ) {
-                                                Icon(
-                                                    imageVector = Icons.Rounded.DeleteOutline,
-                                                    contentDescription = "Remove",
-                                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                    modifier = Modifier.size(20.dp)
-                                                )
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
+                        },
+                        recentStreams = recentStreams,
+                        onPlayRecent = { item ->
+                            onPlayStream(item.url, item.title, item.isVideo)
+                        },
+                        onEditRecent = { item ->
+                            streamUrlInput = item.url
+                            streamTitleInput = item.title
+                            isVideoStream = item.isVideo
+                            userPinnedStreamType = true
+                        },
+                        onDeleteRecentStream = onDeleteRecentStream,
+                        onClearAllRecentStreams = onClearAllRecentStreams
+                    )
                 }
-                3 -> {
-                    // TAB 3: ABOUT APP & DEVELOPER
+                else -> {
                     AboutAppSection(
                         currentVersion = currentVersion,
                         onCheckAppUpdate = onCheckAppUpdate,
@@ -739,9 +356,671 @@ fun MediaHubPage(
     }
 }
 
-/**
- * Clean, modern About section for Media Player.
- */
+@Composable
+private fun SourcesAndStorageTab(
+    videoTotalBytes: Long,
+    audioTotalBytes: Long,
+    vaultCount: Int,
+    cacheBytes: Long,
+    isClearingCache: Boolean,
+    onPickFiles: () -> Unit,
+    onPickFolder: () -> Unit,
+    onOpenPrivacyVault: () -> Unit,
+    onClearCache: () -> Unit,
+) {
+    val totalMediaBytes = (videoTotalBytes + audioTotalBytes).coerceAtLeast(0L)
+
+    Column(verticalArrangement = Arrangement.spacedBy(18.dp)) {
+        // 1. External & Secure Sources (Exclusive to Media Hub)
+        HubSection(title = "EXTERNAL & SECURE SOURCES") {
+            HubActionRow(
+                title = "Open Media Files",
+                subtitle = "Play video or audio directly from storage & USB OTG",
+                icon = Icons.Rounded.FileOpen,
+                iconTint = MaterialTheme.colorScheme.onPrimaryContainer,
+                iconBg = MaterialTheme.colorScheme.primaryContainer,
+                onClick = onPickFiles
+            )
+            HubRowDivider()
+            HubActionRow(
+                title = "Scan Folder / SD Card",
+                subtitle = "Index a custom directory or external card into library",
+                icon = Icons.Rounded.FolderOpen,
+                iconTint = MaterialTheme.colorScheme.onTertiaryContainer,
+                iconBg = MaterialTheme.colorScheme.tertiaryContainer,
+                onClick = onPickFolder
+            )
+            HubRowDivider()
+            HubActionRow(
+                title = "Privacy Vault",
+                subtitle = if (vaultCount > 0) {
+                    "$vaultCount encrypted ${if (vaultCount == 1) "item" else "items"} • PIN & Biometric lock"
+                } else {
+                    "AES-256 hidden media safe • PIN & Biometric lock"
+                },
+                icon = Icons.Rounded.Lock,
+                iconTint = MaterialTheme.colorScheme.onSecondaryContainer,
+                iconBg = MaterialTheme.colorScheme.secondaryContainer,
+                trailingBadge = if (vaultCount > 0) vaultCount.toString() else null,
+                onClick = onOpenPrivacyVault
+            )
+        }
+
+        // 2. Storage & Cache Management (Exclusive to Media Hub)
+        HubSection(title = "STORAGE & CACHE") {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 14.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(MaterialTheme.colorScheme.surfaceContainerHigh),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.Storage,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.width(14.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Indexed Media Footprint",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            text = if (totalMediaBytes > 0L) formatFileSize(totalMediaBytes) else "0.0 MB",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(6.dp))
+                    // Proportional Video vs Audio storage bar
+                    val videoRatio = if (totalMediaBytes > 0L) {
+                        (videoTotalBytes.toFloat() / totalMediaBytes.toFloat()).coerceIn(0f, 1f)
+                    } else {
+                        0f
+                    }
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(6.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.surfaceContainerHighest)
+                    ) {
+                        if (videoRatio > 0f) {
+                            Box(
+                                modifier = Modifier
+                                    .weight(videoRatio.coerceAtLeast(0.02f))
+                                    .height(6.dp)
+                                    .background(MaterialTheme.colorScheme.primary)
+                            )
+                        }
+                        if (1f - videoRatio > 0.01f && totalMediaBytes > 0L) {
+                            Box(
+                                modifier = Modifier
+                                    .weight((1f - videoRatio).coerceAtLeast(0.02f))
+                                    .height(6.dp)
+                                    .background(MaterialTheme.colorScheme.tertiary)
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = "Videos: ${if (videoTotalBytes > 0L) formatFileSize(videoTotalBytes) else "0.0 MB"}  •  Music: ${if (audioTotalBytes > 0L) formatFileSize(audioTotalBytes) else "0.0 MB"}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 11.sp
+                    )
+                }
+            }
+
+            HubRowDivider()
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(enabled = !isClearingCache && cacheBytes > 0L) { onClearCache() }
+                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(MaterialTheme.colorScheme.surfaceContainerHigh),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.DeleteSweep,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.tertiary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.width(14.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Thumbnail & Artwork Cache",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        text = if (cacheBytes > 0L) {
+                            "${formatFileSize(cacheBytes)} cached on disk"
+                        } else {
+                            "Cache is clean"
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 11.sp
+                    )
+                }
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = if (cacheBytes > 0L) MaterialTheme.colorScheme.tertiaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(10.dp))
+                        .clickable(enabled = !isClearingCache) { onClearCache() }
+                ) {
+                    Text(
+                        text = if (isClearingCache) "Clearing..." else "Clear",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = if (cacheBytes > 0L) MaterialTheme.colorScheme.onTertiaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun StreamHubTab(
+    streamUrlInput: String,
+    onUrlChange: (String) -> Unit,
+    streamTitleInput: String,
+    onTitleChange: (String) -> Unit,
+    isVideoStream: Boolean,
+    onStreamTypeChange: (Boolean) -> Unit,
+    detectedClipboardUrl: String?,
+    onDismissClipboardBanner: () -> Unit,
+    onPasteClipboard: () -> Unit,
+    onPlayCurrent: () -> Unit,
+    recentStreams: List<StreamHistoryItem>,
+    onPlayRecent: (StreamHistoryItem) -> Unit,
+    onEditRecent: (StreamHistoryItem) -> Unit,
+    onDeleteRecentStream: (String) -> Unit,
+    onClearAllRecentStreams: () -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        // Smart Clipboard Banner
+        AnimatedVisibility(visible = (detectedClipboardUrl != null) && streamUrlInput.isBlank()) {
+            detectedClipboardUrl?.let { clipUrl ->
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer),
+                    shape = RoundedCornerShape(18.dp),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.tertiary.copy(alpha = 0.5f))
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onUrlChange(clipUrl) }
+                            .padding(horizontal = 14.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.ContentPaste,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onTertiaryContainer,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Link detected in clipboard",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onTertiaryContainer
+                            )
+                            Text(
+                                text = clipUrl,
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onTertiaryContainer.copy(alpha = 0.8f),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                        TextButton(onClick = { onUrlChange(clipUrl) }) {
+                            Text("Paste", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                        }
+                        IconButton(
+                            onClick = onDismissClipboardBanner,
+                            modifier = Modifier.size(28.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.Close,
+                                contentDescription = "Dismiss",
+                                tint = MaterialTheme.colorScheme.onTertiaryContainer,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // Main Stream Composer Card
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+            shape = RoundedCornerShape(22.dp),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+        ) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Network Stream",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        text = "HLS • DASH • RTSP • MP4 • FLAC",
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
+                OutlinedTextField(
+                    value = streamUrlInput,
+                    onValueChange = onUrlChange,
+                    label = { Text("Stream URL") },
+                    placeholder = { Text("https://example.com/stream.m3u8") },
+                    leadingIcon = {
+                        Icon(
+                            imageVector = Icons.Rounded.Link,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                    },
+                    trailingIcon = {
+                        if (streamUrlInput.isNotEmpty()) {
+                            IconButton(onClick = { onUrlChange("") }) {
+                                Icon(
+                                    imageVector = Icons.Rounded.Clear,
+                                    contentDescription = "Clear",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        } else {
+                            IconButton(onClick = onPasteClipboard) {
+                                Icon(
+                                    imageVector = Icons.Rounded.ContentPaste,
+                                    contentDescription = "Paste",
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        }
+                    },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = MaterialTheme.colorScheme.primary,
+                        unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
+                        focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                        unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
+                        focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                        unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLowest
+                    )
+                )
+
+                OutlinedTextField(
+                    value = streamTitleInput,
+                    onValueChange = onTitleChange,
+                    label = { Text("Title (Optional)") },
+                    placeholder = { Text("Custom Stream Name") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = MaterialTheme.colorScheme.primary,
+                        unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
+                        focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                        unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
+                        focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                        unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLowest
+                    )
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    FilterChip(
+                        selected = isVideoStream,
+                        onClick = { onStreamTypeChange(true) },
+                        label = { Text("Video Stream", fontWeight = FontWeight.SemiBold) },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Rounded.Movie,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                            selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                            selectedLeadingIconColor = MaterialTheme.colorScheme.onPrimaryContainer
+                        ),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.weight(1f)
+                    )
+
+                    FilterChip(
+                        selected = !isVideoStream,
+                        onClick = { onStreamTypeChange(false) },
+                        label = { Text("Audio / Radio", fontWeight = FontWeight.SemiBold) },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Rounded.MusicNote,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = MaterialTheme.colorScheme.secondaryContainer,
+                            selectedLabelColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                            selectedLeadingIconColor = MaterialTheme.colorScheme.onSecondaryContainer
+                        ),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+
+                Button(
+                    onClick = onPlayCurrent,
+                    enabled = streamUrlInput.isNotBlank(),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary,
+                        disabledContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.5f)
+                    ),
+                    shape = RoundedCornerShape(14.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(50.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.PlayArrow,
+                        contentDescription = null,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = if (isVideoStream) "Play Video Stream" else "Play Audio Stream",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 15.sp
+                    )
+                }
+            }
+        }
+
+        // Recent Streams History
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 4.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = if (recentStreams.isNotEmpty()) "RECENT STREAMS (${recentStreams.size})" else "RECENT STREAMS",
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    letterSpacing = 1.sp
+                )
+                if (recentStreams.isNotEmpty()) {
+                    TextButton(
+                        onClick = onClearAllRecentStreams,
+                        modifier = Modifier.height(30.dp)
+                    ) {
+                        Text(
+                            text = "Clear All",
+                            color = MaterialTheme.colorScheme.error,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
+            }
+
+            if (recentStreams.isEmpty()) {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+                    shape = RoundedCornerShape(18.dp),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.surfaceContainerHigh),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.History,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column {
+                            Text(
+                                text = "No recent streams yet",
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 13.sp,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Text(
+                                text = "Played URLs will be saved here for 1-tap replay or editing.",
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+            } else {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(18.dp))
+                        .background(MaterialTheme.colorScheme.surfaceContainer)
+                        .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(18.dp))
+                ) {
+                    recentStreams.forEachIndexed { index, item ->
+                        if (index > 0) {
+                            HubRowDivider()
+                        }
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { onPlayRecent(item) }
+                                .padding(horizontal = 14.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(38.dp)
+                                    .clip(CircleShape)
+                                    .background(
+                                        if (item.isVideo) MaterialTheme.colorScheme.primaryContainer
+                                        else MaterialTheme.colorScheme.secondaryContainer
+                                    ),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = if (item.isVideo) Icons.Rounded.Movie else Icons.Rounded.MusicNote,
+                                    contentDescription = null,
+                                    tint = if (item.isVideo) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSecondaryContainer,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.width(12.dp))
+
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = item.title,
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = 13.sp,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Text(
+                                    text = item.url,
+                                    fontSize = 11.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                if (item.timestamp > 0L) {
+                                    val relTime = remember(item.timestamp) {
+                                        DateUtils.getRelativeTimeSpanString(
+                                            item.timestamp,
+                                            System.currentTimeMillis(),
+                                            DateUtils.MINUTE_IN_MILLIS,
+                                            DateUtils.FORMAT_ABBREV_RELATIVE
+                                        ).toString()
+                                    }
+                                    Text(
+                                        text = "${if (item.isVideo) "Video" else "Audio"} • $relTime",
+                                        fontSize = 10.sp,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                            }
+
+                            IconButton(
+                                onClick = { onEditRecent(item) },
+                                modifier = Modifier.size(32.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.Edit,
+                                    contentDescription = "Edit in URL field",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                            IconButton(
+                                onClick = { onDeleteRecentStream(item.url) },
+                                modifier = Modifier.size(32.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.DeleteOutline,
+                                    contentDescription = "Remove",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Compact Sample Streams Strip
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(
+                text = "SAMPLE TEST STREAMS",
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                letterSpacing = 1.sp,
+                modifier = Modifier.padding(horizontal = 4.dp)
+            )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                listOf(
+                    Triple("Big Buck Bunny (HLS)", "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8", true),
+                    Triple("Oceans (MP4)", "https://vjs.zencdn.net/v/oceans.mp4", true),
+                    Triple("Akamai Live (HLS)", "https://cph-p2p-msl.akamaized.net/hls/live/2000341/test/master.m3u8", true),
+                    Triple("Web Radio Test", "https://stream.zeno.fm/f3wvbbqmdg8uv", false)
+                ).forEach { (title, url, isVid) ->
+                    Row(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(MaterialTheme.colorScheme.surfaceContainer)
+                            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(12.dp))
+                            .clickable {
+                                onUrlChange(url)
+                                onTitleChange(title)
+                                onStreamTypeChange(isVid)
+                            }
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = if (isVid) Icons.Rounded.Movie else Icons.Rounded.MusicNote,
+                            contentDescription = null,
+                            tint = if (isVid) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondary,
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = title,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
 @Composable
 private fun AboutAppSection(
     currentVersion: String,
@@ -752,16 +1031,23 @@ private fun AboutAppSection(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var isCheckingUpdate by remember { mutableStateOf(false) }
+    var isExportingLogs by remember { mutableStateOf(false) }
+    var hasCrashLog by remember { mutableStateOf(false) }
     var isUpiCopied by remember { mutableStateOf(false) }
 
-    // Crash-proof, official launcher icon extraction
+    LaunchedEffect(context) {
+        hasCrashLog = withContext(Dispatchers.IO) {
+            DiagnosticLogManager.hasSavedCrashReport(context)
+        }
+    }
+
     val appIcon = remember(context) {
         try {
             val pm = context.packageManager
             val drawable = pm.getApplicationIcon(context.applicationInfo)
             val width = if (drawable.intrinsicWidth > 0) drawable.intrinsicWidth else 192
             val height = if (drawable.intrinsicHeight > 0) drawable.intrinsicHeight else 192
-            val bitmap = android.graphics.Bitmap.createBitmap(width, height, android.graphics.Bitmap.Config.ARGB_8888)
+            val bitmap = createBitmap(width, height)
             val canvas = android.graphics.Canvas(bitmap)
             drawable.setBounds(0, 0, canvas.width, canvas.height)
             drawable.draw(canvas)
@@ -772,11 +1058,11 @@ private fun AboutAppSection(
     }
 
     Column(
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier.fillMaxWidth()
     ) {
-        // 1. APP BRAND HEADER CARD
+        // 1. Clean App Hero & Actions Card
         Card(
             modifier = Modifier.fillMaxWidth(),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
@@ -786,15 +1072,23 @@ private fun AboutAppSection(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(20.dp),
+                    .background(
+                        Brush.verticalGradient(
+                            colors = listOf(
+                                MaterialTheme.colorScheme.primary.copy(alpha = 0.08f),
+                                Color.Transparent
+                            )
+                        )
+                    )
+                    .padding(horizontal = 18.dp, vertical = 18.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                // App Logo matching official launcher icon
                 Box(
                     modifier = Modifier
-                        .size(72.dp)
+                        .size(68.dp)
                         .clip(RoundedCornerShape(20.dp))
-                        .background(MaterialTheme.colorScheme.surfaceContainerHigh),
+                        .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                        .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(20.dp)),
                     contentAlignment = Alignment.Center
                 ) {
                     if (appIcon != null) {
@@ -809,176 +1103,181 @@ private fun AboutAppSection(
                             imageVector = Icons.Rounded.PlayArrow,
                             contentDescription = "BKM Player",
                             tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(40.dp)
+                            modifier = Modifier.size(34.dp)
                         )
                     }
                 }
 
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(10.dp))
 
                 Text(
                     text = "BKM Player",
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold,
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.ExtraBold,
                     color = MaterialTheme.colorScheme.onSurface
                 )
 
                 Spacer(modifier = Modifier.height(4.dp))
 
                 Text(
-                    text = "Version $currentVersion",
+                    text = "By $HUB_DEVELOPER_NAME • India 🇮🇳",
                     fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontFamily = FontFamily.Monospace
+                    fontWeight = FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
 
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(10.dp))
 
-                Text(
-                    text = "A clean, private, and modern audio and video player for Android.",
-                    fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    textAlign = TextAlign.Center
-                )
-            }
-        }
-
-        // 2. DEVELOPER PROFILE CARD
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
-            shape = RoundedCornerShape(22.dp),
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
-        ) {
-            Column(modifier = Modifier.padding(18.dp)) {
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        // Monogram "BKM"
-                        Box(
-                            modifier = Modifier
-                                .size(48.dp)
-                                .clip(RoundedCornerShape(14.dp))
-                                .background(MaterialTheme.colorScheme.primaryContainer)
-                                .padding(2.dp)
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(MaterialTheme.colorScheme.surfaceContainerHigh),
-                            contentAlignment = Alignment.Center
+                    listOf("Ad-Free", "Offline", "Private").forEach { badge ->
+                        Surface(
+                            shape = RoundedCornerShape(50),
+                            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
                         ) {
                             Text(
-                                text = HUB_DEVELOPER_NAME,
-                                fontSize = 16.sp,
-                                fontWeight = FontWeight.Black,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                        }
-                        Spacer(modifier = Modifier.width(14.dp))
-                        Column {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(
-                                    text = HUB_DEVELOPER_NAME,
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Box(
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(6.dp))
-                                        .background(MaterialTheme.colorScheme.secondaryContainer)
-                                        .padding(horizontal = 6.dp, vertical = 2.dp)
-                                ) {
-                                    Text(
-                                        text = "DEVELOPER",
-                                        fontSize = 9.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.onSecondaryContainer
-                                    )
-                                }
-                            }
-                            Spacer(modifier = Modifier.height(2.dp))
-                            Text(
-                                text = "Lead Developer",
+                                text = badge,
                                 fontSize = 11.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(horizontal = 11.dp, vertical = 3.dp)
                             )
                         }
-                    }
-
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
-                            .padding(horizontal = 8.dp, vertical = 4.dp)
-                    ) {
-                        Text(
-                            text = "🇮🇳 India",
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
                     }
                 }
-
-                Spacer(modifier = Modifier.height(12.dp))
-                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                Spacer(modifier = Modifier.height(12.dp))
-
-                Text(
-                    text = "Developed by BKM using Kotlin, Jetpack Compose, and AndroidX Media3.",
-                    fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    lineHeight = 17.sp
-                )
 
                 Spacer(modifier = Modifier.height(14.dp))
 
                 Button(
                     onClick = {
-                        try {
-                            val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                                type = "text/plain"
-                                putExtra(Intent.EXTRA_SUBJECT, "Check out BKM Player")
-                                putExtra(
-                                    Intent.EXTRA_TEXT,
-                                    "Check out BKM Player by $HUB_DEVELOPER_NAME: ${AppUpdateManager.GITHUB_RELEASES_WEB_URL}"
-                                )
+                        if (!isCheckingUpdate) {
+                            isCheckingUpdate = true
+                            if (onCheckAppUpdate != null) {
+                                onCheckAppUpdate()
+                                isCheckingUpdate = false
+                            } else {
+                                scope.launch {
+                                    val result = AppUpdateManager.checkForUpdates(context)
+                                    isCheckingUpdate = false
+                                    result.onSuccess { info ->
+                                        val msg = if (info.isUpdateAvailable) {
+                                            "New version ${info.tagName} available!"
+                                        } else {
+                                            "You are on the latest version v$currentVersion"
+                                        }
+                                        Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                                    }.onFailure { err ->
+                                        Toast.makeText(
+                                            context,
+                                            "Update check failed: ${err.localizedMessage ?: "Network error"}",
+                                            Toast.LENGTH_SHORT
+                                        ).show()
+                                    }
+                                }
                             }
-                            context.startActivity(Intent.createChooser(shareIntent, "Share BKM Player"))
-                        } catch (e: Exception) {
-                            e.printStackTrace()
                         }
                     },
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-                        contentColor = MaterialTheme.colorScheme.onSurface
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary
                     ),
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier.fillMaxWidth()
+                    shape = RoundedCornerShape(14.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(46.dp)
                 ) {
-                    Icon(
-                        imageVector = Icons.Rounded.Share,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Share BKM Player", color = MaterialTheme.colorScheme.onSurface, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                    if (isCheckingUpdate) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(16.dp),
+                            color = MaterialTheme.colorScheme.onPrimary,
+                            strokeWidth = 2.dp
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Checking Updates...", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    } else {
+                        Icon(
+                            imageVector = Icons.Rounded.CloudDownload,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Check for Updates", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = {
+                            AppUpdateManager.openUrl(context, AppUpdateManager.GITHUB_RELEASES_WEB_URL)
+                        },
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.onSurface),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                        shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(42.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Rounded.Launch,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("What's New", fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
+                    }
+
+                    OutlinedButton(
+                        onClick = {
+                            try {
+                                val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                                    type = "text/plain"
+                                    putExtra(Intent.EXTRA_SUBJECT, "BKM Player")
+                                    putExtra(
+                                        Intent.EXTRA_TEXT,
+                                        "Check out BKM Player: ${AppUpdateManager.GITHUB_RELEASES_WEB_URL}"
+                                    )
+                                }
+                                context.startActivity(Intent.createChooser(shareIntent, "Share BKM Player"))
+                            } catch (_: Exception) {
+                            }
+                        },
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.onSurface),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                        shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(42.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Share,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Share App", fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
+                    }
                 }
             }
         }
 
-        // 3. SUPPORT & DONATION CARD (UPI)
+        // 2. Support Development Card
         Card(
             modifier = Modifier.fillMaxWidth(),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
-            shape = RoundedCornerShape(22.dp),
+            shape = RoundedCornerShape(24.dp),
             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
         ) {
-            Column(modifier = Modifier.padding(18.dp)) {
+            Column(modifier = Modifier.padding(16.dp)) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically
@@ -987,46 +1286,35 @@ private fun AboutAppSection(
                         modifier = Modifier
                             .size(40.dp)
                             .clip(RoundedCornerShape(12.dp))
-                            .background(MaterialTheme.colorScheme.tertiaryContainer)
-                            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(12.dp)),
+                            .background(MaterialTheme.colorScheme.tertiaryContainer),
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
                             imageVector = Icons.Rounded.Favorite,
                             contentDescription = null,
                             tint = MaterialTheme.colorScheme.onTertiaryContainer,
-                            modifier = Modifier.size(22.dp)
+                            modifier = Modifier.size(19.dp)
                         )
                     }
-                    Spacer(modifier = Modifier.width(14.dp))
+                    Spacer(modifier = Modifier.width(12.dp))
                     Column {
                         Text(
-                            text = "Support Development ☕",
+                            text = "Support Development",
                             fontWeight = FontWeight.Bold,
                             fontSize = 15.sp,
                             color = MaterialTheme.colorScheme.onSurface
                         )
                         Text(
-                            text = "100% Free & Ad-Free",
-                            fontSize = 11.sp,
+                            text = "Optional tip via UPI",
+                            fontSize = 12.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 }
 
-                Spacer(modifier = Modifier.height(10.dp))
+                Spacer(modifier = Modifier.height(12.dp))
 
-                Text(
-                    text = "BKM Player is completely free and ad-free. If you find this app helpful, consider supporting future development with a donation via UPI!",
-                    fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    lineHeight = 17.sp
-                )
-
-                Spacer(modifier = Modifier.height(14.dp))
-
-                // Interactive UPI ID Pill (Tap to Copy)
-                Box(
+                Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(14.dp))
@@ -1036,79 +1324,81 @@ private fun AboutAppSection(
                             onCopyUpi()
                             isUpiCopied = true
                         }
-                        .padding(horizontal = 14.dp, vertical = 10.dp)
+                        .padding(horizontal = 14.dp, vertical = 11.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
+                    Text(
+                        text = HUB_DEVELOPER_UPI_ID,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        fontFamily = FontFamily.Monospace,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(50))
+                            .background(
+                                if (isUpiCopied) {
+                                    MaterialTheme.colorScheme.primaryContainer
+                                } else {
+                                    MaterialTheme.colorScheme.surfaceContainerHighest
+                                }
+                            )
                     ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = "DEVELOPER UPI ID (TAP TO COPY)",
-                                fontSize = 9.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                letterSpacing = 0.8.sp
-                            )
-                            Spacer(modifier = Modifier.height(2.dp))
-                            Text(
-                                text = HUB_DEVELOPER_UPI_ID,
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurface,
-                                fontFamily = FontFamily.Monospace
-                            )
-                        }
-
-                        Box(
-                            modifier = Modifier
-                                .size(32.dp)
-                                .clip(CircleShape)
-                                .background(if (isUpiCopied) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHighest),
-                            contentAlignment = Alignment.Center
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
                         ) {
                             Icon(
                                 imageVector = if (isUpiCopied) Icons.Rounded.Check else Icons.Rounded.ContentCopy,
                                 contentDescription = "Copy UPI ID",
-                                tint = if (isUpiCopied) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(15.dp)
+                                tint = if (isUpiCopied) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                },
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = if (isUpiCopied) "Copied" else "Copy",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = if (isUpiCopied) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                }
                             )
                         }
                     }
                 }
 
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(10.dp))
 
-                Text(
-                    text = "Accepted via Google Pay, PhonePe, Paytm, BHIM & any UPI app",
-                    fontSize = 10.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.fillMaxWidth()
-                )
-
-                Spacer(modifier = Modifier.height(12.dp))
-
-                // Preset Donation Amount Chips
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    listOf("50" to "₹50 ☕", "100" to "₹100 ☕", "250" to "₹250 🍕", "500" to "₹500 🚀").forEach { (amount, label) ->
+                    listOf("50" to "₹50", "100" to "₹100", "250" to "₹250", "500" to "₹500").forEach { (amount, label) ->
                         Box(
                             modifier = Modifier
                                 .weight(1f)
-                                .clip(RoundedCornerShape(10.dp))
+                                .clip(RoundedCornerShape(12.dp))
                                 .background(MaterialTheme.colorScheme.surfaceContainerHigh)
-                                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(10.dp))
+                                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(12.dp))
                                 .clickable { onPayUpi(amount) }
-                                .padding(vertical = 8.dp),
+                                .padding(vertical = 9.dp),
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
                                 text = label,
-                                fontSize = 11.sp,
+                                fontSize = 12.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.primary
                             )
@@ -1118,183 +1408,244 @@ private fun AboutAppSection(
 
                 Spacer(modifier = Modifier.height(12.dp))
 
-                // Primary Donate Buttons
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                Button(
+                    onClick = { onPayUpi(null) },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary
+                    ),
+                    shape = RoundedCornerShape(14.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(46.dp)
                 ) {
-                    Button(
-                        onClick = { onPayUpi(null) },
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = MaterialTheme.colorScheme.primary,
-                            contentColor = MaterialTheme.colorScheme.onPrimary
-                        ),
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier.weight(1.3f)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Rounded.AccountBalanceWallet,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onPrimary,
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("Pay via UPI App", color = MaterialTheme.colorScheme.onPrimary, fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                    }
-
-                    OutlinedButton(
-                        onClick = {
-                            onCopyUpi()
-                            isUpiCopied = true
-                        },
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.primary),
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Rounded.ContentCopy,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(15.dp)
-                        )
-                        Spacer(modifier = Modifier.width(5.dp))
-                        Text("Copy ID", fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                    }
+                    Icon(
+                        imageVector = Icons.Rounded.AccountBalanceWallet,
+                        contentDescription = null,
+                        modifier = Modifier.size(17.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Pay via UPI App", fontWeight = FontWeight.Bold, fontSize = 13.sp)
                 }
             }
         }
 
-        // 4. SOFTWARE UPDATES & RELEASES
+        // 3. Diagnostics & Debug Logs Card
         Card(
             modifier = Modifier.fillMaxWidth(),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
-            shape = RoundedCornerShape(22.dp),
+            shape = RoundedCornerShape(24.dp),
             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
         ) {
-            Column(modifier = Modifier.padding(18.dp)) {
+            Column(modifier = Modifier.padding(16.dp)) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Box(
                         modifier = Modifier
-                            .size(38.dp)
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(MaterialTheme.colorScheme.primaryContainer)
-                            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(10.dp)),
+                            .size(40.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(MaterialTheme.colorScheme.secondaryContainer),
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
-                            imageVector = Icons.Rounded.CloudDownload,
+                            imageVector = Icons.Rounded.BugReport,
                             contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                            modifier = Modifier.size(18.dp)
+                            tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                            modifier = Modifier.size(20.dp)
                         )
                     }
-                    Spacer(modifier = Modifier.width(14.dp))
-                    Column {
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = "Software Updates",
+                            text = "Diagnostics & Debug Logs",
                             fontWeight = FontWeight.Bold,
                             fontSize = 15.sp,
                             color = MaterialTheme.colorScheme.onSurface
                         )
                         Text(
-                            text = "v$currentVersion • GitHub Releases",
-                            fontSize = 11.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            text = if (hasCrashLog) {
+                                "Crash report captured • Tap below to share"
+                            } else {
+                                "Device specs, codecs & recent logs (no personal media)"
+                            },
+                            fontSize = 12.sp,
+                            color = if (hasCrashLog) {
+                                MaterialTheme.colorScheme.error
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            }
                         )
                     }
                 }
 
-                Spacer(modifier = Modifier.height(14.dp))
+                Spacer(modifier = Modifier.height(12.dp))
 
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    Button(
-                        onClick = {
-                            if (!isCheckingUpdate) {
-                                isCheckingUpdate = true
-                                if (onCheckAppUpdate != null) {
-                                    onCheckAppUpdate()
-                                    isCheckingUpdate = false
-                                } else {
-                                    scope.launch {
-                                        val result = AppUpdateManager.checkForUpdates(context)
-                                        isCheckingUpdate = false
-                                        result.onSuccess { info ->
-                                            if (info.isUpdateAvailable) {
-                                                Toast.makeText(context, "New version ${info.tagName} available!", Toast.LENGTH_LONG).show()
-                                            } else {
-                                                Toast.makeText(context, "You are on the latest version v$currentVersion", Toast.LENGTH_SHORT).show()
-                                            }
-                                        }.onFailure { err ->
-                                            Toast.makeText(context, "Update check failed: ${err.localizedMessage ?: "Network error"}", Toast.LENGTH_SHORT).show()
-                                        }
+                OutlinedButton(
+                    onClick = {
+                        if (!isExportingLogs) {
+                            isExportingLogs = true
+                            scope.launch {
+                                val result = DiagnosticLogManager.exportDiagnosticReport(context)
+                                isExportingLogs = false
+                                result.onSuccess { file ->
+                                    try {
+                                        DiagnosticLogManager.shareDiagnosticFile(context, file)
+                                    } catch (e: Exception) {
+                                        Toast.makeText(
+                                            context,
+                                            "Unable to open share sheet: ${e.localizedMessage ?: "error"}",
+                                            Toast.LENGTH_SHORT
+                                        ).show()
                                     }
+                                }.onFailure { err ->
+                                    Toast.makeText(
+                                        context,
+                                        "Failed to collect logs: ${err.localizedMessage ?: "error"}",
+                                        Toast.LENGTH_SHORT
+                                    ).show()
                                 }
                             }
-                        },
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = MaterialTheme.colorScheme.primary,
-                            contentColor = MaterialTheme.colorScheme.onPrimary
-                        ),
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier.weight(1.3f)
-                    ) {
-                        if (isCheckingUpdate) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(14.dp),
-                                color = MaterialTheme.colorScheme.onPrimary,
-                                strokeWidth = 2.dp
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("Checking...", color = MaterialTheme.colorScheme.onPrimary, fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                        } else {
-                            Icon(
-                                imageVector = Icons.Rounded.CloudDownload,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onPrimary,
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Check Updates", color = MaterialTheme.colorScheme.onPrimary, fontWeight = FontWeight.Bold, fontSize = 12.sp)
                         }
-                    }
-
-                    OutlinedButton(
-                        onClick = {
-                            AppUpdateManager.openUrl(context, AppUpdateManager.GITHUB_RELEASES_WEB_URL)
-                        },
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.primary),
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier.weight(1f)
-                    ) {
+                    },
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.onSurface),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                    shape = RoundedCornerShape(14.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(44.dp)
+                ) {
+                    if (isExportingLogs) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(16.dp),
+                            color = MaterialTheme.colorScheme.primary,
+                            strokeWidth = 2.dp
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Collecting Logs...", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                    } else {
                         Icon(
-                            imageVector = Icons.AutoMirrored.Rounded.Launch,
+                            imageVector = Icons.Rounded.Share,
                             contentDescription = null,
                             tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(14.dp)
+                            modifier = Modifier.size(17.dp)
                         )
-                        Spacer(modifier = Modifier.width(5.dp))
-                        Text("Releases", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Export Debug Logs", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
                     }
                 }
             }
         }
+    }
+}
 
-        Spacer(modifier = Modifier.height(8.dp))
-
-        // Footer & Copyright
+@Composable
+private fun HubSection(
+    title: String,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    Column(modifier = Modifier.fillMaxWidth()) {
         Text(
-            text = "Crafted with ❤️ by $HUB_DEVELOPER_NAME • Open Source",
+            text = title,
             fontSize = 11.sp,
+            fontWeight = FontWeight.Bold,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = TextAlign.Center
+            letterSpacing = 1.sp,
+            modifier = Modifier.padding(start = 4.dp, bottom = 8.dp)
+        )
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(20.dp))
+                .background(MaterialTheme.colorScheme.surfaceContainer)
+                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(20.dp))
+        ) {
+            content()
+        }
+    }
+}
+
+@Composable
+private fun HubRowDivider() {
+    HorizontalDivider(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 14.dp),
+        thickness = 0.5.dp,
+        color = MaterialTheme.colorScheme.outlineVariant
+    )
+}
+
+@Composable
+private fun HubActionRow(
+    title: String,
+    subtitle: String,
+    icon: ImageVector,
+    iconTint: Color,
+    iconBg: Color,
+    trailingBadge: String? = null,
+    onClick: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(40.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .background(iconBg),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = iconTint,
+                modifier = Modifier.size(20.dp)
+            )
+        }
+        Spacer(modifier = Modifier.width(14.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontSize = 11.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+        if (trailingBadge != null) {
+            Box(
+                modifier = Modifier
+                    .padding(end = 6.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(MaterialTheme.colorScheme.primaryContainer)
+                    .padding(horizontal = 8.dp, vertical = 2.dp)
+            ) {
+                Text(
+                    text = trailingBadge,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                )
+            }
+        }
+        Icon(
+            imageVector = Icons.AutoMirrored.Rounded.KeyboardArrowRight,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(20.dp)
         )
     }
 }
@@ -1306,14 +1657,13 @@ private fun HubTabItem(
     icon: ImageVector,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    badgeColor: Color? = null,
 ) {
     Box(
         modifier = modifier
             .clip(RoundedCornerShape(12.dp))
             .background(if (selected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent)
             .clickable(onClick = onClick)
-            .padding(vertical = 10.dp, horizontal = 4.dp),
+            .padding(vertical = 10.dp, horizontal = 6.dp),
         contentAlignment = Alignment.Center
     ) {
         Row(
@@ -1323,13 +1673,13 @@ private fun HubTabItem(
             Icon(
                 imageVector = icon,
                 contentDescription = null,
-                tint = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else (badgeColor ?: MaterialTheme.colorScheme.onSurfaceVariant),
-                modifier = Modifier.size(15.dp)
+                tint = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(16.dp)
             )
-            Spacer(modifier = Modifier.width(4.dp))
+            Spacer(modifier = Modifier.width(6.dp))
             Text(
                 text = title,
-                fontSize = 11.sp,
+                fontSize = 12.sp,
                 fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
                 color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
@@ -1339,97 +1689,13 @@ private fun HubTabItem(
     }
 }
 
-@Composable
-private fun HubSourceCard(
-    title: String,
-    subtitle: String,
-    icon: ImageVector,
-    iconTint: Color,
-    iconBg: Color,
-    tags: List<String>? = null,
-    onClick: () -> Unit,
-) {
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
-        shape = RoundedCornerShape(20.dp),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
-    ) {
-        Column(modifier = Modifier.padding(18.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(50.dp)
-                            .clip(CircleShape)
-                            .background(iconBg),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = icon,
-                            contentDescription = null,
-                            tint = iconTint,
-                            modifier = Modifier.size(26.dp)
-                        )
-                    }
-                    Spacer(modifier = Modifier.width(16.dp))
-                    Column {
-                        Text(
-                            text = title,
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                        Spacer(modifier = Modifier.height(3.dp))
-                        Text(
-                            text = subtitle,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            fontSize = 12.sp
-                        )
-                    }
-                }
-                Icon(
-                    imageVector = Icons.AutoMirrored.Rounded.ArrowForward,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(20.dp)
-                )
-            }
-
-            if (!tags.isNullOrEmpty()) {
-                Spacer(modifier = Modifier.height(12.dp))
-                Row(
-                    modifier = Modifier.horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    tags.forEach { tag ->
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(6.dp))
-                                .background(MaterialTheme.colorScheme.surfaceContainerHigh)
-                                .border(0.8.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(6.dp))
-                                .padding(horizontal = 8.dp, vertical = 3.dp)
-                        ) {
-                            Text(
-                                text = tag,
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-                }
-            }
+private fun calculateDirSize(dir: File): Long {
+    if (!dir.exists()) return 0L
+    var total = 0L
+    dir.walkTopDown().forEach { file ->
+        if (file.isFile) {
+            total += file.length()
         }
     }
+    return total
 }

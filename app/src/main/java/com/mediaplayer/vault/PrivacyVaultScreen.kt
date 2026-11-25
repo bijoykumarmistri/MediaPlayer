@@ -593,7 +593,7 @@ private fun VaultVideoCard(
                 modifier = Modifier
                     .fillMaxWidth()
                     .aspectRatio(16f / 9f)
-                    .background(Color(0xFF0F1017))
+                    .background(MaterialTheme.colorScheme.surfaceContainerLowest)
             ) {
                 val thumbnailFile = remember(item.vaultFilePath) {
                     val f = File(item.vaultFilePath)

@@ -20,6 +20,8 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
@@ -27,6 +29,7 @@ import com.mediaplayer.data.MediaLibraryRepository
 import com.mediaplayer.playback.MediaPlayerManager
 import com.mediaplayer.ui.MainMediaPlayerScreen
 import com.mediaplayer.ui.theme.MediaPlayerTheme
+import com.mediaplayer.util.AppSettingsManager
 import com.mediaplayer.util.HighRefreshRateManager
 import com.mediaplayer.vault.VaultRepository
 import com.mediaplayer.vault.VaultSecurityManager
@@ -95,15 +98,21 @@ class MainActivity : ComponentActivity() {
         ContextCompat.registerReceiver(this, pipReceiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
 
         lifecycleScope.launch {
+            var wasAutoEnterEligible = false
             combine(
+                playerManager.currentMediaItem,
                 playerManager.isPlaying,
                 playerManager.isVideoPlaying,
                 playerManager.videoDimensions,
                 playerManager.isPlayerExpanded,
-            ) { isPlaying, isVideoPlaying, dims, isExpanded ->
-                Triple(isPlaying || isVideoPlaying, dims, isExpanded)
-            }.collect { (isPlayingOrVideo, _, isExpanded) ->
-                if (isInPictureInPictureMode || (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && isPlayingOrVideo && isExpanded)) {
+            ) { item, isPlaying, isVideoPlaying, dims, isExpanded ->
+                val isVideo = item?.isVideo == true
+                val autoEnterEligible = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+                    isVideo && isVideoPlaying && isExpanded
+                Triple(autoEnterEligible, isInPictureInPictureMode, Triple(isPlaying, isVideoPlaying, dims))
+            }.collect { (autoEnterEligible, inPip, _) ->
+                if (inPip || autoEnterEligible || wasAutoEnterEligible) {
+                    wasAutoEnterEligible = autoEnterEligible
                     try {
                         setPictureInPictureParams(buildPipParams())
                     } catch (e: Exception) {
@@ -114,7 +123,8 @@ class MainActivity : ComponentActivity() {
         }
 
         setContent {
-            MediaPlayerTheme {
+            val pitchBlackEnabled by AppSettingsManager.pitchBlackThemeFlow(this).collectAsState()
+            MediaPlayerTheme(oledMode = pitchBlackEnabled) {
                 MainContent(
                     repository = repository,
                     vaultRepository = vaultRepository,
@@ -122,6 +132,7 @@ class MainActivity : ComponentActivity() {
                     playerManager = playerManager,
                     isInPipMode = isInPipModeState.value,
                     onEnterPip = ::enterPip,
+                    onRefreshRateSettingChanged = { highRefreshRateManager.applyOptimalRefreshRate() },
                 )
             }
         }
@@ -327,7 +338,8 @@ fun MainContent(
     vaultSecurityManager: VaultSecurityManager,
     playerManager: MediaPlayerManager,
     isInPipMode: Boolean,
-    onEnterPip: () -> Unit
+    onEnterPip: () -> Unit,
+    onRefreshRateSettingChanged: () -> Unit = {}
 ) {
     MainMediaPlayerScreen(
         repository = repository,
@@ -335,6 +347,7 @@ fun MainContent(
         vaultSecurityManager = vaultSecurityManager,
         playerManager = playerManager,
         isInPipMode = isInPipMode,
-        onEnterPip = onEnterPip
+        onEnterPip = onEnterPip,
+        onRefreshRateSettingChanged = onRefreshRateSettingChanged
     )
 }

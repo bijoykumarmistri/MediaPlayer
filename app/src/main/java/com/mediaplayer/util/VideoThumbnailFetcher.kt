@@ -139,9 +139,6 @@ class VideoThumbnailFetcher(
                 )
             }
 
-            val targetW = (options.size.width as? Dimension.Pixels)?.px?.coerceIn(120, 1080) ?: 360
-            val targetH = (options.size.height as? Dimension.Pixels)?.px?.coerceIn(90, 720) ?: 200
-
             var bitmap: Bitmap? = null
 
             // 2. High-speed keyframe extraction via MediaMetadataRetriever (hardware-sync frame scaled to target size)

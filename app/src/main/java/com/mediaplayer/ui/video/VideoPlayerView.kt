@@ -11,8 +11,11 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.mediaplayer.playback.MediaPlayerManager
 import com.mediaplayer.util.AppSettingsManager
+import com.bkm.player.mpv.PlayerPlaylistItem
 import com.bkm.player.mpv.PlayerViewModel
 import com.bkm.player.mpv.VideoPlayerScreen as MpvVideoPlayerScreen
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 
 /**
  * High-performance video player interface powered 100% by the C++ Core (libmpv HW+) native engine.
@@ -34,17 +37,26 @@ fun VideoPlayerView(
     val currentItem by playerManager.currentMediaItem.collectAsState()
     val playlist by playerManager.playlist.collectAsState()
     val currentIndex by playerManager.currentIndex.collectAsState()
-    val uiState by videoViewModel.uiState.collectAsState()
 
-    // Sync libmpv playback status and video dimensions to MediaPlayerManager for PiP
-    LaunchedEffect(uiState.isPlaying) {
-        playerManager.setVideoPlaying(uiState.isPlaying)
+    // Sync only discrete playback status and video dimensions to MediaPlayerManager (ignores 10Hz time ticks)
+    LaunchedEffect(videoViewModel) {
+        videoViewModel.uiState
+            .map { it.isPlaying }
+            .distinctUntilChanged()
+            .collect { playing ->
+                playerManager.setVideoPlaying(playing)
+            }
     }
 
-    LaunchedEffect(uiState.videoWidth, uiState.videoHeight) {
-        if ((uiState.videoWidth > 0) && (uiState.videoHeight > 0)) {
-            playerManager.setVideoDimensions(uiState.videoWidth, uiState.videoHeight)
-        }
+    LaunchedEffect(videoViewModel) {
+        videoViewModel.uiState
+            .map { it.videoWidth to it.videoHeight }
+            .distinctUntilChanged()
+            .collect { (w, h) ->
+                if (w > 0 && h > 0) {
+                    playerManager.setVideoDimensions(w, h)
+                }
+            }
     }
 
     // Ensure ExoPlayer is stopped for video
@@ -61,7 +73,7 @@ fun VideoPlayerView(
         playerManager.onToggleVideoPlayPause = { videoViewModel.togglePlayPause() }
         playerManager.onPauseVideo = { videoViewModel.pausePlayback() }
         playerManager.onStopVideo = {
-            videoViewModel.stopPlayback()
+            videoViewModel.stopPlayback(releaseEngine = true)
             playerManager.clearVideoCallbacks()
             playerManager.setVideoPlaying(false)
         }
@@ -74,20 +86,32 @@ fun VideoPlayerView(
 
     val hasPrevious = currentIndex > 0
     val hasNext = currentIndex < playlist.size - 1
+    val playerPlaylistItems = remember(playlist) {
+        playlist.map { item ->
+            PlayerPlaylistItem(
+                id = item.id,
+                title = item.title,
+                durationMs = item.durationMs,
+                resolution = item.resolution
+            )
+        }
+    }
 
-    val initialPositionMs = playerManager.consumeVideoStartPositionOverride() ?: (currentItem?.id?.let { mediaId ->
-        if (currentSettings.autoResume) {
-            val saved = playerManager.getSavedPosition(mediaId)
-            val dur = currentItem?.durationMs ?: 0L
-            if (saved > 3000L && (dur <= 0L || saved < dur - 5000L)) {
-                saved
+    val initialPositionMs = remember(currentItem?.id, currentItem?.uri) {
+        playerManager.consumeVideoStartPositionOverride() ?: (currentItem?.id?.let { mediaId ->
+            if (currentSettings.autoResume) {
+                val saved = playerManager.getSavedPosition(mediaId)
+                val dur = currentItem?.durationMs ?: 0L
+                if (saved > 3000L && (dur <= 0L || saved < dur - 5000L)) {
+                    saved
+                } else {
+                    0L
+                }
             } else {
                 0L
             }
-        } else {
-            0L
-        }
-    } ?: 0L)
+        } ?: 0L)
+    }
 
     MpvVideoPlayerScreen(
         modifier = modifier,
@@ -98,6 +122,9 @@ fun VideoPlayerView(
         hasNext = hasNext,
         onPrevious = { playerManager.playPreviousVideo() },
         onNext = { playerManager.playNextVideo() },
+        playlistItems = playerPlaylistItems,
+        currentPlaylistIndex = currentIndex,
+        onSelectPlaylistItem = { idx -> playerManager.playVideoAtIndex(idx) },
         onPositionUpdate = { posMs, durMs ->
             playerManager.updateVideoPosition(posMs, durMs)
             currentItem?.id?.let { mediaId ->
@@ -113,6 +140,8 @@ fun VideoPlayerView(
         fastScrubEnabled = currentSettings.fastScrubEnabled,
         hold2xSpeedEnabled = currentSettings.hold2xSpeedEnabled,
         backgroundPlaybackEnabled = currentSettings.backgroundPlayback,
+        autoRotateByDefault = currentSettings.autoRotateVideo,
+        autoPlayNext = currentSettings.autoPlayNextVideo,
         defaultDecoderMode = currentSettings.defaultDecoderMode,
         defaultResizeMode = currentSettings.defaultResizeMode,
         subtitleSize = currentSettings.subtitleSize,

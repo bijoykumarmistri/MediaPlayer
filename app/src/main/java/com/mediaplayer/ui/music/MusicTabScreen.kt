@@ -42,6 +42,7 @@ import androidx.compose.material.icons.rounded.Album
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.CheckCircleOutline
 import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.GridView
@@ -67,6 +68,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import android.content.Context
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -104,18 +106,19 @@ private val FallbackProceduralPalettes = listOf(
 fun MusicFolderListItem(
     folder: MusicFolderItem,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    context: Context = LocalContext.current
 ) {
-    val context = LocalContext.current
     val firstTrack = remember(folder.tracks) { folder.tracks.firstOrNull() }
-    val imageRequest = remember(firstTrack?.artworkUri, firstTrack?.id) {
-        if (firstTrack?.artworkUri != null) {
+    val artUri = firstTrack?.artworkUri
+    val imageRequest = remember(artUri) {
+        if (artUri != null) {
             ImageRequest.Builder(context)
-                .data(firstTrack.artworkUri)
+                .data(artUri)
                 .size(320, 200)
-                .diskCacheKey("athumb_${firstTrack.id}")
-                .memoryCacheKey("athumb_${firstTrack.id}")
-                .crossfade(true)
+                .diskCacheKey("athumb_$artUri")
+                .memoryCacheKey("athumb_$artUri")
+                .crossfade(false)
                 .build()
         } else null
     }
@@ -238,7 +241,7 @@ fun MusicFolderListItem(
                         .padding(horizontal = 8.dp, vertical = 2.dp)
                 ) {
                     Text(
-                        text = "${folder.tracks.size} Tracks",
+                        text = "${folder.tracks.size} ${if (folder.tracks.size == 1) "Track" else "Tracks"}",
                         color = MaterialTheme.colorScheme.onPrimaryContainer,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.SemiBold
@@ -253,18 +256,19 @@ fun MusicFolderListItem(
 fun MusicFolderGridItem(
     folder: MusicFolderItem,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    context: Context = LocalContext.current
 ) {
-    val context = LocalContext.current
     val firstTrack = remember(folder.tracks) { folder.tracks.firstOrNull() }
-    val imageRequest = remember(firstTrack?.artworkUri, firstTrack?.id) {
-        if (firstTrack?.artworkUri != null) {
+    val artUri = firstTrack?.artworkUri
+    val imageRequest = remember(artUri) {
+        if (artUri != null) {
             ImageRequest.Builder(context)
-                .data(firstTrack.artworkUri)
+                .data(artUri)
                 .size(360, 220)
-                .diskCacheKey("athumb_${firstTrack.id}")
-                .memoryCacheKey("athumb_${firstTrack.id}")
-                .crossfade(true)
+                .diskCacheKey("athumb_$artUri")
+                .memoryCacheKey("athumb_$artUri")
+                .crossfade(false)
                 .build()
         } else null
     }
@@ -403,39 +407,29 @@ fun MusicCardItem(
     onClick: () -> Unit,
     onShowOptions: () -> Unit,
     onDeleteClick: () -> Unit = {},
-    onLongClick: () -> Unit = onDeleteClick
+    onLongClick: () -> Unit = onDeleteClick,
+    context: Context = LocalContext.current
 ) {
-    val context = LocalContext.current
-    val imageRequest = remember(item.artworkUri, item.id) {
-        if (item.artworkUri == null) null
+    val artUri = item.artworkUri
+    val imageRequest = remember(artUri) {
+        if (artUri == null) null
         else {
             ImageRequest.Builder(context)
-                .data(item.artworkUri)
+                .data(artUri)
                 .size(480, 480)
-                .diskCacheKey("athumb_${item.id}")
-                .memoryCacheKey("athumb_${item.id}")
-                .crossfade(true)
+                .diskCacheKey("athumb_$artUri")
+                .memoryCacheKey("athumb_$artUri")
+                .crossfade(false)
                 .build()
         }
     }
 
-    val isHiRes = remember(item.bitDepth, item.sampleRate, item.codecBadge) {
-        item.bitDepth >= 24 || item.sampleRate >= 48000 ||
-                item.codecBadge.contains("Hi-Res", true) ||
-                item.codecBadge.contains("Lossless", true) ||
-                item.mimeType.contains("flac", true) ||
-                item.mimeType.contains("alac", true) ||
-                item.mimeType.contains("dsd", true)
+    val isHiRes = remember(item.bitDepth, item.sampleRate, item.codecBadge, item.mimeType) {
+        isAudioItemHiRes(item)
     }
 
-    val badgeText = remember(item.codecBadge, item.sampleRate, item.bitDepth) {
-        item.codecBadge.ifEmpty {
-            if (item.sampleRate >= 48000 || item.bitDepth >= 24) {
-                "${item.bitDepth}b/${AudioFormatUtils.formatSampleRate(item.sampleRate)}"
-            } else if (item.mimeType.isNotEmpty()) {
-                item.mimeType.substringAfterLast("/").uppercase()
-            } else "AUDIO"
-        }
+    val badgeText = remember(item.codecBadge, item.sampleRate, item.bitDepth, item.mimeType) {
+        resolveAudioBadgeText(item)
     }
 
     val fallbackColors = remember(item.id) {
@@ -448,7 +442,7 @@ fun MusicCardItem(
             .clip(RoundedCornerShape(14.dp))
             .border(
                 if (isSelected) 2.dp else 1.dp,
-                if (isSelected) MaterialTheme.colorScheme.primary else if (isPlaying) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
+                if (isSelected || isPlaying) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
                 RoundedCornerShape(14.dp)
             )
             .combinedClickable(
@@ -456,144 +450,177 @@ fun MusicCardItem(
                 onLongClick = onLongClick
             ),
         shape = RoundedCornerShape(14.dp),
-        colors = CardDefaults.cardColors(containerColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainer)
+        colors = CardDefaults.cardColors(
+            containerColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainer
+        )
     ) {
         Column {
+            MusicCardArtworkBox(
+                item = item,
+                imageRequest = imageRequest,
+                fallbackColors = fallbackColors,
+                isPlaying = isPlaying,
+                isSelected = isSelected,
+                isSelectionMode = isSelectionMode,
+                isHiRes = isHiRes,
+                badgeText = badgeText
+            )
+            MusicCardFooterRow(
+                item = item,
+                isPlaying = isPlaying,
+                onShowOptions = onShowOptions
+            )
+        }
+    }
+}
+
+@Composable
+private fun MusicCardArtworkBox(
+    item: MediaItemModel,
+    imageRequest: ImageRequest?,
+    fallbackColors: List<Color>,
+    isPlaying: Boolean,
+    isSelected: Boolean,
+    isSelectionMode: Boolean,
+    isHiRes: Boolean,
+    badgeText: String
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .aspectRatio(1f)
+            .background(Brush.linearGradient(fallbackColors)),
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(
+            imageVector = if (isPlaying) Icons.Rounded.GraphicEq else Icons.Rounded.MusicNote,
+            contentDescription = null,
+            tint = if (isPlaying) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(48.dp)
+        )
+
+        if (imageRequest != null && item.artworkUri != null && !com.mediaplayer.util.AudioArtworkFetcher.noArtworkCache.contains(item.artworkUri)) {
+            AsyncImage(
+                model = imageRequest,
+                contentDescription = item.title,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
+            )
+        }
+
+        if (isSelectionMode) {
             Box(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .aspectRatio(1f)
-                    .background(Brush.linearGradient(fallbackColors)),
+                    .align(Alignment.TopEnd)
+                    .padding(6.dp)
+                    .size(24.dp)
+                    .clip(CircleShape)
+                    .background(if (isSelected) MaterialTheme.colorScheme.primary else Color(0x99000000))
+                    .border(1.5.dp, if (isSelected) MaterialTheme.colorScheme.primary else Color.White, CircleShape),
                 contentAlignment = Alignment.Center
             ) {
-                Icon(
-                    imageVector = if (isPlaying) Icons.Rounded.GraphicEq else Icons.Rounded.MusicNote,
-                    contentDescription = null,
-                    tint = if (isPlaying) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(48.dp)
-                )
-
-                if (imageRequest != null && item.artworkUri != null && !com.mediaplayer.util.AudioArtworkFetcher.noArtworkCache.contains(item.artworkUri)) {
-                    AsyncImage(
-                        model = imageRequest,
-                        contentDescription = item.title,
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier.fillMaxSize()
-                    )
-                }
-
-                // Selection Checkbox Badge
-                if (isSelectionMode) {
-                    Box(
-                        modifier = Modifier
-                            .align(Alignment.TopEnd)
-                            .padding(6.dp)
-                            .size(24.dp)
-                            .clip(CircleShape)
-                            .background(if (isSelected) MaterialTheme.colorScheme.primary else Color(0x99000000))
-                            .border(1.5.dp, if (isSelected) MaterialTheme.colorScheme.primary else Color.White, CircleShape),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        if (isSelected) {
-                            Icon(
-                                imageVector = Icons.Rounded.Check,
-                                contentDescription = "Selected",
-                                tint = MaterialTheme.colorScheme.onPrimary,
-                                modifier = Modifier.size(16.dp)
-                            )
-                        }
-                    }
-                }
-
-                // Play / Equalizer Icon Overlay
-                Box(
-                    modifier = Modifier
-                        .size(36.dp)
-                        .clip(CircleShape)
-                        .background(Color(0x88000000)),
-                    contentAlignment = Alignment.Center
-                ) {
+                if (isSelected) {
                     Icon(
-                        imageVector = if (isPlaying) Icons.Rounded.GraphicEq else Icons.Rounded.PlayArrow,
-                        contentDescription = null,
-                        tint = if (isPlaying) MaterialTheme.colorScheme.primary else Color.White,
-                        modifier = Modifier.size(22.dp)
-                    )
-                }
-
-                // Format / Hi-Res Badge at Top-Start
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.TopStart)
-                        .padding(6.dp)
-                        .clip(RoundedCornerShape(6.dp))
-                        .background(if (isHiRes) Color(0xCCFFD54F) else Color(0xCC00E5FF))
-                        .padding(horizontal = 5.dp, vertical = 2.dp)
-                ) {
-                    Text(
-                        text = badgeText,
-                        color = Color.Black,
-                        fontSize = 9.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-
-                // Duration Badge at Bottom-End
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.BottomEnd)
-                        .padding(6.dp)
-                        .clip(RoundedCornerShape(6.dp))
-                        .background(Color(0xCC000000))
-                        .padding(horizontal = 6.dp, vertical = 2.dp)
-                ) {
-                    Text(
-                        text = formatTimeMs(item.durationMs),
-                        color = Color.White,
-                        fontSize = 10.sp,
-                        fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.Bold
+                        imageVector = Icons.Rounded.Check,
+                        contentDescription = "Selected",
+                        tint = MaterialTheme.colorScheme.onPrimary,
+                        modifier = Modifier.size(16.dp)
                     )
                 }
             }
+        }
 
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 10.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = item.title,
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        color = if (isPlaying) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    Spacer(modifier = Modifier.height(2.dp))
-                    Text(
-                        text = "${item.artist} • ${item.album}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
+        Box(
+            modifier = Modifier
+                .size(36.dp)
+                .clip(CircleShape)
+                .background(Color(0x88000000)),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = if (isPlaying) Icons.Rounded.GraphicEq else Icons.Rounded.PlayArrow,
+                contentDescription = null,
+                tint = if (isPlaying) MaterialTheme.colorScheme.primary else Color.White,
+                modifier = Modifier.size(22.dp)
+            )
+        }
 
-                IconButton(
-                    onClick = onShowOptions,
-                    modifier = Modifier.size(28.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Rounded.MoreVert,
-                        contentDescription = "Options",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(18.dp)
-                    )
-                }
-            }
+        Box(
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .padding(6.dp)
+                .clip(RoundedCornerShape(6.dp))
+                .background(if (isHiRes) Color(0xCCFFD54F) else Color(0xCC00E5FF))
+                .padding(horizontal = 5.dp, vertical = 2.dp)
+        ) {
+            Text(
+                text = badgeText,
+                color = Color.Black,
+                fontSize = 9.sp,
+                fontWeight = FontWeight.Bold
+            )
+        }
+
+        Box(
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(6.dp)
+                .clip(RoundedCornerShape(6.dp))
+                .background(Color(0xCC000000))
+                .padding(horizontal = 6.dp, vertical = 2.dp)
+        ) {
+            Text(
+                text = formatTimeMs(item.durationMs),
+                color = Color.White,
+                fontSize = 10.sp,
+                fontFamily = FontFamily.Monospace,
+                fontWeight = FontWeight.Bold
+            )
+        }
+    }
+}
+
+@Composable
+private fun MusicCardFooterRow(
+    item: MediaItemModel,
+    isPlaying: Boolean,
+    onShowOptions: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 10.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = item.title,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = if (isPlaying) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = "${item.artist} • ${item.album}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+
+        IconButton(
+            onClick = onShowOptions,
+            modifier = Modifier.size(28.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Rounded.MoreVert,
+                contentDescription = "Options",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(18.dp)
+            )
         }
     }
 }
@@ -607,39 +634,29 @@ fun MusicListItem(
     onClick: () -> Unit,
     onShowOptions: () -> Unit,
     onDeleteClick: () -> Unit = {},
-    onLongClick: () -> Unit = onDeleteClick
+    onLongClick: () -> Unit = onDeleteClick,
+    context: Context = LocalContext.current
 ) {
-    val context = LocalContext.current
-    val imageRequest = remember(item.id, item.artworkUri) {
-        if (item.artworkUri == null) null
+    val artUri = item.artworkUri
+    val imageRequest = remember(artUri) {
+        if (artUri == null) null
         else {
             ImageRequest.Builder(context)
-                .data(item.artworkUri)
+                .data(artUri)
                 .size(240, 240)
-                .diskCacheKey("athumb_${item.id}")
-                .memoryCacheKey("athumb_${item.id}")
-                .crossfade(true)
+                .diskCacheKey("athumb_$artUri")
+                .memoryCacheKey("athumb_$artUri")
+                .crossfade(false)
                 .build()
         }
     }
 
-    val isHiRes = remember(item.bitDepth, item.sampleRate, item.codecBadge) {
-        item.bitDepth >= 24 || item.sampleRate >= 48000 ||
-                item.codecBadge.contains("Hi-Res", true) ||
-                item.codecBadge.contains("Lossless", true) ||
-                item.mimeType.contains("flac", true) ||
-                item.mimeType.contains("alac", true) ||
-                item.mimeType.contains("dsd", true)
+    val isHiRes = remember(item.bitDepth, item.sampleRate, item.codecBadge, item.mimeType) {
+        isAudioItemHiRes(item)
     }
 
-    val badgeText = remember(item.codecBadge, item.sampleRate, item.bitDepth) {
-        item.codecBadge.ifEmpty {
-            if (item.sampleRate >= 48000 || item.bitDepth >= 24) {
-                "${item.bitDepth}b/${AudioFormatUtils.formatSampleRate(item.sampleRate)}"
-            } else if (item.mimeType.isNotEmpty()) {
-                item.mimeType.substringAfterLast("/").uppercase()
-            } else "AUDIO"
-        }
+    val badgeText = remember(item.codecBadge, item.sampleRate, item.bitDepth, item.mimeType) {
+        resolveAudioBadgeText(item)
     }
 
     val fallbackColors = remember(item.id) {
@@ -650,10 +667,16 @@ fun MusicListItem(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(14.dp))
-            .background(if (isSelected) MaterialTheme.colorScheme.primaryContainer else if (isPlaying) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f) else MaterialTheme.colorScheme.surfaceContainer)
+            .background(
+                when {
+                    isSelected -> MaterialTheme.colorScheme.primaryContainer
+                    isPlaying -> MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+                    else -> MaterialTheme.colorScheme.surfaceContainer
+                }
+            )
             .border(
                 if (isSelected) 2.dp else 1.dp,
-                if (isSelected) MaterialTheme.colorScheme.primary else if (isPlaying) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
+                if (isSelected || isPlaying) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
                 RoundedCornerShape(14.dp)
             )
             .combinedClickable(
@@ -664,115 +687,26 @@ fun MusicListItem(
         verticalAlignment = Alignment.CenterVertically
     ) {
         if (isSelectionMode) {
-            Box(
-                modifier = Modifier
-                    .size(24.dp)
-                    .clip(CircleShape)
-                    .background(if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHighest)
-                    .border(1.5.dp, if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline, CircleShape),
-                contentAlignment = Alignment.Center
-            ) {
-                if (isSelected) {
-                    Icon(
-                        imageVector = Icons.Rounded.Check,
-                        contentDescription = "Selected",
-                        tint = MaterialTheme.colorScheme.onPrimary,
-                        modifier = Modifier.size(16.dp)
-                    )
-                }
-            }
+            MusicSelectionIndicator(isSelected = isSelected)
             Spacer(modifier = Modifier.width(8.dp))
         }
 
-        // Thumbnail Box (60x60dp)
-        Box(
-            modifier = Modifier
-                .size(60.dp)
-                .clip(RoundedCornerShape(10.dp))
-                .background(Brush.linearGradient(fallbackColors))
-                .border(0.5.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(10.dp)),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                imageVector = if (isPlaying) Icons.Rounded.GraphicEq else Icons.Rounded.MusicNote,
-                contentDescription = null,
-                tint = if (isPlaying) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(26.dp)
-            )
-
-            if (imageRequest != null && item.artworkUri != null && !com.mediaplayer.util.AudioArtworkFetcher.noArtworkCache.contains(item.artworkUri)) {
-                AsyncImage(
-                    model = imageRequest,
-                    contentDescription = item.title,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize()
-                )
-            }
-
-            // Duration Pill
-            Box(
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .padding(2.dp)
-                    .clip(RoundedCornerShape(4.dp))
-                    .background(Color(0xCC000000))
-                    .padding(horizontal = 4.dp, vertical = 1.dp)
-            ) {
-                Text(
-                    text = formatTimeMs(item.durationMs),
-                    color = Color.White,
-                    fontSize = 8.sp,
-                    fontFamily = FontFamily.Monospace,
-                    fontWeight = FontWeight.Bold
-                )
-            }
-        }
+        MusicListThumbnailBox(
+            item = item,
+            imageRequest = imageRequest,
+            fallbackColors = fallbackColors,
+            isPlaying = isPlaying
+        )
 
         Spacer(modifier = Modifier.width(12.dp))
 
-        // Title and Metadata
-        Column(modifier = Modifier.weight(1f)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                if (isPlaying) {
-                    Icon(
-                        imageVector = Icons.Rounded.GraphicEq,
-                        contentDescription = "Playing",
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(14.dp)
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                }
-                Text(
-                    text = item.title,
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    color = if (isPlaying) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-            Spacer(modifier = Modifier.height(3.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = badgeText,
-                    fontSize = 9.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = if (isHiRes) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.primary,
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(4.dp))
-                        .background(if (isHiRes) MaterialTheme.colorScheme.tertiaryContainer else MaterialTheme.colorScheme.primaryContainer)
-                        .padding(horizontal = 5.dp, vertical = 1.dp)
-                )
-                Spacer(modifier = Modifier.width(6.dp))
-                Text(
-                    text = "${item.artist} • ${formatFileSize(item.sizeBytes)}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-        }
+        MusicListMetadataColumn(
+            item = item,
+            isPlaying = isPlaying,
+            isHiRes = isHiRes,
+            badgeText = badgeText,
+            modifier = Modifier.weight(1f)
+        )
 
         IconButton(
             onClick = onShowOptions,
@@ -789,10 +723,155 @@ fun MusicListItem(
 }
 
 @Composable
+private fun MusicSelectionIndicator(isSelected: Boolean) {
+    Box(
+        modifier = Modifier
+            .size(24.dp)
+            .clip(CircleShape)
+            .background(if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHighest)
+            .border(1.5.dp, if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline, CircleShape),
+        contentAlignment = Alignment.Center
+    ) {
+        if (isSelected) {
+            Icon(
+                imageVector = Icons.Rounded.Check,
+                contentDescription = "Selected",
+                tint = MaterialTheme.colorScheme.onPrimary,
+                modifier = Modifier.size(16.dp)
+            )
+        }
+    }
+}
+
+@Composable
+private fun MusicListThumbnailBox(
+    item: MediaItemModel,
+    imageRequest: ImageRequest?,
+    fallbackColors: List<Color>,
+    isPlaying: Boolean
+) {
+    Box(
+        modifier = Modifier
+            .size(60.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .background(Brush.linearGradient(fallbackColors))
+            .border(0.5.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(10.dp)),
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(
+            imageVector = if (isPlaying) Icons.Rounded.GraphicEq else Icons.Rounded.MusicNote,
+            contentDescription = null,
+            tint = if (isPlaying) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(26.dp)
+        )
+
+        if (imageRequest != null && item.artworkUri != null && !com.mediaplayer.util.AudioArtworkFetcher.noArtworkCache.contains(item.artworkUri)) {
+            AsyncImage(
+                model = imageRequest,
+                contentDescription = item.title,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
+            )
+        }
+
+        Box(
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(2.dp)
+                .clip(RoundedCornerShape(4.dp))
+                .background(Color(0xCC000000))
+                .padding(horizontal = 4.dp, vertical = 1.dp)
+        ) {
+            Text(
+                text = formatTimeMs(item.durationMs),
+                color = Color.White,
+                fontSize = 8.sp,
+                fontFamily = FontFamily.Monospace,
+                fontWeight = FontWeight.Bold
+            )
+        }
+    }
+}
+
+@Composable
+private fun MusicListMetadataColumn(
+    item: MediaItemModel,
+    isPlaying: Boolean,
+    isHiRes: Boolean,
+    badgeText: String,
+    modifier: Modifier = Modifier
+) {
+    Column(modifier = modifier) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            if (isPlaying) {
+                Icon(
+                    imageVector = Icons.Rounded.GraphicEq,
+                    contentDescription = "Playing",
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(14.dp)
+                )
+                Spacer(modifier = Modifier.width(4.dp))
+            }
+            Text(
+                text = item.title,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = if (isPlaying) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+        Spacer(modifier = Modifier.height(3.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = badgeText,
+                fontSize = 9.sp,
+                fontWeight = FontWeight.Bold,
+                color = if (isHiRes) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.primary,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(if (isHiRes) MaterialTheme.colorScheme.tertiaryContainer else MaterialTheme.colorScheme.primaryContainer)
+                    .padding(horizontal = 5.dp, vertical = 1.dp)
+            )
+            Spacer(modifier = Modifier.width(6.dp))
+            Text(
+                text = "${item.artist} • ${formatFileSize(item.sizeBytes)}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+
+private fun isAudioItemHiRes(item: MediaItemModel): Boolean {
+    return item.bitDepth >= 24 || item.sampleRate >= 48000 ||
+        item.codecBadge.contains("Hi-Res", true) ||
+        item.codecBadge.contains("Lossless", true) ||
+        item.mimeType.contains("flac", true) ||
+        item.mimeType.contains("alac", true) ||
+        item.mimeType.contains("dsd", true)
+}
+
+private fun resolveAudioBadgeText(item: MediaItemModel): String {
+    return item.codecBadge.ifEmpty {
+        if (item.sampleRate >= 48000 || item.bitDepth >= 24) {
+            "${item.bitDepth}b/${AudioFormatUtils.formatSampleRate(item.sampleRate)}"
+        } else if (item.mimeType.isNotEmpty() && !item.mimeType.endsWith("/*")) {
+            item.mimeType.substringAfterLast("/").removePrefix("x-").uppercase()
+        } else {
+            "AUDIO"
+        }
+    }
+}
+
+@Composable
 fun TrackOptionsMenuDialog(
     item: MediaItemModel,
     onPlay: () -> Unit,
     onShowDetails: () -> Unit,
+    onRename: () -> Unit = {},
     onShare: () -> Unit,
     onStartSelection: () -> Unit = {},
     onDelete: () -> Unit,
@@ -832,6 +911,16 @@ fun TrackOptionsMenuDialog(
                         Icon(Icons.Rounded.Info, contentDescription = null, tint = MaterialTheme.colorScheme.tertiary)
                         Spacer(Modifier.width(12.dp))
                         Text("Track Details", color = MaterialTheme.colorScheme.onSurface)
+                    }
+                }
+                TextButton(
+                    onClick = onRename,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Rounded.Edit, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                        Spacer(Modifier.width(12.dp))
+                        Text("Rename File", color = MaterialTheme.colorScheme.onSurface)
                     }
                 }
                 TextButton(
@@ -897,7 +986,11 @@ fun MusicCategoryFilterPills(
             .padding(horizontal = 16.dp, vertical = 6.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        items(items = filterTabs) { tab: String ->
+        items(
+            items = filterTabs,
+            key = { it },
+            contentType = { "music_filter_pill" }
+        ) { tab: String ->
             val isSelected = tab == selectedTab
             val pillBg = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainer
             val pillBorder = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant
@@ -962,7 +1055,7 @@ fun MusicTrackDetailsDialog(
                 InfoTextRow("Artist", item.artist.ifEmpty { "Unknown Artist" })
                 InfoTextRow("Album", item.album.ifEmpty { "Unknown Album" })
                 InfoTextRow("Folder", item.folderName.ifEmpty { "Music" })
-                InfoTextRow("Format", item.mimeType.substringAfterLast("/").uppercase())
+                InfoTextRow("Format", item.codecBadge.ifEmpty { item.mimeType.substringAfterLast("/").uppercase() })
                 InfoTextRow("Sample Rate", AudioFormatUtils.formatSampleRate(item.sampleRate))
                 InfoTextRow("Bit Depth", "${item.bitDepth}-bit")
                 InfoTextRow("Duration", formatTimeMs(item.durationMs))
@@ -995,41 +1088,38 @@ fun MusicTabScreen(
     onRequestPermission: () -> Unit,
     onPickFiles: () -> Unit,
     onDeleteAudio: (MediaItemModel) -> Unit = {},
+    onRenameAudio: (MediaItemModel) -> Unit = {},
     onMoveToVault: (MediaItemModel) -> Unit = {},
     searchQuery: String = "",
     selectedMediaItems: Set<MediaItemModel> = emptySet(),
     onToggleSelectItem: (MediaItemModel) -> Unit = {},
     onStartSelection: (MediaItemModel) -> Unit = {}
 ) {
+    val context = LocalContext.current
+    val recentThresholdEpochSec = remember { System.currentTimeMillis() / 1000L - 14L * 24L * 3600L }
     var selectedTrackDetails by remember { mutableStateOf<MediaItemModel?>(null) }
     var selectedTrackForOptions by remember { mutableStateOf<MediaItemModel?>(null) }
 
-    // Intercept back gesture when a folder is opened
     BackHandler(enabled = openedFolder != null) {
         onOpenFolder(null)
     }
 
     val filterTabs = remember { listOf("Folders", "All Tracks", "Albums", "Artists", "Hi-Res / Lossless") }
 
-    // Group audio by folder name & path
-    val folderItems = remember(audioList, searchQuery) {
-        val grouped = audioList.groupBy { audio ->
+    val folderItems = remember(audioList, searchQuery, filterTab, recentThresholdEpochSec) {
+        if (filterTab != "Folders") emptyList()
+        else audioList.groupBy { audio ->
             val name = audio.folderName.ifEmpty { "Music" }
             val path = audio.folderPath.ifEmpty { "/storage/emulated/0/Music" }
             name to path
-        }
-        grouped.map { (key, aList) ->
+        }.map { (key, aList) ->
             val (name, path) = key
-            val totalDuration = aList.sumOf { it.durationMs }
-            val newCount = aList.count { a ->
-                (a.dateAdded > 0) && ((System.currentTimeMillis() / 1000 - a.dateAdded) < (14 * 24 * 3600))
-            }
             MusicFolderItem(
                 name = name,
                 path = path,
                 tracks = aList,
-                totalDurationMs = totalDuration,
-                newCount = newCount
+                totalDurationMs = aList.sumOf { it.durationMs },
+                newCount = aList.count { a -> a.dateAdded > 0 && a.dateAdded >= recentThresholdEpochSec }
             )
         }.filter { folder ->
             searchQuery.isBlank() ||
@@ -1039,42 +1129,40 @@ fun MusicTabScreen(
         }
     }
 
-    // Group audio by album
-    val albumItems = remember(audioList, searchQuery) {
-        val grouped = audioList.groupBy { it.album.ifEmpty { "Unknown Album" } }
-        grouped.map { (albumName, aList) ->
-            val firstTrack = aList.firstOrNull()
-            val totalDuration = aList.sumOf { it.durationMs }
-            MusicFolderItem(
-                name = albumName,
-                path = firstTrack?.artist.orEmpty().ifEmpty { "${aList.size} Tracks" },
-                tracks = aList,
-                totalDurationMs = totalDuration
-            )
-        }.filter { album ->
-            searchQuery.isBlank() ||
-                album.name.contains(searchQuery, ignoreCase = true) ||
-                album.path.contains(searchQuery, ignoreCase = true) ||
-                album.tracks.any { it.title.contains(searchQuery, ignoreCase = true) || it.artist.contains(searchQuery, ignoreCase = true) }
-        }
+    val albumItems = remember(audioList, searchQuery, filterTab) {
+        if (filterTab != "Albums") emptyList()
+        else audioList.groupBy { it.album.ifEmpty { "Unknown Album" } }
+            .map { (albumName, aList) ->
+                val firstTrack = aList.firstOrNull()
+                MusicFolderItem(
+                    name = albumName,
+                    path = firstTrack?.artist.orEmpty().ifEmpty { "${aList.size} Tracks" },
+                    tracks = aList,
+                    totalDurationMs = aList.sumOf { it.durationMs }
+                )
+            }.filter { album ->
+                searchQuery.isBlank() ||
+                    album.name.contains(searchQuery, ignoreCase = true) ||
+                    album.path.contains(searchQuery, ignoreCase = true) ||
+                    album.tracks.any { it.title.contains(searchQuery, ignoreCase = true) || it.artist.contains(searchQuery, ignoreCase = true) }
+            }
     }
 
-    // Group audio by artist
-    val artistItems = remember(audioList, searchQuery) {
-        val grouped = audioList.groupBy { it.artist.ifEmpty { "Unknown Artist" } }
-        grouped.map { (artistName, aList) ->
-            val totalDuration = aList.sumOf { it.durationMs }
-            MusicFolderItem(
-                name = artistName,
-                path = "${aList.size} Tracks",
-                tracks = aList,
-                totalDurationMs = totalDuration
-            )
-        }.filter { artist ->
-            searchQuery.isBlank() ||
-                artist.name.contains(searchQuery, ignoreCase = true) ||
-                artist.tracks.any { it.title.contains(searchQuery, ignoreCase = true) || it.album.contains(searchQuery, ignoreCase = true) }
-        }
+    val artistItems = remember(audioList, searchQuery, filterTab) {
+        if (filterTab != "Artists") emptyList()
+        else audioList.groupBy { it.artist.ifEmpty { "Unknown Artist" } }
+            .map { (artistName, aList) ->
+                MusicFolderItem(
+                    name = artistName,
+                    path = "${aList.size} Tracks",
+                    tracks = aList,
+                    totalDurationMs = aList.sumOf { it.durationMs }
+                )
+            }.filter { artist ->
+                searchQuery.isBlank() ||
+                    artist.name.contains(searchQuery, ignoreCase = true) ||
+                    artist.tracks.any { it.title.contains(searchQuery, ignoreCase = true) || it.album.contains(searchQuery, ignoreCase = true) }
+            }
     }
 
     AnimatedContent<MusicFolderItem?>(
@@ -1093,83 +1181,21 @@ fun MusicTabScreen(
         label = "MusicFolderNavigationTransition"
     ) { currentFolder: MusicFolderItem? ->
         if (currentFolder != null) {
-            val sortedFolderTracks = remember(currentFolder.tracks, sortOrder) {
-                when (sortOrder) {
-                    1 -> currentFolder.tracks.sortedBy { it.title.lowercase() }
-                    2 -> currentFolder.tracks.sortedBy { it.artist.lowercase() }
-                    3 -> currentFolder.tracks.sortedByDescending { it.sizeBytes }
-                    4 -> currentFolder.tracks.sortedByDescending { it.durationMs }
-                    else -> currentFolder.tracks
-                }
-            }
-
-            Column(modifier = Modifier.fillMaxSize()) {
-                if (sortedFolderTracks.isEmpty()) {
-                    EmptyStateView(
-                        title = "No tracks in this folder",
-                        subtitle = "Pick files from storage or choose another folder.",
-                        onAction = onPickFiles
-                    )
-                } else if (isGridView) {
-                    LazyVerticalGrid(
-                        columns = GridCells.Adaptive(minSize = 160.dp),
-                        contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 96.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        modifier = Modifier.fillMaxSize()
-                    ) {
-                        items(items = sortedFolderTracks, key = { it.id }, contentType = { "music_grid_card" }) { track: MediaItemModel ->
-                            val isSelected = selectedMediaItems.contains(track)
-                            val isSelectionMode = selectedMediaItems.isNotEmpty()
-                            MusicCardItem(
-                                item = track,
-                                isPlaying = currentPlayingId == track.id,
-                                isSelected = isSelected,
-                                isSelectionMode = isSelectionMode,
-                                onClick = {
-                                    if (isSelectionMode) {
-                                        onToggleSelectItem(track)
-                                    } else {
-                                        onPlayAudio(track, sortedFolderTracks)
-                                    }
-                                },
-                                onShowOptions = { selectedTrackForOptions = track },
-                                onDeleteClick = { onDeleteAudio(track) },
-                                onLongClick = { onStartSelection(track) }
-                            )
-                        }
-                    }
-                } else {
-                    LazyColumn(
-                        contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 96.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                        modifier = Modifier.fillMaxSize()
-                    ) {
-                        items(items = sortedFolderTracks, key = { it.id }, contentType = { "music_list_card" }) { track: MediaItemModel ->
-                            val isSelected = selectedMediaItems.contains(track)
-                            val isSelectionMode = selectedMediaItems.isNotEmpty()
-                            MusicListItem(
-                                item = track,
-                                isPlaying = currentPlayingId == track.id,
-                                isSelected = isSelected,
-                                isSelectionMode = isSelectionMode,
-                                onClick = {
-                                    if (isSelectionMode) {
-                                        onToggleSelectItem(track)
-                                    } else {
-                                        onPlayAudio(track, sortedFolderTracks)
-                                    }
-                                },
-                                onShowOptions = { selectedTrackForOptions = track },
-                                onDeleteClick = { onDeleteAudio(track) },
-                                onLongClick = { onStartSelection(track) }
-                            )
-                        }
-                    }
-                }
-            }
+            MusicOpenedFolderContent(
+                folder = currentFolder,
+                isGridView = isGridView,
+                sortOrder = sortOrder,
+                currentPlayingId = currentPlayingId,
+                selectedMediaItems = selectedMediaItems,
+                onPlayAudio = onPlayAudio,
+                onPickFiles = onPickFiles,
+                onShowOptions = { selectedTrackForOptions = it },
+                onDeleteAudio = onDeleteAudio,
+                onToggleSelectItem = onToggleSelectItem,
+                onStartSelection = onStartSelection,
+                context = context
+            )
         } else {
-            // Main Music View
             Column(modifier = Modifier.fillMaxSize()) {
                 if (!hasPermission) {
                     PermissionOnboardingCard(
@@ -1178,7 +1204,6 @@ fun MusicTabScreen(
                     )
                 }
 
-                // Category Filter Pills
                 MusicCategoryFilterPills(
                     filterTabs = filterTabs,
                     selectedTab = filterTab,
@@ -1186,412 +1211,77 @@ fun MusicTabScreen(
                 )
 
                 when (filterTab) {
-                    "Folders" -> {
-                        // Clean Folders Header with View Toggle
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 16.dp, vertical = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Rounded.Folder,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(
-                                    text = "Folders (${folderItems.size})",
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
-                            }
+                    "Folders" -> MusicCollectionSection(
+                        title = "Folders (${folderItems.size})",
+                        icon = Icons.Rounded.Folder,
+                        items = folderItems,
+                        keySelector = { it.path + "/" + it.name },
+                        gridContentType = "folder_grid_card",
+                        listContentType = "folder_list_card",
+                        emptyTitle = "No music folders found",
+                        emptySubtitle = "Pick files from storage or connect a USB OTG drive to start playing.",
+                        isGridView = isGridView,
+                        onToggleView = onToggleView,
+                        onOpenItem = onOpenFolder,
+                        onPickFiles = onPickFiles,
+                        context = context
+                    )
 
-                            IconButton(
-                                onClick = onToggleView,
-                                modifier = Modifier.size(38.dp)
-                            ) {
-                                Icon(
-                                    imageVector = if (isGridView) Icons.AutoMirrored.Rounded.ViewList else Icons.Rounded.GridView,
-                                    contentDescription = "Toggle Grid/List",
-                                    tint = MaterialTheme.colorScheme.onSurface,
-                                    modifier = Modifier.size(22.dp)
-                                )
-                            }
-                        }
+                    "Albums" -> MusicCollectionSection(
+                        title = "Albums (${albumItems.size})",
+                        icon = Icons.Rounded.Album,
+                        items = albumItems,
+                        keySelector = { it.name },
+                        gridContentType = "album_grid_card",
+                        listContentType = "album_list_card",
+                        emptyTitle = "No albums found",
+                        emptySubtitle = "Pick files from storage or add audio with album metadata.",
+                        isGridView = isGridView,
+                        onToggleView = onToggleView,
+                        onOpenItem = onOpenFolder,
+                        onPickFiles = onPickFiles,
+                        context = context
+                    )
 
-                        if (folderItems.isEmpty()) {
-                            EmptyStateView(
-                                title = "No music folders found",
-                                subtitle = "Pick files from storage or connect a USB OTG drive to start playing.",
-                                onAction = onPickFiles
-                            )
-                        } else if (isGridView) {
-                            LazyVerticalGrid(
-                                columns = GridCells.Fixed(2),
-                                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 96.dp),
-                                verticalArrangement = Arrangement.spacedBy(14.dp),
-                                horizontalArrangement = Arrangement.spacedBy(14.dp),
-                                modifier = Modifier.fillMaxSize()
-                            ) {
-                                items(items = folderItems, key = { it.path + "/" + it.name }, contentType = { "folder_grid_card" }) { folder: MusicFolderItem ->
-                                    MusicFolderGridItem(
-                                        folder = folder,
-                                        onClick = { onOpenFolder(folder) }
-                                    )
-                                }
-                            }
-                        } else {
-                            LazyColumn(
-                                contentPadding = PaddingValues(top = 4.dp, bottom = 96.dp),
-                                modifier = Modifier.fillMaxSize()
-                            ) {
-                                items(items = folderItems, key = { it.path + "/" + it.name }, contentType = { "folder_list_card" }) { folder: MusicFolderItem ->
-                                    MusicFolderListItem(
-                                        folder = folder,
-                                        onClick = { onOpenFolder(folder) }
-                                    )
-                                }
-                            }
-                        }
-                    }
-                    "Albums" -> {
-                        // Albums Header
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 16.dp, vertical = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Rounded.Album,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(
-                                    text = "Albums (${albumItems.size})",
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
-                            }
+                    "Artists" -> MusicCollectionSection(
+                        title = "Artists (${artistItems.size})",
+                        icon = Icons.Rounded.Person,
+                        items = artistItems,
+                        keySelector = { it.name },
+                        gridContentType = "artist_grid_card",
+                        listContentType = "artist_list_card",
+                        emptyTitle = "No artists found",
+                        emptySubtitle = "Pick files from storage or add audio with artist metadata.",
+                        isGridView = isGridView,
+                        onToggleView = onToggleView,
+                        onOpenItem = onOpenFolder,
+                        onPickFiles = onPickFiles,
+                        context = context
+                    )
 
-                            IconButton(
-                                onClick = onToggleView,
-                                modifier = Modifier.size(38.dp)
-                            ) {
-                                Icon(
-                                    imageVector = if (isGridView) Icons.AutoMirrored.Rounded.ViewList else Icons.Rounded.GridView,
-                                    contentDescription = "Toggle Grid/List",
-                                    tint = MaterialTheme.colorScheme.onSurface,
-                                    modifier = Modifier.size(22.dp)
-                                )
-                            }
-                        }
-
-                        if (albumItems.isEmpty()) {
-                            EmptyStateView(
-                                title = "No albums found",
-                                subtitle = "Pick files from storage or add audio with album metadata.",
-                                onAction = onPickFiles
-                            )
-                        } else if (isGridView) {
-                            LazyVerticalGrid(
-                                columns = GridCells.Fixed(2),
-                                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 96.dp),
-                                verticalArrangement = Arrangement.spacedBy(14.dp),
-                                horizontalArrangement = Arrangement.spacedBy(14.dp),
-                                modifier = Modifier.fillMaxSize()
-                            ) {
-                                items(items = albumItems, key = { it.name }, contentType = { "album_grid_card" }) { album: MusicFolderItem ->
-                                    MusicFolderGridItem(
-                                        folder = album,
-                                        onClick = { onOpenFolder(album) }
-                                    )
-                                }
-                            }
-                        } else {
-                            LazyColumn(
-                                contentPadding = PaddingValues(top = 4.dp, bottom = 96.dp),
-                                modifier = Modifier.fillMaxSize()
-                            ) {
-                                items(items = albumItems, key = { it.name }, contentType = { "album_list_card" }) { album: MusicFolderItem ->
-                                    MusicFolderListItem(
-                                        folder = album,
-                                        onClick = { onOpenFolder(album) }
-                                    )
-                                }
-                            }
-                        }
-                    }
-                    "Artists" -> {
-                        // Artists Header
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 16.dp, vertical = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Rounded.Person,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(
-                                    text = "Artists (${artistItems.size})",
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
-                            }
-
-                            IconButton(
-                                onClick = onToggleView,
-                                modifier = Modifier.size(38.dp)
-                            ) {
-                                Icon(
-                                    imageVector = if (isGridView) Icons.AutoMirrored.Rounded.ViewList else Icons.Rounded.GridView,
-                                    contentDescription = "Toggle Grid/List",
-                                    tint = MaterialTheme.colorScheme.onSurface,
-                                    modifier = Modifier.size(22.dp)
-                                )
-                            }
-                        }
-
-                        if (artistItems.isEmpty()) {
-                            EmptyStateView(
-                                title = "No artists found",
-                                subtitle = "Pick files from storage or add audio with artist metadata.",
-                                onAction = onPickFiles
-                            )
-                        } else if (isGridView) {
-                            LazyVerticalGrid(
-                                columns = GridCells.Fixed(2),
-                                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 96.dp),
-                                verticalArrangement = Arrangement.spacedBy(14.dp),
-                                horizontalArrangement = Arrangement.spacedBy(14.dp),
-                                modifier = Modifier.fillMaxSize()
-                            ) {
-                                items(items = artistItems, key = { it.name }, contentType = { "artist_grid_card" }) { artist: MusicFolderItem ->
-                                    MusicFolderGridItem(
-                                        folder = artist,
-                                        onClick = { onOpenFolder(artist) }
-                                    )
-                                }
-                            }
-                        } else {
-                            LazyColumn(
-                                contentPadding = PaddingValues(top = 4.dp, bottom = 96.dp),
-                                modifier = Modifier.fillMaxSize()
-                            ) {
-                                items(items = artistItems, key = { it.name }, contentType = { "artist_list_card" }) { artist: MusicFolderItem ->
-                                    MusicFolderListItem(
-                                        folder = artist,
-                                        onClick = { onOpenFolder(artist) }
-                                    )
-                                }
-                            }
-                        }
-                    }
-                    else -> {
-                        // "All Tracks" or "Hi-Res / Lossless"
-                        val tracksToDisplay = remember(audioList, filterTab, sortOrder) {
-                            val baseList = if (filterTab == "Hi-Res / Lossless") {
-                                audioList.filter {
-                                    it.bitDepth >= 24 || it.sampleRate >= 48000 ||
-                                            it.codecBadge.contains("Hi-Res", true) ||
-                                            it.codecBadge.contains("Lossless", true) ||
-                                            it.mimeType.contains("flac", true) ||
-                                            it.mimeType.contains("alac", true) ||
-                                            it.mimeType.contains("wav", true) ||
-                                            it.mimeType.contains("dsd", true)
-                                }
-                            } else {
-                                audioList
-                            }
-                            when (sortOrder) {
-                                1 -> baseList.sortedBy { it.title.lowercase() }
-                                2 -> baseList.sortedBy { it.artist.lowercase() }
-                                3 -> baseList.sortedByDescending { it.sizeBytes }
-                                4 -> baseList.sortedByDescending { it.durationMs }
-                                else -> baseList
-                            }
-                        }
-
-                        // Play All / Shuffle Quick Actions Bar with View Toggle
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 16.dp, vertical = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                // Play All Button
-                                Box(
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(18.dp))
-                                        .background(MaterialTheme.colorScheme.primary)
-                                        .clickable {
-                                            if (tracksToDisplay.isNotEmpty()) {
-                                                onPlayAudio(tracksToDisplay.first(), tracksToDisplay)
-                                            }
-                                        }
-                                        .padding(horizontal = 12.dp, vertical = 6.dp),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Icon(
-                                            imageVector = Icons.Rounded.PlayArrow,
-                                            contentDescription = "Play All",
-                                            tint = MaterialTheme.colorScheme.onPrimary,
-                                            modifier = Modifier.size(16.dp)
-                                        )
-                                        Spacer(modifier = Modifier.width(4.dp))
-                                        Text(
-                                            text = "Play All",
-                                            color = MaterialTheme.colorScheme.onPrimary,
-                                            fontWeight = FontWeight.Bold,
-                                            fontSize = 12.sp
-                                        )
-                                    }
-                                }
-
-                                // Shuffle Button
-                                Box(
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(18.dp))
-                                        .background(MaterialTheme.colorScheme.surfaceContainerHigh)
-                                        .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(18.dp))
-                                        .clickable { onShuffleAll() }
-                                        .padding(horizontal = 12.dp, vertical = 6.dp),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Icon(
-                                            imageVector = Icons.Rounded.Shuffle,
-                                            contentDescription = "Shuffle",
-                                            tint = MaterialTheme.colorScheme.onSurface,
-                                            modifier = Modifier.size(14.dp)
-                                        )
-                                        Spacer(modifier = Modifier.width(4.dp))
-                                        Text(
-                                            text = "Shuffle",
-                                            color = MaterialTheme.colorScheme.onSurface,
-                                            fontWeight = FontWeight.SemiBold,
-                                            fontSize = 12.sp
-                                        )
-                                    }
-                                }
-                            }
-
-                            // View Toggle Icon
-                            IconButton(
-                                onClick = onToggleView,
-                                modifier = Modifier.size(38.dp)
-                            ) {
-                                Icon(
-                                    imageVector = if (isGridView) Icons.AutoMirrored.Rounded.ViewList else Icons.Rounded.GridView,
-                                    contentDescription = "Toggle Grid/List",
-                                    tint = MaterialTheme.colorScheme.onSurface,
-                                    modifier = Modifier.size(22.dp)
-                                )
-                            }
-                        }
-
-                        if (tracksToDisplay.isEmpty()) {
-                            EmptyStateView(
-                                title = "No tracks found",
-                                subtitle = "Grant permissions or pick audio files from custom folders/OTG drives.",
-                                onAction = onPickFiles
-                            )
-                        } else if (isGridView) {
-                            LazyVerticalGrid(
-                                columns = GridCells.Adaptive(minSize = 160.dp),
-                                contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 96.dp),
-                                verticalArrangement = Arrangement.spacedBy(12.dp),
-                                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                                modifier = Modifier.fillMaxSize()
-                            ) {
-                                items(items = tracksToDisplay, key = { it.id }, contentType = { "music_grid_card" }) { track: MediaItemModel ->
-                                    val isSelected = selectedMediaItems.contains(track)
-                                    val isSelectionMode = selectedMediaItems.isNotEmpty()
-                                    MusicCardItem(
-                                        item = track,
-                                        isPlaying = currentPlayingId == track.id,
-                                        isSelected = isSelected,
-                                        isSelectionMode = isSelectionMode,
-                                        onClick = {
-                                            if (isSelectionMode) {
-                                                onToggleSelectItem(track)
-                                            } else {
-                                                onPlayAudio(track, tracksToDisplay)
-                                            }
-                                        },
-                                        onShowOptions = { selectedTrackForOptions = track },
-                                        onDeleteClick = { onDeleteAudio(track) },
-                                        onLongClick = { onStartSelection(track) }
-                                    )
-                                }
-                            }
-                        } else {
-                            LazyColumn(
-                                contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 96.dp),
-                                verticalArrangement = Arrangement.spacedBy(8.dp),
-                                modifier = Modifier.fillMaxSize()
-                            ) {
-                                items(items = tracksToDisplay, key = { it.id }, contentType = { "music_list_card" }) { track: MediaItemModel ->
-                                    val isSelected = selectedMediaItems.contains(track)
-                                    val isSelectionMode = selectedMediaItems.isNotEmpty()
-                                    MusicListItem(
-                                        item = track,
-                                        isPlaying = currentPlayingId == track.id,
-                                        isSelected = isSelected,
-                                        isSelectionMode = isSelectionMode,
-                                        onClick = {
-                                            if (isSelectionMode) {
-                                                onToggleSelectItem(track)
-                                            } else {
-                                                onPlayAudio(track, tracksToDisplay)
-                                            }
-                                        },
-                                        onShowOptions = { selectedTrackForOptions = track },
-                                        onDeleteClick = { onDeleteAudio(track) },
-                                        onLongClick = { onStartSelection(track) }
-                                    )
-                                }
-                            }
-                        }
-                    }
+                    else -> MusicTracksSection(
+                        audioList = audioList,
+                        filterTab = filterTab,
+                        sortOrder = sortOrder,
+                        isGridView = isGridView,
+                        currentPlayingId = currentPlayingId,
+                        selectedMediaItems = selectedMediaItems,
+                        onToggleView = onToggleView,
+                        onPlayAudio = onPlayAudio,
+                        onShuffleAll = onShuffleAll,
+                        onPickFiles = onPickFiles,
+                        onShowOptions = { selectedTrackForOptions = it },
+                        onDeleteAudio = onDeleteAudio,
+                        onToggleSelectItem = onToggleSelectItem,
+                        onStartSelection = onStartSelection,
+                        context = context
+                    )
                 }
             }
         }
     }
 
-    // Track Options Dialog
     selectedTrackForOptions?.let { track ->
-        val context = LocalContext.current
         val currentPlaylist = openedFolder?.tracks ?: audioList
         TrackOptionsMenuDialog(
             item = track,
@@ -1602,6 +1292,11 @@ fun MusicTabScreen(
             onShowDetails = {
                 selectedTrackForOptions = null
                 selectedTrackDetails = track
+            },
+            onRename = {
+                val target = selectedTrackForOptions
+                selectedTrackForOptions = null
+                if (target != null) onRenameAudio(target)
             },
             onShare = {
                 selectedTrackForOptions = null
@@ -1623,11 +1318,357 @@ fun MusicTabScreen(
         )
     }
 
-    // Track Details Dialog
     selectedTrackDetails?.let { item ->
         MusicTrackDetailsDialog(
             item = item,
             onDismiss = { selectedTrackDetails = null }
         )
+    }
+}
+
+@Composable
+private fun MusicOpenedFolderContent(
+    folder: MusicFolderItem,
+    isGridView: Boolean,
+    sortOrder: Int,
+    currentPlayingId: Long?,
+    selectedMediaItems: Set<MediaItemModel>,
+    onPlayAudio: (MediaItemModel, List<MediaItemModel>) -> Unit,
+    onPickFiles: () -> Unit,
+    onShowOptions: (MediaItemModel) -> Unit,
+    onDeleteAudio: (MediaItemModel) -> Unit,
+    onToggleSelectItem: (MediaItemModel) -> Unit,
+    onStartSelection: (MediaItemModel) -> Unit,
+    context: Context
+) {
+    val sortedFolderTracks = remember(folder.tracks, sortOrder) {
+        sortAudioTracks(folder.tracks, sortOrder)
+    }
+
+    Column(modifier = Modifier.fillMaxSize()) {
+        if (sortedFolderTracks.isEmpty()) {
+            EmptyStateView(
+                title = "No tracks in this folder",
+                subtitle = "Pick files from storage or choose another folder.",
+                onAction = onPickFiles
+            )
+        } else {
+            MusicTrackGridOrList(
+                tracks = sortedFolderTracks,
+                isGridView = isGridView,
+                currentPlayingId = currentPlayingId,
+                selectedMediaItems = selectedMediaItems,
+                onPlayAudio = { track -> onPlayAudio(track, sortedFolderTracks) },
+                onShowOptions = onShowOptions,
+                onDeleteAudio = onDeleteAudio,
+                onToggleSelectItem = onToggleSelectItem,
+                onStartSelection = onStartSelection,
+                context = context
+            )
+        }
+    }
+}
+
+@Composable
+private fun MusicCollectionSection(
+    title: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    items: List<MusicFolderItem>,
+    keySelector: (MusicFolderItem) -> String,
+    gridContentType: String,
+    listContentType: String,
+    emptyTitle: String,
+    emptySubtitle: String,
+    isGridView: Boolean,
+    onToggleView: () -> Unit,
+    onOpenItem: (MusicFolderItem) -> Unit,
+    onPickFiles: () -> Unit,
+    context: Context
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.weight(1f)
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(20.dp)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+        }
+
+        IconButton(
+            onClick = onToggleView,
+            modifier = Modifier.size(38.dp)
+        ) {
+            Icon(
+                imageVector = if (isGridView) Icons.AutoMirrored.Rounded.ViewList else Icons.Rounded.GridView,
+                contentDescription = "Toggle Grid/List",
+                tint = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.size(22.dp)
+            )
+        }
+    }
+
+    if (items.isEmpty()) {
+        EmptyStateView(
+            title = emptyTitle,
+            subtitle = emptySubtitle,
+            onAction = onPickFiles
+        )
+    } else if (isGridView) {
+        LazyVerticalGrid(
+            columns = GridCells.Fixed(2),
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 96.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+            modifier = Modifier.fillMaxSize()
+        ) {
+            items(items = items, key = keySelector, contentType = { gridContentType }) { folder ->
+                MusicFolderGridItem(
+                    folder = folder,
+                    context = context,
+                    onClick = { onOpenItem(folder) }
+                )
+            }
+        }
+    } else {
+        LazyColumn(
+            contentPadding = PaddingValues(top = 4.dp, bottom = 96.dp),
+            modifier = Modifier.fillMaxSize()
+        ) {
+            items(items = items, key = keySelector, contentType = { listContentType }) { folder ->
+                MusicFolderListItem(
+                    folder = folder,
+                    context = context,
+                    onClick = { onOpenItem(folder) }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun MusicTracksSection(
+    audioList: List<MediaItemModel>,
+    filterTab: String,
+    sortOrder: Int,
+    isGridView: Boolean,
+    currentPlayingId: Long?,
+    selectedMediaItems: Set<MediaItemModel>,
+    onToggleView: () -> Unit,
+    onPlayAudio: (MediaItemModel, List<MediaItemModel>) -> Unit,
+    onShuffleAll: () -> Unit,
+    onPickFiles: () -> Unit,
+    onShowOptions: (MediaItemModel) -> Unit,
+    onDeleteAudio: (MediaItemModel) -> Unit,
+    onToggleSelectItem: (MediaItemModel) -> Unit,
+    onStartSelection: (MediaItemModel) -> Unit,
+    context: Context
+) {
+    val tracksToDisplay = remember(audioList, filterTab, sortOrder) {
+        val baseList = if (filterTab == "Hi-Res / Lossless") {
+            audioList.filter {
+                it.bitDepth >= 24 || it.sampleRate >= 48000 ||
+                    it.codecBadge.contains("Hi-Res", true) ||
+                    it.codecBadge.contains("Lossless", true) ||
+                    it.mimeType.contains("flac", true) ||
+                    it.mimeType.contains("alac", true) ||
+                    it.mimeType.contains("wav", true) ||
+                    it.mimeType.contains("dsd", true)
+            }
+        } else {
+            audioList
+        }
+        sortAudioTracks(baseList, sortOrder)
+    }
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(18.dp))
+                    .background(MaterialTheme.colorScheme.primary)
+                    .clickable {
+                        if (tracksToDisplay.isNotEmpty()) {
+                            onPlayAudio(tracksToDisplay.first(), tracksToDisplay)
+                        }
+                    }
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Rounded.PlayArrow,
+                        contentDescription = "Play All",
+                        tint = MaterialTheme.colorScheme.onPrimary,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = "Play All",
+                        color = MaterialTheme.colorScheme.onPrimary,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 12.sp
+                    )
+                }
+            }
+
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(18.dp))
+                    .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                    .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(18.dp))
+                    .clickable(onClick = onShuffleAll)
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Rounded.Shuffle,
+                        contentDescription = "Shuffle",
+                        tint = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = "Shuffle",
+                        color = MaterialTheme.colorScheme.onSurface,
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 12.sp
+                    )
+                }
+            }
+        }
+
+        IconButton(
+            onClick = onToggleView,
+            modifier = Modifier.size(38.dp)
+        ) {
+            Icon(
+                imageVector = if (isGridView) Icons.AutoMirrored.Rounded.ViewList else Icons.Rounded.GridView,
+                contentDescription = "Toggle Grid/List",
+                tint = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.size(22.dp)
+            )
+        }
+    }
+
+    if (tracksToDisplay.isEmpty()) {
+        EmptyStateView(
+            title = "No tracks found",
+            subtitle = "Grant permissions or pick audio files from custom folders/OTG drives.",
+            onAction = onPickFiles
+        )
+    } else {
+        MusicTrackGridOrList(
+            tracks = tracksToDisplay,
+            isGridView = isGridView,
+            currentPlayingId = currentPlayingId,
+            selectedMediaItems = selectedMediaItems,
+            onPlayAudio = { track -> onPlayAudio(track, tracksToDisplay) },
+            onShowOptions = onShowOptions,
+            onDeleteAudio = onDeleteAudio,
+            onToggleSelectItem = onToggleSelectItem,
+            onStartSelection = onStartSelection,
+            context = context
+        )
+    }
+}
+
+@Composable
+private fun MusicTrackGridOrList(
+    tracks: List<MediaItemModel>,
+    isGridView: Boolean,
+    currentPlayingId: Long?,
+    selectedMediaItems: Set<MediaItemModel>,
+    onPlayAudio: (MediaItemModel) -> Unit,
+    onShowOptions: (MediaItemModel) -> Unit,
+    onDeleteAudio: (MediaItemModel) -> Unit,
+    onToggleSelectItem: (MediaItemModel) -> Unit,
+    onStartSelection: (MediaItemModel) -> Unit,
+    context: Context
+) {
+    val isSelectionMode = selectedMediaItems.isNotEmpty()
+    if (isGridView) {
+        LazyVerticalGrid(
+            columns = GridCells.Adaptive(minSize = 160.dp),
+            contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 96.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            modifier = Modifier.fillMaxSize()
+        ) {
+            items(items = tracks, key = { it.id }, contentType = { "music_grid_card" }) { track ->
+                val isSelected = selectedMediaItems.contains(track)
+                MusicCardItem(
+                    item = track,
+                    isPlaying = currentPlayingId == track.id,
+                    isSelected = isSelected,
+                    isSelectionMode = isSelectionMode,
+                    context = context,
+                    onClick = {
+                        if (isSelectionMode) onToggleSelectItem(track) else onPlayAudio(track)
+                    },
+                    onShowOptions = { onShowOptions(track) },
+                    onDeleteClick = { onDeleteAudio(track) },
+                    onLongClick = { onStartSelection(track) }
+                )
+            }
+        }
+    } else {
+        LazyColumn(
+            contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 96.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.fillMaxSize()
+        ) {
+            items(items = tracks, key = { it.id }, contentType = { "music_list_card" }) { track ->
+                val isSelected = selectedMediaItems.contains(track)
+                MusicListItem(
+                    item = track,
+                    isPlaying = currentPlayingId == track.id,
+                    isSelected = isSelected,
+                    isSelectionMode = isSelectionMode,
+                    context = context,
+                    onClick = {
+                        if (isSelectionMode) onToggleSelectItem(track) else onPlayAudio(track)
+                    },
+                    onShowOptions = { onShowOptions(track) },
+                    onDeleteClick = { onDeleteAudio(track) },
+                    onLongClick = { onStartSelection(track) }
+                )
+            }
+        }
+    }
+}
+
+private fun sortAudioTracks(tracks: List<MediaItemModel>, sortOrder: Int): List<MediaItemModel> {
+    return when (sortOrder) {
+        1 -> tracks.sortedBy { it.title.lowercase() }
+        2 -> tracks.sortedBy { it.artist.lowercase() }
+        3 -> tracks.sortedByDescending { it.sizeBytes }
+        4 -> tracks.sortedByDescending { it.durationMs }
+        else -> tracks
     }
 }

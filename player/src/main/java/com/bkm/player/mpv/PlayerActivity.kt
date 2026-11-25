@@ -12,6 +12,7 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -36,11 +37,30 @@ class PlayerActivity : ComponentActivity() {
 
         setContent {
             val context = LocalContext.current
-            val darkTheme = isSystemInDarkTheme()
-            val colorScheme = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            val pitchBlack = context.getSharedPreferences("app_settings_customization", MODE_PRIVATE)
+                .getBoolean("pref_pitch_black_theme", false)
+            val darkTheme = isSystemInDarkTheme() || pitchBlack
+            val baseScheme = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
             } else {
                 if (darkTheme) darkColorScheme() else lightColorScheme()
+            }
+            val colorScheme = if (pitchBlack) {
+                baseScheme.copy(
+                    background = Color.Black,
+                    surface = Color.Black,
+                    surfaceDim = Color.Black,
+                    surfaceBright = Color(0xFF141418),
+                    surfaceVariant = Color(0xFF121218),
+                    surfaceContainerLowest = Color.Black,
+                    surfaceContainerLow = Color(0xFF050507),
+                    surfaceContainer = Color(0xFF0A0A0D),
+                    surfaceContainerHigh = Color(0xFF121216),
+                    surfaceContainerHighest = Color(0xFF1A1A20),
+                    outlineVariant = Color(0xFF22222A)
+                )
+            } else {
+                baseScheme
             }
             MaterialTheme(colorScheme = colorScheme) {
                 VideoPlayerScreen(viewModel = playerViewModel)

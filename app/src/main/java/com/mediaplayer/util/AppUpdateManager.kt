@@ -56,10 +56,11 @@ object AppUpdateManager {
      * Checks GitHub for the latest release.
      */
     suspend fun checkForUpdates(context: Context): Result<AppReleaseInfo> = withContext(Dispatchers.IO) {
+        var connection: HttpURLConnection? = null
         try {
             val currentVersion = getCurrentVersionName(context)
             val url = URL(GITHUB_API_LATEST_RELEASE_URL)
-            val connection = (url.openConnection() as HttpURLConnection).apply {
+            connection = (url.openConnection() as HttpURLConnection).apply {
                 requestMethod = "GET"
                 connectTimeout = 10000
                 readTimeout = 10000
@@ -69,6 +70,7 @@ object AppUpdateManager {
 
             val responseCode = connection.responseCode
             if (responseCode == HttpURLConnection.HTTP_NOT_FOUND) {
+                connection.errorStream?.close()
                 // No releases published yet on this repository
                 return@withContext Result.success(
                     AppReleaseInfo(
@@ -82,14 +84,15 @@ object AppUpdateManager {
                     )
                 )
             } else if ((responseCode !in 200..299)) {
+                connection.errorStream?.close()
                 return@withContext Result.failure(
                     Exception("GitHub API error: HTTP $responseCode")
                 )
             }
 
-            val reader = BufferedReader(InputStreamReader(connection.inputStream))
-            val responseString = reader.use { it.readText() }
-            connection.disconnect()
+            val responseString = BufferedReader(InputStreamReader(connection.inputStream)).use {
+                it.readText()
+            }
 
             val json = JSONObject(responseString)
             val tagName = json.optString("tag_name", "").trim()
@@ -113,6 +116,8 @@ object AppUpdateManager {
         } catch (e: Exception) {
             Log.e(TAG, "Failed to check for updates from GitHub", e)
             Result.failure(e)
+        } finally {
+            connection?.disconnect()
         }
     }
 

@@ -1,8 +1,14 @@
 package com.bkm.player.mpv
 
+import android.content.ContentValues
 import android.content.Context
+import android.graphics.Bitmap
+import android.media.MediaScannerConnection
 import android.net.Uri
+import android.os.Build
+import android.os.Environment
 import android.os.SystemClock
+import android.provider.MediaStore
 import android.provider.OpenableColumns
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -14,8 +20,11 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.Locale
+import kotlin.coroutines.resume
 import kotlin.math.abs
 import kotlin.math.roundToLong
 
@@ -56,10 +65,17 @@ data class PlayerUiState(
     // Enhanced Pro Features
     val isFastForwarding: Boolean = false,
     val isNightModeAudio: Boolean = false,
+    val isMuted: Boolean = false,
     val abRepeatPointA: Double? = null,
     val abRepeatPointB: Double? = null,
     val subtitleFontSize: Int = 48,
-    val subtitleColor: String = "#FFFFFF"
+    val subtitleColor: String = "#FFFFFF",
+    val chapters: List<MediaChapter> = emptyList(),
+    val currentChapterIndex: Int = -1,
+    val videoBrightness: Int = 0,
+    val videoContrast: Int = 0,
+    val videoSaturation: Int = 0,
+    val videoGamma: Int = 0
 ) {
     /**
      * MX Player-style scrubbing HUD string, e.g. `01:14:22 [+00:15]` or `01:14:07 [-00:15]`.
@@ -75,6 +91,19 @@ data class PlayerUiState(
 }
 
 /**
+ * High-frequency playback progress state isolated from [PlayerUiState] so 10Hz time ticks,
+ * cache updates, and frame-rate scrubbing deltas only recompose the timeline slider and scrub HUD.
+ */
+data class PlaybackProgressState(
+    val positionSeconds: Double = 0.0,
+    val durationSeconds: Double = 0.0,
+    val cacheDurationSeconds: Double = 0.0,
+    val isScrubbing: Boolean = false,
+    val scrubPreviewSeconds: Double = 0.0,
+    val scrubDeltaSeconds: Double = 0.0
+)
+
+/**
  * Coordinates [NativeMpvEngine] state, 60fps throttled keyframe scrubbing, decoder mode switching,
  * multi-audio/subtitle track management, audio/subtitle delay sync, playback speed, aspect ratio,
  * and clean lifecycle teardown in [onCleared].
@@ -83,6 +112,9 @@ class PlayerViewModel : ViewModel() {
 
     private val _uiState = MutableStateFlow(PlayerUiState())
     val uiState: StateFlow<PlayerUiState> = _uiState.asStateFlow()
+
+    private val _progressState = MutableStateFlow(PlaybackProgressState())
+    val progressState: StateFlow<PlaybackProgressState> = _progressState.asStateFlow()
 
     private var scrubOriginSeconds: Double = 0.0
     private var lastScrubDispatchNanos: Long = 0L
@@ -101,20 +133,21 @@ class PlayerViewModel : ViewModel() {
 
     private val engineListener = object : MpvEngineListener {
         override fun onPositionChanged(seconds: Double) {
-            _uiState.update { state ->
+            _progressState.update { state ->
                 if (state.isScrubbing) state else state.copy(positionSeconds = seconds)
             }
 
             // A-B Repeat Loop Trigger
-            val a = _uiState.value.abRepeatPointA
-            val b = _uiState.value.abRepeatPointB
+            val ui = _uiState.value
+            val a = ui.abRepeatPointA
+            val b = ui.abRepeatPointB
             if (a != null && b != null && b > a && seconds >= b) {
                 seekTo(a)
                 return
             }
 
             val posMs = (seconds * 1000.0).roundToLong()
-            val durMs = (_uiState.value.durationSeconds * 1000.0).roundToLong()
+            val durMs = (_progressState.value.durationSeconds * 1000.0).roundToLong()
             if (durMs > 0 && posMs >= 0) {
                 onProgressUpdate?.invoke(posMs, durMs)
                 val now = SystemClock.elapsedRealtime()
@@ -127,8 +160,12 @@ class PlayerViewModel : ViewModel() {
 
         override fun onDurationChanged(seconds: Double) {
             val dur = seconds.coerceAtLeast(0.0)
-            _uiState.update { it.copy(durationSeconds = dur) }
-            val posMs = (_uiState.value.positionSeconds * 1000.0).roundToLong()
+            _progressState.update { it.copy(durationSeconds = dur) }
+            val currentUiDur = _uiState.value.durationSeconds
+            if ((currentUiDur <= 0.0 && dur > 0.0) || abs(currentUiDur - dur) > 1.0) {
+                _uiState.update { it.copy(durationSeconds = dur) }
+            }
+            val posMs = (_progressState.value.positionSeconds * 1000.0).roundToLong()
             val durMs = (dur * 1000.0).roundToLong()
             if (durMs > 0) {
                 onProgressUpdate?.invoke(posMs, durMs)
@@ -144,7 +181,7 @@ class PlayerViewModel : ViewModel() {
             bufferingDebounceJob?.cancel()
             if (buffering) {
                 // Ignore transient micro-pauses during scrubbing or seeking
-                if (_uiState.value.isScrubbing) return
+                if (_progressState.value.isScrubbing) return
                 // Debounce buffering indicator (200ms) so fast keyframe seeks never flicker a loading spinner
                 bufferingDebounceJob = viewModelScope.launch {
                     delay(200L)
@@ -156,7 +193,7 @@ class PlayerViewModel : ViewModel() {
         }
 
         override fun onCacheDurationChanged(seconds: Double) {
-            _uiState.update { it.copy(cacheDurationSeconds = seconds.coerceAtLeast(0.0)) }
+            _progressState.update { it.copy(cacheDurationSeconds = seconds.coerceAtLeast(0.0)) }
         }
 
         override fun onHwdecChanged(activeHwdec: String) {
@@ -173,6 +210,14 @@ class PlayerViewModel : ViewModel() {
             refreshTracks()
         }
 
+        override fun onChaptersChanged() {
+            refreshChapters()
+        }
+
+        override fun onCurrentChapterChanged(chapterIndex: Int) {
+            _uiState.update { it.copy(currentChapterIndex = chapterIndex) }
+        }
+
         override fun onFileLoaded() {
             hasTriggeredEofForCurrentMedia = false
             isAudioDisabled = false
@@ -181,22 +226,25 @@ class PlayerViewModel : ViewModel() {
                     hasMediaLoaded = true,
                     isPlaying = true,
                     isBuffering = false,
+                    isMuted = false,
                     errorMessage = null
                 )
             }
             onIsPlayingChanged?.invoke(true)
             refreshTracks()
+            refreshChapters()
             refreshMediaInfo()
         }
 
         override fun onEndOfFile() {
             val state = _uiState.value
+            val progress = _progressState.value
             // Only fire natural end-of-file when media was actively loaded and the playback position
             // is legitimately near the end of the video duration (within 2.5s of total duration, min duration 3s)
             if (!hasTriggeredEofForCurrentMedia &&
                 state.hasMediaLoaded &&
-                state.durationSeconds > 3.0 &&
-                state.positionSeconds >= (state.durationSeconds - 2.5).coerceAtLeast(1.0)
+                progress.durationSeconds > 3.0 &&
+                progress.positionSeconds >= (progress.durationSeconds - 2.5).coerceAtLeast(1.0)
             ) {
                 hasTriggeredEofForCurrentMedia = true
                 _uiState.update { it.copy(isPlaying = false, isBuffering = false) }
@@ -213,7 +261,13 @@ class PlayerViewModel : ViewModel() {
     val engine: NativeMpvEngine = NativeMpvEngine(engineListener)
     private var openDocumentJob: Job? = null
 
-    fun openDocument(context: Context, uri: Uri, titleHint: String? = null, startPositionMs: Long = 0L) {
+    fun openDocument(
+        context: Context,
+        uri: Uri,
+        titleHint: String? = null,
+        startPositionMs: Long = 0L,
+        allowAudioOnlyWithoutSurface: Boolean = false
+    ) {
         if (currentLoadedUri == uri && _uiState.value.hasMediaLoaded) {
             return
         }
@@ -221,6 +275,10 @@ class PlayerViewModel : ViewModel() {
         openDocumentJob?.cancel()
         hasTriggeredEofForCurrentMedia = false
         val displayName = titleHint?.ifBlank { null } ?: resolveDisplayName(context, uri)
+        _progressState.value = PlaybackProgressState(
+            positionSeconds = startPositionMs / 1000.0,
+            durationSeconds = 0.0
+        )
         _uiState.update {
             it.copy(
                 mediaTitle = displayName,
@@ -232,12 +290,23 @@ class PlayerViewModel : ViewModel() {
             )
         }
         openDocumentJob = viewModelScope.launch(Dispatchers.IO) {
-            engine.openContentUri(context, uri, startPositionMs)
+            engine.openContentUri(context, uri, startPositionMs, allowAudioOnlyWithoutSurface)
         }
     }
 
     fun togglePlayPause() {
-        val nextPlaying = !_uiState.value.isPlaying
+        val current = _uiState.value
+        val progress = _progressState.value
+        val nextPlaying = !current.isPlaying
+        if (nextPlaying && (hasTriggeredEofForCurrentMedia || (progress.durationSeconds > 3.0 && progress.positionSeconds >= progress.durationSeconds - 0.5))) {
+            hasTriggeredEofForCurrentMedia = false
+            _progressState.update { it.copy(positionSeconds = 0.0) }
+            _uiState.update { it.copy(isPlaying = true, positionSeconds = 0.0) }
+            onIsPlayingChanged?.invoke(true)
+            engine.seekTo(0.0)
+            engine.setPaused(false)
+            return
+        }
         _uiState.update { it.copy(isPlaying = nextPlaying) }
         onIsPlayingChanged?.invoke(nextPlaying)
         engine.setPaused(!nextPlaying)
@@ -249,11 +318,37 @@ class PlayerViewModel : ViewModel() {
         engine.setPaused(true)
     }
 
-    fun stopPlayback() {
+    fun stopPlayback(releaseEngine: Boolean = false) {
+        openDocumentJob?.cancel()
+        bufferingDebounceJob?.cancel()
         currentLoadedUri = null
-        _uiState.update { it.copy(isPlaying = false, hasMediaLoaded = false) }
+        hasTriggeredEofForCurrentMedia = false
+        isAudioDisabled = false
+        _progressState.value = PlaybackProgressState()
+        _uiState.update {
+            it.copy(
+                isPlaying = false,
+                hasMediaLoaded = false,
+                isBuffering = false,
+                positionSeconds = 0.0,
+                durationSeconds = 0.0,
+                audioTracks = emptyList(),
+                subtitleTracks = emptyList(),
+                selectedAudioTrackId = null,
+                selectedSubtitleTrackId = null,
+                abRepeatPointA = null,
+                abRepeatPointB = null,
+                chapters = emptyList(),
+                currentChapterIndex = -1,
+                isMuted = false
+            )
+        }
         onIsPlayingChanged?.invoke(false)
-        engine.stop()
+        if (releaseEngine) {
+            engine.releaseEngine()
+        } else {
+            engine.stop()
+        }
     }
 
     fun selectDecoderMode(mode: DecoderMode) {
@@ -268,31 +363,44 @@ class PlayerViewModel : ViewModel() {
 
     fun seekRelative(deltaSeconds: Double) {
         val current = _uiState.value
-        if (!current.hasMediaLoaded || current.durationSeconds <= 0.0) return
+        val progress = _progressState.value
+        if (!current.hasMediaLoaded || progress.durationSeconds <= 0.0) return
         bufferingDebounceJob?.cancel()
-        val target = (current.positionSeconds + deltaSeconds).coerceIn(0.0, current.durationSeconds)
-        if (target < current.durationSeconds - 3.0) {
+        val target = (progress.positionSeconds + deltaSeconds).coerceIn(0.0, progress.durationSeconds)
+        if (target < progress.durationSeconds - 3.0) {
             hasTriggeredEofForCurrentMedia = false
         }
-        _uiState.update { it.copy(positionSeconds = target, isBuffering = false) }
+        _progressState.update { it.copy(positionSeconds = target) }
+        if (current.isBuffering) {
+            _uiState.update { it.copy(isBuffering = false) }
+        }
         engine.seekRelative(deltaSeconds)
     }
 
     fun seekTo(targetSeconds: Double) {
         val current = _uiState.value
-        if (!current.hasMediaLoaded || current.durationSeconds <= 0.0) return
+        val progress = _progressState.value
+        if (!current.hasMediaLoaded || progress.durationSeconds <= 0.0) return
         bufferingDebounceJob?.cancel()
-        val clamped = targetSeconds.coerceIn(0.0, current.durationSeconds)
-        if (clamped < current.durationSeconds - 3.0) {
+        val clamped = targetSeconds.coerceIn(0.0, progress.durationSeconds)
+        if (clamped < progress.durationSeconds - 3.0) {
             hasTriggeredEofForCurrentMedia = false
         }
-        _uiState.update {
+        _progressState.update {
             it.copy(
                 positionSeconds = clamped,
                 isScrubbing = false,
-                scrubDeltaSeconds = 0.0,
-                isBuffering = false
+                scrubDeltaSeconds = 0.0
             )
+        }
+        if (current.isScrubbing || current.isBuffering) {
+            _uiState.update {
+                it.copy(
+                    isScrubbing = false,
+                    scrubDeltaSeconds = 0.0,
+                    isBuffering = false
+                )
+            }
         }
         engine.seekTo(clamped)
     }
@@ -308,8 +416,8 @@ class PlayerViewModel : ViewModel() {
         val selSub = subs.firstOrNull { it.isSelected }?.id
         val selVideo = videos.firstOrNull { it.isSelected }?.id ?: videos.firstOrNull()?.id
 
-        // Auto-select video track if not already active
-        if (videos.isNotEmpty() && allTracks.none { it.type == "video" && it.isSelected }) {
+        // Auto-select video track only when a video surface is actively attached
+        if (engine.hasAttachedSurface() && videos.isNotEmpty() && allTracks.none { it.type == "video" && it.isSelected }) {
             selVideo?.let { engine.selectTrack("video", it) }
         }
 
@@ -420,14 +528,76 @@ class PlayerViewModel : ViewModel() {
         _uiState.update { it.copy(isNightModeAudio = next) }
     }
 
+    fun toggleMute() {
+        val next = !_uiState.value.isMuted
+        engine.setMuted(next)
+        _uiState.update { it.copy(isMuted = next) }
+    }
+
+    fun refreshChapters() {
+        val chapters = engine.queryChapters()
+        val currentIdx = if (chapters.isNotEmpty()) engine.getCurrentChapterIndex() else -1
+        _uiState.update {
+            it.copy(chapters = chapters, currentChapterIndex = currentIdx)
+        }
+    }
+
+    fun seekToChapter(index: Int) {
+        val chapters = _uiState.value.chapters
+        if (index !in chapters.indices) return
+        engine.seekToChapter(index)
+        _progressState.update { it.copy(positionSeconds = chapters[index].timeSeconds) }
+        _uiState.update {
+            it.copy(
+                currentChapterIndex = index
+            )
+        }
+    }
+
+    fun setVideoBrightness(value: Int) {
+        val clamped = value.coerceIn(-100, 100)
+        engine.setVideoBrightness(clamped)
+        _uiState.update { it.copy(videoBrightness = clamped) }
+    }
+
+    fun setVideoContrast(value: Int) {
+        val clamped = value.coerceIn(-100, 100)
+        engine.setVideoContrast(clamped)
+        _uiState.update { it.copy(videoContrast = clamped) }
+    }
+
+    fun setVideoSaturation(value: Int) {
+        val clamped = value.coerceIn(-100, 100)
+        engine.setVideoSaturation(clamped)
+        _uiState.update { it.copy(videoSaturation = clamped) }
+    }
+
+    fun setVideoGamma(value: Int) {
+        val clamped = value.coerceIn(-100, 100)
+        engine.setVideoGamma(clamped)
+        _uiState.update { it.copy(videoGamma = clamped) }
+    }
+
+    fun resetVideoEqualizer() {
+        engine.resetVideoEqualizer()
+        _uiState.update {
+            it.copy(
+                videoBrightness = 0,
+                videoContrast = 0,
+                videoSaturation = 0,
+                videoGamma = 0
+            )
+        }
+    }
+
     fun setABRepeatPointA() {
-        val pos = _uiState.value.positionSeconds
+        val pos = _progressState.value.positionSeconds
         _uiState.update { it.copy(abRepeatPointA = pos, abRepeatPointB = null) }
     }
 
     fun setABRepeatPointB() {
         val currentA = _uiState.value.abRepeatPointA
-        val pos = _uiState.value.positionSeconds
+        val pos = _progressState.value.positionSeconds
         if (currentA != null && pos > currentA) {
             _uiState.update { it.copy(abRepeatPointB = pos) }
         }
@@ -450,22 +620,154 @@ class PlayerViewModel : ViewModel() {
     fun captureScreenshot(context: Context, onResult: (String?, Boolean) -> Unit) {
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                val picturesDir = File(context.cacheDir, "screenshots")
-                if (!picturesDir.exists()) picturesDir.mkdirs()
-                val file = File(picturesDir, "Screenshot_${System.currentTimeMillis()}.jpg")
-                val success = engine.captureScreenshot(file)
-                launch(Dispatchers.Main) {
-                    if (success) {
-                        onResult(file.absolutePath, true)
-                    } else {
-                        onResult(null, false)
+                val appContext = context.applicationContext
+                val fileName = "BKM_Screenshot_${System.currentTimeMillis()}.jpg"
+
+                // Primary: hardware-compatible SurfaceView PixelCopy capture (works with zero-copy MediaCodec
+                // and libmpv builds compiled without libavcodec image encoders).
+                val bitmap = withContext(Dispatchers.Main) {
+                    suspendCancellableCoroutine { cont ->
+                        engine.captureSurfaceFrame { capturedBitmap ->
+                            if (cont.isActive) {
+                                cont.resume(capturedBitmap)
+                            } else {
+                                capturedBitmap?.recycle()
+                            }
+                        }
                     }
                 }
-            } catch (e: Exception) {
-                launch(Dispatchers.Main) {
+
+                if (bitmap != null) {
+                    val savedPath = try {
+                        exportBitmapToGallery(appContext, bitmap, fileName)
+                    } finally {
+                        bitmap.recycle()
+                    }
+                    withContext(Dispatchers.Main) {
+                        onResult(savedPath, savedPath != null)
+                    }
+                    return@launch
+                }
+
+                // Fallback: libmpv screenshot-to-file if surface unavailable
+                val tempDir = File(appContext.cacheDir, "screenshots")
+                if (!tempDir.exists()) tempDir.mkdirs()
+                val tempFile = File(tempDir, fileName)
+
+                val captured = engine.captureScreenshot(tempFile)
+                if (captured) {
+                    var attempts = 0
+                    while ((!tempFile.exists() || tempFile.length() == 0L) && attempts < 15) {
+                        delay(40L)
+                        attempts++
+                    }
+                }
+
+                if (!captured || !tempFile.exists() || tempFile.length() == 0L) {
+                    withContext(Dispatchers.Main) { onResult(null, false) }
+                    return@launch
+                }
+
+                val savedPath = exportScreenshotToGallery(appContext, tempFile, fileName)
+                withContext(Dispatchers.Main) {
+                    if (savedPath != null) {
+                        onResult(savedPath, true)
+                    } else {
+                        onResult(tempFile.absolutePath, true)
+                    }
+                }
+            } catch (_: Exception) {
+                withContext(Dispatchers.Main) {
                     onResult(null, false)
                 }
             }
+        }
+    }
+
+    private fun exportBitmapToGallery(context: Context, bitmap: Bitmap, fileName: String): String? {
+        return try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                val values = ContentValues().apply {
+                    put(MediaStore.Images.Media.DISPLAY_NAME, fileName)
+                    put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
+                    put(MediaStore.Images.Media.RELATIVE_PATH, "${Environment.DIRECTORY_PICTURES}/BKM Player")
+                    put(MediaStore.Images.Media.IS_PENDING, 1)
+                }
+                val resolver = context.contentResolver
+                val uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values) ?: return null
+                val compressed = resolver.openOutputStream(uri)?.use { out ->
+                    bitmap.compress(Bitmap.CompressFormat.JPEG, 92, out)
+                } ?: false
+                if (!compressed) {
+                    resolver.delete(uri, null, null)
+                    return null
+                }
+                values.clear()
+                values.put(MediaStore.Images.Media.IS_PENDING, 0)
+                resolver.update(uri, values, null, null)
+                "Pictures/BKM Player/$fileName"
+            } else {
+                @Suppress("DEPRECATION")
+                val picturesDir = File(
+                    Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES),
+                    "BKM Player"
+                )
+                if (!picturesDir.exists()) picturesDir.mkdirs()
+                val destFile = File(picturesDir, fileName)
+                val compressed = destFile.outputStream().use { out ->
+                    bitmap.compress(Bitmap.CompressFormat.JPEG, 92, out)
+                }
+                if (!compressed) {
+                    destFile.delete()
+                    return null
+                }
+                MediaScannerConnection.scanFile(context, arrayOf(destFile.absolutePath), arrayOf("image/jpeg"), null)
+                destFile.absolutePath
+            }
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun exportScreenshotToGallery(context: Context, sourceFile: File, fileName: String): String? {
+        return try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                val values = ContentValues().apply {
+                    put(MediaStore.Images.Media.DISPLAY_NAME, fileName)
+                    put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
+                    put(MediaStore.Images.Media.RELATIVE_PATH, "${Environment.DIRECTORY_PICTURES}/BKM Player")
+                    put(MediaStore.Images.Media.IS_PENDING, 1)
+                }
+                val resolver = context.contentResolver
+                val uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values) ?: return null
+                resolver.openOutputStream(uri)?.use { out ->
+                    sourceFile.inputStream().use { input -> input.copyTo(out) }
+                } ?: run {
+                    resolver.delete(uri, null, null)
+                    return null
+                }
+                values.clear()
+                values.put(MediaStore.Images.Media.IS_PENDING, 0)
+                resolver.update(uri, values, null, null)
+                sourceFile.delete()
+                "Pictures/BKM Player/$fileName"
+            } else {
+                @Suppress("DEPRECATION")
+                val picturesDir = File(
+                    Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES),
+                    "BKM Player"
+                )
+                if (!picturesDir.exists()) picturesDir.mkdirs()
+                val destFile = File(picturesDir, fileName)
+                sourceFile.inputStream().use { input ->
+                    destFile.outputStream().use { output -> input.copyTo(output) }
+                }
+                sourceFile.delete()
+                MediaScannerConnection.scanFile(context, arrayOf(destFile.absolutePath), arrayOf("image/jpeg"), null)
+                destFile.absolutePath
+            }
+        } catch (_: Exception) {
+            null
         }
     }
 
@@ -476,32 +778,38 @@ class PlayerViewModel : ViewModel() {
      */
     fun onHorizontalScrubStart() {
         val current = _uiState.value
-        if (!current.hasMediaLoaded || current.durationSeconds <= 0.0) return
+        val progress = _progressState.value
+        if (!current.hasMediaLoaded || progress.durationSeconds <= 0.0) return
 
         bufferingDebounceJob?.cancel()
-        scrubOriginSeconds = current.positionSeconds
+        scrubOriginSeconds = progress.positionSeconds
         lastScrubDispatchNanos = 0L
         engine.beginKeyframeScrub()
 
-        _uiState.update {
+        _progressState.update {
             it.copy(
                 isScrubbing = true,
                 scrubPreviewSeconds = scrubOriginSeconds,
-                scrubDeltaSeconds = 0.0,
+                scrubDeltaSeconds = 0.0
+            )
+        }
+        _uiState.update {
+            it.copy(
+                isScrubbing = true,
                 isBuffering = false
             )
         }
     }
 
     fun onHorizontalScrubDelta(deltaSeconds: Double) {
-        val current = _uiState.value
-        if (!current.isScrubbing || current.durationSeconds <= 0.0) return
+        val progress = _progressState.value
+        if (!progress.isScrubbing || progress.durationSeconds <= 0.0) return
 
         val clampedTarget = (scrubOriginSeconds + deltaSeconds)
-            .coerceIn(0.0, current.durationSeconds)
+            .coerceIn(0.0, progress.durationSeconds)
         val actualDelta = clampedTarget - scrubOriginSeconds
 
-        _uiState.update {
+        _progressState.update {
             it.copy(
                 scrubPreviewSeconds = clampedTarget,
                 scrubDeltaSeconds = actualDelta
@@ -517,27 +825,27 @@ class PlayerViewModel : ViewModel() {
 
     fun onSliderScrubChange(targetSeconds: Double) {
         val current = _uiState.value
-        if (!current.hasMediaLoaded || current.durationSeconds <= 0.0) return
+        val progress = _progressState.value
+        if (!current.hasMediaLoaded || progress.durationSeconds <= 0.0) return
 
         bufferingDebounceJob?.cancel()
-        if (!current.isScrubbing) {
-            scrubOriginSeconds = current.positionSeconds
+        if (!progress.isScrubbing) {
+            scrubOriginSeconds = progress.positionSeconds
             lastScrubDispatchNanos = 0L
             _uiState.update {
                 it.copy(
                     isScrubbing = true,
-                    scrubPreviewSeconds = targetSeconds.coerceIn(0.0, current.durationSeconds),
-                    scrubDeltaSeconds = 0.0,
                     isBuffering = false
                 )
             }
         }
 
-        val clampedTarget = targetSeconds.coerceIn(0.0, current.durationSeconds)
+        val clampedTarget = targetSeconds.coerceIn(0.0, progress.durationSeconds)
         val actualDelta = clampedTarget - scrubOriginSeconds
 
-        _uiState.update {
+        _progressState.update {
             it.copy(
+                isScrubbing = true,
                 scrubPreviewSeconds = clampedTarget,
                 scrubDeltaSeconds = actualDelta
             )
@@ -551,18 +859,23 @@ class PlayerViewModel : ViewModel() {
     }
 
     fun onHorizontalScrubEnd() {
-        val current = _uiState.value
-        if (!current.isScrubbing) return
+        val progress = _progressState.value
+        if (!progress.isScrubbing) return
 
         bufferingDebounceJob?.cancel()
-        val finalTarget = current.scrubPreviewSeconds
+        val finalTarget = progress.scrubPreviewSeconds
         engine.seekTo(finalTarget)
 
-        _uiState.update {
+        _progressState.update {
             it.copy(
                 isScrubbing = false,
                 positionSeconds = finalTarget,
-                scrubDeltaSeconds = 0.0,
+                scrubDeltaSeconds = 0.0
+            )
+        }
+        _uiState.update {
+            it.copy(
+                isScrubbing = false,
                 isBuffering = false
             )
         }

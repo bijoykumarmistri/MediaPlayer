@@ -45,6 +45,10 @@ fun VideoCustomizationDialog(
 
     var hideShortVideos by remember { mutableStateOf(settingsManager.hideShortVideos) }
     var highRefreshRate by remember { mutableStateOf(settingsManager.highRefreshRateEnabled) }
+    var pitchBlackTheme by remember { mutableStateOf(settingsManager.pitchBlackTheme) }
+    var autoRotateVideo by remember { mutableStateOf(settingsManager.autoRotateVideo) }
+    var autoPlayNextVideo by remember { mutableStateOf(settingsManager.autoPlayNextVideo) }
+    var backgroundPlayback by remember { mutableStateOf(settingsManager.backgroundPlayback) }
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -71,7 +75,7 @@ fun VideoCustomizationDialog(
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Text(
-                        text = "Video Settings",
+                        text = "Settings",
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSurface
@@ -102,6 +106,20 @@ fun VideoCustomizationDialog(
                         .verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
+                    // SECTION 0: APPEARANCE
+                    SettingsGroup(title = "APPEARANCE") {
+                        SettingsSwitchRow(
+                            title = "Pitch Black Theme",
+                            subtitle = "Pure #000000 OLED black across the entire app",
+                            checked = pitchBlackTheme,
+                            onCheckedChange = {
+                                pitchBlackTheme = it
+                                settingsManager.pitchBlackTheme = it
+                                onSettingsChanged()
+                            }
+                        )
+                    }
+
                     // SECTION 1: PLAYBACK
                     SettingsGroup(title = "PLAYBACK") {
                         // Decoder Selector
@@ -155,6 +173,48 @@ fun VideoCustomizationDialog(
                             onCheckedChange = {
                                 autoResume = it
                                 settingsManager.autoResume = it
+                                onSettingsChanged()
+                            }
+                        )
+
+                        GroupDivider()
+
+                        // Auto-Rotate in Video Player
+                        SettingsSwitchRow(
+                            title = "Auto-Rotate in Player",
+                            subtitle = "Rotate screen with device sensor during video playback",
+                            checked = autoRotateVideo,
+                            onCheckedChange = {
+                                autoRotateVideo = it
+                                settingsManager.autoRotateVideo = it
+                                onSettingsChanged()
+                            }
+                        )
+
+                        GroupDivider()
+
+                        // Auto-Play Next Video
+                        SettingsSwitchRow(
+                            title = "Auto-Play Next Video",
+                            subtitle = "Automatically play the next video in folder when finished",
+                            checked = autoPlayNextVideo,
+                            onCheckedChange = {
+                                autoPlayNextVideo = it
+                                settingsManager.autoPlayNextVideo = it
+                                onSettingsChanged()
+                            }
+                        )
+
+                        GroupDivider()
+
+                        // Background Video Playback
+                        SettingsSwitchRow(
+                            title = "Background Video Playback",
+                            subtitle = "Keep video audio playing when minimized",
+                            checked = backgroundPlayback,
+                            onCheckedChange = {
+                                backgroundPlayback = it
+                                settingsManager.backgroundPlayback = it
                                 onSettingsChanged()
                             }
                         )

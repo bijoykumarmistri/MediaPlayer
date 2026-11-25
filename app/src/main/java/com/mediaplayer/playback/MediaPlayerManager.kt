@@ -7,7 +7,6 @@ import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.os.PowerManager
-import android.os.SystemClock
 import androidx.core.net.toUri
 import androidx.media3.common.C
 import androidx.media3.common.ForwardingSimpleBasePlayer
@@ -78,6 +77,16 @@ class MediaPlayerManager(
         _playbackError.value = null
     }
 
+    data class AudioStreamInfo(
+        val codec: String = "",
+        val sampleRateHz: Int = 0,
+        val channelCount: Int = 0,
+        val bitrateBps: Int = 0
+    )
+
+    private val _audioStreamInfo = MutableStateFlow<AudioStreamInfo?>(null)
+    val audioStreamInfo: StateFlow<AudioStreamInfo?> = _audioStreamInfo.asStateFlow()
+
     @Suppress("unused")
     fun retry() {
         _playbackError.value = null
@@ -100,6 +109,15 @@ class MediaPlayerManager(
     private val _playlist = MutableStateFlow<List<MediaItemModel>>(emptyList())
     val playlist: StateFlow<List<MediaItemModel>> = _playlist.asStateFlow()
 
+    fun updateMediaItem(updated: MediaItemModel) {
+        if (_currentMediaItem.value?.id == updated.id || _currentMediaItem.value?.uri == updated.uri) {
+            _currentMediaItem.value = updated
+        }
+        _playlist.value = _playlist.value.map {
+            if (it.id == updated.id || it.uri == updated.uri) updated else it
+        }
+    }
+
     private val _currentIndex = MutableStateFlow(0)
     val currentIndex: StateFlow<Int> = _currentIndex.asStateFlow()
 
@@ -111,15 +129,22 @@ class MediaPlayerManager(
     private val _playbackPositions = MutableStateFlow<Map<Long, Long>>(emptyMap())
     val playbackPositions: StateFlow<Map<Long, Long>> = _playbackPositions.asStateFlow()
 
+    private val _playbackTimestamps = MutableStateFlow<Map<Long, Long>>(emptyMap())
+    val playbackTimestamps: StateFlow<Map<Long, Long>> = _playbackTimestamps.asStateFlow()
+
     private val _playedMediaIds = MutableStateFlow<Set<Long>>(emptySet())
     val playedMediaIds: StateFlow<Set<Long>> = _playedMediaIds.asStateFlow()
 
+    private var videoServiceStartJob: Job? = null
+
     init {
         // Load playback history asynchronously off the main thread to optimize cold startup
-        CoroutineScope(Dispatchers.IO).launch {
+        scope.launch(Dispatchers.IO) {
             val positions = historyManager.getAllPositions()
+            val timestamps = historyManager.getAllTimestamps()
             val playedIds = historyManager.getPlayedMediaIds().asSequence().mapNotNull { it.toLongOrNull() }.toSet()
             _playbackPositions.value = positions
+            _playbackTimestamps.value = timestamps
             _playedMediaIds.value = playedIds
         }
     }
@@ -134,6 +159,18 @@ class MediaPlayerManager(
 
     fun getSavedPosition(mediaId: Long): Long {
         return _playbackPositions.value[mediaId] ?: historyManager.getPosition(mediaId)
+    }
+
+    fun clearPlaybackHistory(mediaId: Long) {
+        _playbackPositions.update { it - mediaId }
+        _playbackTimestamps.update { it - mediaId }
+        historyManager.clearPosition(mediaId)
+    }
+
+    fun clearAllPlaybackHistory() {
+        _playbackPositions.value = emptyMap()
+        _playbackTimestamps.value = emptyMap()
+        historyManager.clearAllPositions()
     }
 
     fun setDecoderMode(mode: String) {
@@ -209,10 +246,16 @@ class MediaPlayerManager(
                 return State.Builder()
                     .setAvailableCommands(videoCommands)
                     .setPlayWhenReady(isPlaying, Player.PLAY_WHEN_READY_CHANGE_REASON_USER_REQUEST)
-                    .setPlaybackState(if (isPlaying) Player.STATE_READY else Player.STATE_READY)
+                    .setPlaybackState(Player.STATE_READY)
                     .setPlaylist(listOf(mediaItemData))
                     .setCurrentMediaItemIndex(0)
-                    .setContentPositionMs(posMs)
+                    .setContentPositionMs(
+                        if (isPlaying) {
+                            SimpleBasePlayer.PositionSupplier.getExtrapolating(posMs, 1f)
+                        } else {
+                            SimpleBasePlayer.PositionSupplier.getConstant(posMs)
+                        }
+                    )
                     .setPlaylistMetadata(media3Item.mediaMetadata)
                     .setIsLoading(false)
                     .setSeekBackIncrementMs(10000L)
@@ -366,6 +409,10 @@ class MediaPlayerManager(
         val listener = object : Player.Listener {
             override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
                 android.util.Log.e("MediaPlayerManager", "ExoPlayer error: ${error.errorCodeName} (${error.errorCode})", error)
+                com.mediaplayer.util.DiagnosticLogManager.recordEvent(
+                    "ExoPlayer",
+                    "${error.errorCodeName} (${error.errorCode}): ${error.cause?.javaClass?.simpleName ?: error.message}"
+                )
                 val msg = when (error.errorCode) {
                     androidx.media3.common.PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED,
                     androidx.media3.common.PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT ->
@@ -426,6 +473,44 @@ class MediaPlayerManager(
                 if (_currentMediaItem.value?.isVideo == true) return
                 _currentPositionMs.value = newPosition.positionMs
             }
+
+            override fun onTracksChanged(tracks: Tracks) {
+                if (_currentMediaItem.value?.isVideo == true) return
+                var selectedAudioFormat: androidx.media3.common.Format? = null
+                for (group in tracks.groups) {
+                    if (group.type == C.TRACK_TYPE_AUDIO && group.isSelected) {
+                        for (i in 0 until group.length) {
+                            if (group.isTrackSelected(i)) {
+                                selectedAudioFormat = group.getTrackFormat(i)
+                                break
+                            }
+                        }
+                    }
+                    if (selectedAudioFormat != null) break
+                }
+                if (selectedAudioFormat != null) {
+                    val mime = selectedAudioFormat.sampleMimeType.orEmpty().lowercase()
+                    val codecLabel = when {
+                        mime.contains("opus") -> "Opus"
+                        mime.contains("flac") -> "FLAC"
+                        mime.contains("alac") -> "ALAC"
+                        mime.contains("vorbis") -> "Vorbis"
+                        mime.contains("mp4a") || mime.contains("aac") -> "AAC"
+                        mime.contains("mpeg") || mime.contains("mp3") -> "MP3"
+                        mime.contains("raw") || mime.contains("pcm") -> "PCM"
+                        mime.contains("ac3") -> "AC3"
+                        mime.contains("eac3") -> "E-AC3"
+                        mime.contains("dts") -> "DTS"
+                        else -> selectedAudioFormat.codecs?.uppercase()?.substringBefore('.') ?: ""
+                    }
+                    _audioStreamInfo.value = AudioStreamInfo(
+                        codec = codecLabel,
+                        sampleRateHz = selectedAudioFormat.sampleRate.takeIf { it > 0 } ?: 0,
+                        channelCount = selectedAudioFormat.channelCount.takeIf { it > 0 } ?: 0,
+                        bitrateBps = selectedAudioFormat.bitrate.takeIf { it > 0 } ?: 0
+                    )
+                }
+            }
         }
         playerListener = listener
         player.addListener(listener)
@@ -458,27 +543,47 @@ class MediaPlayerManager(
         _playedMediaIds.update { it + item.id }
 
         if (item.isVideo) {
+            _audioStreamInfo.value = null
             // Video playback is handled 100% by C++ Core (libmpv HW+).
             videoStartPositionOverride = startPositionMs
+            val initialPos = startPositionMs ?: run {
+                val saved = historyManager.getPosition(item.id)
+                if (saved > 3000L && (item.durationMs <= 0L || saved < item.durationMs - 5000L)) saved else 0L
+            }
+            _durationMs.value = if (item.durationMs > 0) item.durationMs else 0L
+            currentNotifiedDurationMs = _durationMs.value
+            _currentPositionMs.value = initialPos
             stopProgressPolling()
-            // Stop ExoPlayer and clear media items so it does NOT hold audio sinks or output audio
-            player.pause()
-            player.stop()
-            player.clearMediaItems()
+            // Stop ExoPlayer only if already initialized so opening a video never stalls the main thread
+            _player?.let { p ->
+                p.pause()
+                p.stop()
+                p.clearMediaItems()
+            }
             _isVideoPlaying.value = true
             _isPlaying.value = true
             acquireWakeLock()
 
-            // Keep background audio playback service running for background video playback
-            try {
-                val serviceIntent = Intent(appContext, UniversalMediaPlaybackService::class.java)
-                appContext.startService(serviceIntent)
-            } catch (_: Exception) {}
+            // Defer service start slightly so first video frame renders smoothly without cold ExoPlayer/MediaSession stall
+            videoServiceStartJob?.cancel()
+            if (com.mediaplayer.util.AppSettingsManager(appContext).backgroundPlayback) {
+                videoServiceStartJob = scope.launch {
+                    delay(350.milliseconds)
+                    if (_currentMediaItem.value?.isVideo == true && _isVideoPlaying.value) {
+                        try {
+                            val serviceIntent = Intent(appContext, UniversalMediaPlaybackService::class.java)
+                            appContext.startService(serviceIntent)
+                        } catch (_: Exception) {}
+                    }
+                }
+            }
             forwardingPlayer?.notifyStateChanged()
             return
         }
 
         // Stop video playback completely to eliminate any audio overlapping
+        videoServiceStartJob?.cancel()
+        videoServiceStartJob = null
         releaseWakeLock()
         onStopVideo?.invoke() ?: onPauseVideo?.invoke()
         _isVideoPlaying.value = false
@@ -561,9 +666,11 @@ class MediaPlayerManager(
     private val _videoDimensions = MutableStateFlow<Pair<Int, Int>?>(null)
     val videoDimensions: StateFlow<Pair<Int, Int>?> = _videoDimensions.asStateFlow()
 
-    private var lastNotificationPositionUpdateMs = 0L
+    private var currentNotifiedDurationMs = 0L
 
     fun setVideoPlaying(playing: Boolean) {
+        val stateChanged = _isVideoPlaying.value != playing ||
+            (_currentMediaItem.value?.isVideo == true && _isPlaying.value != playing)
         _isVideoPlaying.value = playing
         if (_currentMediaItem.value?.isVideo == true) {
             _isPlaying.value = playing
@@ -573,19 +680,20 @@ class MediaPlayerManager(
                 releaseWakeLock()
             }
         }
-        forwardingPlayer?.notifyStateChanged()
+        if (stateChanged) {
+            forwardingPlayer?.notifyStateChanged()
+        }
     }
 
     fun updateVideoPosition(positionMs: Long, durationMs: Long) {
         if (_currentMediaItem.value?.isVideo == true) {
             _currentPositionMs.value = positionMs
-            if (durationMs > 0) {
+            if (durationMs > 0 && _durationMs.value != durationMs) {
                 _durationMs.value = durationMs
-            }
-            val now = SystemClock.elapsedRealtime()
-            if (now - lastNotificationPositionUpdateMs >= 1000L) {
-                lastNotificationPositionUpdateMs = now
-                forwardingPlayer?.notifyStateChanged()
+                if (currentNotifiedDurationMs <= 0L) {
+                    currentNotifiedDurationMs = durationMs
+                    forwardingPlayer?.notifyStateChanged()
+                }
             }
         }
     }
@@ -604,6 +712,8 @@ class MediaPlayerManager(
 
     fun stopVideo() {
         if (_currentMediaItem.value?.isVideo == true) {
+            videoServiceStartJob?.cancel()
+            videoServiceStartJob = null
             releaseWakeLock()
             onStopVideo?.invoke() ?: onPauseVideo?.invoke()
             clearVideoCallbacks()
@@ -611,6 +721,7 @@ class MediaPlayerManager(
             _isPlaying.value = false
             _isVideoPlaying.value = false
             _videoDimensions.value = null
+            currentNotifiedDurationMs = 0L
             _isPlayerExpanded.value = false
             forwardingPlayer?.notifyStateChanged()
         }
@@ -706,6 +817,7 @@ class MediaPlayerManager(
             p.clearMediaItems()
         }
         _currentMediaItem.value = null
+        _audioStreamInfo.value = null
         _isPlaying.value = false
         _currentPositionMs.value = 0L
         clearVideoCallbacks()
@@ -745,7 +857,7 @@ class MediaPlayerManager(
     fun setVolumeBoost(level: Float) {
         // level: 0.0f .. 2.0f
         if (level <= 1.0f) {
-            player.volume = 1.0f
+            player.volume = level.coerceIn(0f, 1f)
         } else {
             // Soft-knee tanh saturation:
             // Smoothly compresses loudness spikes while boosting quiet dialog without digital clipping
@@ -813,6 +925,14 @@ class MediaPlayerManager(
         }
     }
 
+    fun playVideoAtIndex(index: Int) {
+        val list = _playlist.value
+        if (index in list.indices) {
+            val item = list[index]
+            playMedia(item, list)
+        }
+    }
+
     @Suppress("unused")
     fun hasNextVideo(): Boolean = _currentIndex.value < _playlist.value.size - 1
 
@@ -821,7 +941,9 @@ class MediaPlayerManager(
 
     fun saveVideoPlaybackPosition(mediaId: Long, positionMs: Long, durationMs: Long) {
         if (mediaId <= 0 || positionMs < 0) return
+        val now = System.currentTimeMillis()
         _playbackPositions.update { it + (mediaId to positionMs) }
+        _playbackTimestamps.update { it + (mediaId to now) }
         historyManager.savePosition(mediaId, positionMs, durationMs)
     }
 
@@ -844,12 +966,14 @@ class MediaPlayerManager(
     fun setPlayerExpanded(expanded: Boolean) {
         _isPlayerExpanded.value = expanded
         if (!expanded) {
-            val mediaId = _currentMediaItem.value?.id
-            if (mediaId != null) {
-                val pos = player.currentPosition
-                val dur = if (player.duration > 0) player.duration else 0L
-                _playbackPositions.update { it + (mediaId to pos) }
-                historyManager.savePosition(mediaId, pos, dur)
+            val item = _currentMediaItem.value
+            if (item != null && !item.isVideo) {
+                _player?.let { p ->
+                    val pos = p.currentPosition
+                    val dur = if (p.duration > 0) p.duration else 0L
+                    _playbackPositions.update { it + (item.id to pos) }
+                    historyManager.savePosition(item.id, pos, dur)
+                }
             }
         }
     }
@@ -948,6 +1072,8 @@ class MediaPlayerManager(
     }
 
     fun release() {
+        videoServiceStartJob?.cancel()
+        videoServiceStartJob = null
         releaseWakeLock()
         stopProgressPolling()
         clearVideoCallbacks()

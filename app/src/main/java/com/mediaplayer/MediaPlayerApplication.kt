@@ -1,6 +1,8 @@
 package com.mediaplayer
 
 import android.app.Application
+import android.content.pm.ApplicationInfo
+import android.os.StrictMode
 import coil.ImageLoader
 import coil.ImageLoaderFactory
 import coil.decode.VideoFrameDecoder
@@ -33,6 +35,16 @@ class MediaPlayerApplication : Application(), ImageLoaderFactory {
     override fun onCreate() {
         super.onCreate()
         instance = this
+        com.mediaplayer.util.DiagnosticLogManager.installCrashHandler(this)
+        if ((applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0) {
+            StrictMode.setVmPolicy(
+                StrictMode.VmPolicy.Builder()
+                    .detectLeakedClosableObjects()
+                    .detectActivityLeaks()
+                    .penaltyLog()
+                    .build()
+            )
+        }
         repository = MediaLibraryRepository(this)
         vaultRepository = VaultRepository(this)
         vaultSecurityManager = VaultSecurityManager(this)
@@ -40,9 +52,35 @@ class MediaPlayerApplication : Application(), ImageLoaderFactory {
         // Note: playerManager initializes ExoPlayer and MediaSession lazily on-demand
         // to ensure zero main-thread blocking during cold application startup.
 
-        // Asynchronously warm up the media file cache off the main thread for zero startup lag
+        // Asynchronously warm up the media file cache, preferences, Coil ImageLoader, and FFmpeg native decoder off the main thread
         CoroutineScope(Dispatchers.IO).launch {
+            com.mediaplayer.util.AppSettingsManager.pitchBlackThemeFlow(this@MediaPlayerApplication)
+            playerManager.historyManager.getLastTab()
+            coil.Coil.imageLoader(this@MediaPlayerApplication)
             repository.preloadCache()
+            warmAudioDecoderLibraries()
+        }
+    }
+
+    @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+    private fun warmAudioDecoderLibraries() {
+        runCatching {
+            androidx.media3.decoder.ffmpeg.FfmpegLibrary.isAvailable()
+        }
+        runCatching {
+            androidx.media3.exoplayer.audio.AudioCapabilities.getCapabilities(
+                this,
+                androidx.media3.common.AudioAttributes.DEFAULT,
+                null
+            )
+        }
+        runCatching {
+            androidx.media3.exoplayer.DefaultRenderersFactory(this)
+                .setExtensionRendererMode(androidx.media3.exoplayer.DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON)
+                .setEnableDecoderFallback(true)
+            androidx.media3.extractor.DefaultExtractorsFactory()
+                .setConstantBitrateSeekingEnabled(true)
+            androidx.media3.exoplayer.DefaultLoadControl.Builder().build()
         }
     }
 

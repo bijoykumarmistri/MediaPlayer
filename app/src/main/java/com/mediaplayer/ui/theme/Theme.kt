@@ -86,17 +86,19 @@ private val OledDarkColorScheme = darkColorScheme(
     onTertiaryContainer = DarkOnTertiaryContainer,
     background = StaticOledBlack,
     onBackground = DarkOnBackground,
-    surface = StaticOledSurface,
+    surface = StaticOledBlack,
     onSurface = DarkOnSurface,
-    surfaceVariant = StaticOledSurfaceVariant,
+    surfaceDim = StaticOledBlack,
+    surfaceBright = Color(0xFF141418),
+    surfaceVariant = Color(0xFF121218),
     onSurfaceVariant = DarkOnSurfaceVariant,
     surfaceContainerLowest = StaticOledBlack,
-    surfaceContainerLow = StaticOledSurface,
-    surfaceContainer = StaticOledSurfaceVariant,
-    surfaceContainerHigh = StaticOledSurfaceContainer,
-    surfaceContainerHighest = Color(0xFF252836),
+    surfaceContainerLow = Color(0xFF050507),
+    surfaceContainer = Color(0xFF0A0A0D),
+    surfaceContainerHigh = Color(0xFF121216),
+    surfaceContainerHighest = Color(0xFF1A1A20),
     outline = DarkOutline,
-    outlineVariant = StaticOledBorder,
+    outlineVariant = Color(0xFF22222A),
 )
 
 @Composable
@@ -107,24 +109,30 @@ fun MediaPlayerTheme(
     content: @Composable () -> Unit,
 ) {
     val context = LocalContext.current
+    val effectiveDarkTheme = darkTheme || oledMode
     val colorScheme = when {
         dynamicColor && (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) -> {
-            val dynamic = if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
-            if (oledMode && darkTheme) {
+            val dynamic = if (effectiveDarkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
+            if (oledMode) {
                 dynamic.copy(
                     background = Color.Black,
                     surface = Color.Black,
-                    surfaceVariant = Color(0xFF14171F),
-                    surfaceContainer = Color(0xFF0D0F14),
-                    surfaceContainerLow = Color(0xFF07080B),
-                    surfaceContainerHigh = Color(0xFF181B24),
-                    surfaceContainerHighest = Color(0xFF222632)
+                    surfaceDim = Color.Black,
+                    surfaceBright = Color(0xFF141418),
+                    surfaceVariant = Color(0xFF121218),
+                    surfaceContainerLowest = Color.Black,
+                    surfaceContainerLow = Color(0xFF050507),
+                    surfaceContainer = Color(0xFF0A0A0D),
+                    surfaceContainerHigh = Color(0xFF121216),
+                    surfaceContainerHighest = Color(0xFF1A1A20),
+                    outlineVariant = Color(0xFF22222A)
                 )
             } else {
                 dynamic
             }
         }
-        darkTheme -> if (oledMode) OledDarkColorScheme else DarkColorScheme
+        oledMode -> OledDarkColorScheme
+        effectiveDarkTheme -> DarkColorScheme
         else -> LightColorScheme
     }
 
@@ -133,8 +141,8 @@ fun MediaPlayerTheme(
         SideEffect {
             val window = (view.context as? Activity)?.window ?: return@SideEffect
             val insetsController = WindowCompat.getInsetsController(window, view)
-            insetsController.isAppearanceLightStatusBars = !darkTheme
-            insetsController.isAppearanceLightNavigationBars = !darkTheme
+            insetsController.isAppearanceLightStatusBars = !effectiveDarkTheme
+            insetsController.isAppearanceLightNavigationBars = !effectiveDarkTheme
         }
     }
 

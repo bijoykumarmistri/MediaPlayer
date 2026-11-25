@@ -7,41 +7,59 @@ import androidx.core.content.edit
 class PlaybackHistoryManager(context: Context) {
 
     private val prefs: SharedPreferences = context.getSharedPreferences("media_playback_history_v2", Context.MODE_PRIVATE)
+    private val cacheLock = Any()
+
+    @Volatile
+    private var playedIdsCache: Set<String>? = null
+
+    @Volatile
+    private var completedIdsCache: Set<String>? = null
 
     fun getPosition(mediaId: Long): Long {
         return prefs.getLong("pos_$mediaId", 0L)
     }
 
     fun savePosition(mediaId: Long, positionMs: Long, durationMs: Long) {
+        val idStr = mediaId.toString()
+        var updatedPlayed: Set<String>? = null
+        var updatedCompleted: Set<String>? = null
+        val isCompletedThreshold = (durationMs > 0) && (positionMs >= (durationMs * 0.90).toLong())
+
+        synchronized(cacheLock) {
+            val currentPlayed = getPlayedMediaIds()
+            if (!currentPlayed.contains(idStr)) {
+                updatedPlayed = currentPlayed + idStr
+                playedIdsCache = updatedPlayed
+            }
+            if (isCompletedThreshold) {
+                val currentCompleted = getCompletedMediaIds()
+                if (!currentCompleted.contains(idStr)) {
+                    updatedCompleted = currentCompleted + idStr
+                    completedIdsCache = updatedCompleted
+                }
+            }
+        }
+
         prefs.edit {
             putLong("pos_$mediaId", positionMs)
             putLong("time_$mediaId", System.currentTimeMillis())
-
-            val idStr = mediaId.toString()
-            val currentPlayed = getPlayedMediaIds()
-            if (!currentPlayed.contains(idStr)) {
-                val played = currentPlayed.toMutableSet()
-                played.add(idStr)
-                putStringSet("played_ids", played)
+            if (updatedPlayed != null) {
+                putStringSet("played_ids", updatedPlayed)
             }
-
-            // If watched past 90%, mark as completed
-            if ((durationMs > 0) && (positionMs >= (durationMs * 0.90).toLong())) {
-                val currentCompleted = getCompletedMediaIds()
-                if (!currentCompleted.contains(idStr)) {
-                    val completed = currentCompleted.toMutableSet()
-                    completed.add(idStr)
-                    putStringSet("completed_ids", completed)
-                }
+            if (updatedCompleted != null) {
+                putStringSet("completed_ids", updatedCompleted)
             }
         }
     }
 
     fun markAsPlayed(mediaId: Long) {
-        val played = getPlayedMediaIds().toMutableSet()
-        if (played.add(mediaId.toString())) {
-            prefs.edit { putStringSet("played_ids", played) }
+        val idStr = mediaId.toString()
+        val updatedPlayed = synchronized(cacheLock) {
+            val currentPlayed = getPlayedMediaIds()
+            if (currentPlayed.contains(idStr)) return
+            (currentPlayed + idStr).also { playedIdsCache = it }
         }
+        prefs.edit { putStringSet("played_ids", updatedPlayed) }
     }
 
     fun isPlayed(mediaId: Long): Boolean {
@@ -53,17 +71,38 @@ class PlaybackHistoryManager(context: Context) {
         return getCompletedMediaIds().contains(mediaId.toString())
     }
 
-    @Suppress("unused")
     fun clearPosition(mediaId: Long) {
-        prefs.edit { remove("pos_$mediaId") }
+        prefs.edit {
+            remove("pos_$mediaId")
+            remove("time_$mediaId")
+        }
+    }
+
+    fun clearAllPositions() {
+        prefs.edit {
+            val keysToRemove = prefs.all.keys.filter { it.startsWith("pos_") || it.startsWith("time_") }
+            for (key in keysToRemove) {
+                remove(key)
+            }
+        }
     }
 
     fun getPlayedMediaIds(): Set<String> {
-        return prefs.getStringSet("played_ids", emptySet()) ?: emptySet()
+        playedIdsCache?.let { return it }
+        return synchronized(cacheLock) {
+            playedIdsCache ?: (prefs.getStringSet("played_ids", emptySet())?.toSet() ?: emptySet()).also {
+                playedIdsCache = it
+            }
+        }
     }
 
     fun getCompletedMediaIds(): Set<String> {
-        return prefs.getStringSet("completed_ids", emptySet()) ?: emptySet()
+        completedIdsCache?.let { return it }
+        return synchronized(cacheLock) {
+            completedIdsCache ?: (prefs.getStringSet("completed_ids", emptySet())?.toSet() ?: emptySet()).also {
+                completedIdsCache = it
+            }
+        }
     }
 
     fun getAllPositions(): Map<Long, Long> {
@@ -71,6 +110,19 @@ class PlaybackHistoryManager(context: Context) {
         for ((key, value) in prefs.all) {
             if (key.startsWith("pos_") && value is Long) {
                 val idStr = key.removePrefix("pos_")
+                idStr.toLongOrNull()?.let { id ->
+                    map[id] = value
+                }
+            }
+        }
+        return map
+    }
+
+    fun getAllTimestamps(): Map<Long, Long> {
+        val map = mutableMapOf<Long, Long>()
+        for ((key, value) in prefs.all) {
+            if (key.startsWith("time_") && value is Long) {
+                val idStr = key.removePrefix("time_")
                 idStr.toLongOrNull()?.let { id ->
                     map[id] = value
                 }

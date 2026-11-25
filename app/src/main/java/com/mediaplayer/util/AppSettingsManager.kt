@@ -3,11 +3,17 @@ package com.mediaplayer.util
 import android.content.Context
 import android.content.SharedPreferences
 import androidx.core.content.edit
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import java.util.concurrent.atomic.AtomicBoolean
 
 class AppSettingsManager(context: Context) {
-    private val prefs: SharedPreferences = context.getSharedPreferences("app_settings_customization", Context.MODE_PRIVATE)
+    private val prefs: SharedPreferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
     companion object {
+        private const val PREFS_NAME = "app_settings_customization"
+
         const val KEY_DECODER_MODE = "pref_decoder_mode"
         const val KEY_DOUBLE_TAP_SEEK = "pref_double_tap_seek"
         const val KEY_AUTO_RESUME = "pref_auto_resume"
@@ -22,7 +28,29 @@ class AppSettingsManager(context: Context) {
         const val KEY_MIN_VIDEO_DURATION_SEC = "pref_min_video_duration_sec"
         const val KEY_HIGH_REFRESH_RATE = "pref_high_refresh_rate"
         const val KEY_MUSIC_TIME_VIEW_REMAINING = "pref_music_time_view_remaining"
+        const val KEY_PITCH_BLACK_THEME = "pref_pitch_black_theme"
+        const val KEY_AUTO_ROTATE_VIDEO = "pref_auto_rotate_video"
+        const val KEY_AUTO_PLAY_NEXT_VIDEO = "pref_auto_play_next_video"
+
+        private val _pitchBlackState = MutableStateFlow(false)
+        private val pitchBlackInitialized = AtomicBoolean(false)
+
+        fun pitchBlackThemeFlow(context: Context): StateFlow<Boolean> {
+            if (pitchBlackInitialized.compareAndSet(false, true)) {
+                val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                _pitchBlackState.value = prefs.getBoolean(KEY_PITCH_BLACK_THEME, false)
+            }
+            return _pitchBlackState.asStateFlow()
+        }
     }
+
+    var pitchBlackTheme: Boolean
+        get() = prefs.getBoolean(KEY_PITCH_BLACK_THEME, false)
+        set(value) {
+            prefs.edit { putBoolean(KEY_PITCH_BLACK_THEME, value) }
+            pitchBlackInitialized.set(true)
+            _pitchBlackState.value = value
+        }
 
     var defaultDecoderMode: String
         get() = prefs.getString(KEY_DECODER_MODE, "HW+") ?: "HW+"
@@ -80,4 +108,12 @@ class AppSettingsManager(context: Context) {
     var musicTimeViewRemaining: Boolean
         get() = prefs.getBoolean(KEY_MUSIC_TIME_VIEW_REMAINING, false)
         set(value) = prefs.edit { putBoolean(KEY_MUSIC_TIME_VIEW_REMAINING, value) }
+
+    var autoRotateVideo: Boolean
+        get() = prefs.getBoolean(KEY_AUTO_ROTATE_VIDEO, true)
+        set(value) = prefs.edit { putBoolean(KEY_AUTO_ROTATE_VIDEO, value) }
+
+    var autoPlayNextVideo: Boolean
+        get() = prefs.getBoolean(KEY_AUTO_PLAY_NEXT_VIDEO, true)
+        set(value) = prefs.edit { putBoolean(KEY_AUTO_PLAY_NEXT_VIDEO, value) }
 }

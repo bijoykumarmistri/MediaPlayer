@@ -70,10 +70,12 @@ import androidx.compose.runtime.withFrameMillis
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
@@ -101,6 +103,7 @@ fun MusicNowPlayingScreen(
     playerManager: MediaPlayerManager,
     onCollapse: () -> Unit,
     modifier: Modifier = Modifier,
+    isPitchBlack: Boolean = false,
 ) {
     val currentItem by playerManager.currentMediaItem.collectAsState()
     val isPlaying by playerManager.isPlaying.collectAsState()
@@ -119,13 +122,17 @@ fun MusicNowPlayingScreen(
         modifier = modifier
             .fillMaxSize()
             .background(
-                Brush.verticalGradient(
-                    listOf(
-                        dominantColor.copy(alpha = 0.6f),
-                        darkBgColor,
-                        Color.Black
+                if (isPitchBlack) {
+                    Brush.verticalGradient(listOf(Color.Black, Color.Black))
+                } else {
+                    Brush.verticalGradient(
+                        listOf(
+                            dominantColor.copy(alpha = 0.6f),
+                            darkBgColor,
+                            Color.Black
+                        )
                     )
-                )
+                }
             )
             .statusBarsPadding()
     ) {
@@ -209,6 +216,7 @@ fun MusicNowPlayingScreen(
                 maxLines = 1,
                 modifier = Modifier
                     .fillMaxWidth()
+                    .clipToBounds()
                     .basicMarquee()
             )
 
@@ -227,53 +235,11 @@ fun MusicNowPlayingScreen(
             Spacer(modifier = Modifier.height(10.dp))
 
             // Hi-Fi & Audio Format Badges
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = accentColor.copy(alpha = 0.14f),
-                    border = BorderStroke(1.dp, accentColor.copy(alpha = 0.4f))
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(
-                            imageVector = Icons.Rounded.GraphicEq,
-                            contentDescription = null,
-                            tint = accentColor,
-                            modifier = Modifier.size(13.dp)
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(
-                            text = "HI-FI AUDIO",
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = accentColor,
-                            fontFamily = FontFamily.Monospace
-                        )
-                    }
-                }
-
-                val ext = currentItem?.uri?.lastPathSegment?.substringAfterLast('.', "")?.uppercase()
-                val formatText = if (!ext.isNullOrEmpty() && ext.length in 2..5) "$ext • 320 KBPS" else "STEREO • 44.1 KHZ"
-                Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = Color(0x22FFFFFF),
-                    border = BorderStroke(1.dp, Color(0x33FFFFFF))
-                ) {
-                    Text(
-                        text = formatText,
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color(0xFFC0C0D0),
-                        fontFamily = FontFamily.Monospace,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
-                    )
-                }
-            }
+            NowPlayingFormatBadges(
+                playerManager = playerManager,
+                currentItem = currentItem,
+                accentColor = accentColor
+            )
 
             Spacer(modifier = Modifier.height(20.dp))
 
@@ -424,7 +390,11 @@ fun MusicNowPlayingScreen(
                             .fillMaxWidth()
                             .height(380.dp)
                     ) {
-                        itemsIndexed(playlist) { index, track ->
+                        itemsIndexed(
+                            items = playlist,
+                            key = { index, track -> "${index}_${track.id}" },
+                            contentType = { _, _ -> "queue_track" }
+                        ) { index, track ->
                             val isCurrent = index == currentIndex
                             Row(
                                 modifier = Modifier
@@ -611,41 +581,41 @@ private fun EqualizerBars(
     modifier: Modifier = Modifier
 ) {
     val infiniteTransition = rememberInfiniteTransition(label = "eqAnim")
-    val h1 by infiniteTransition.animateFloat(
-        initialValue = 4f,
-        targetValue = 16f,
+    val s1 by infiniteTransition.animateFloat(
+        initialValue = 0.22f,
+        targetValue = 0.89f,
         animationSpec = infiniteRepeatable(
             animation = tween(380, easing = FastOutSlowInEasing),
             repeatMode = RepeatMode.Reverse
         ),
-        label = "h1"
+        label = "s1"
     )
-    val h2 by infiniteTransition.animateFloat(
-        initialValue = 14f,
-        targetValue = 6f,
+    val s2 by infiniteTransition.animateFloat(
+        initialValue = 0.78f,
+        targetValue = 0.33f,
         animationSpec = infiniteRepeatable(
             animation = tween(520, easing = FastOutSlowInEasing),
             repeatMode = RepeatMode.Reverse
         ),
-        label = "h2"
+        label = "s2"
     )
-    val h3 by infiniteTransition.animateFloat(
-        initialValue = 6f,
-        targetValue = 18f,
+    val s3 by infiniteTransition.animateFloat(
+        initialValue = 0.33f,
+        targetValue = 1.0f,
         animationSpec = infiniteRepeatable(
             animation = tween(430, easing = FastOutSlowInEasing),
             repeatMode = RepeatMode.Reverse
         ),
-        label = "h3"
+        label = "s3"
     )
-    val h4 by infiniteTransition.animateFloat(
-        initialValue = 12f,
-        targetValue = 5f,
+    val s4 by infiniteTransition.animateFloat(
+        initialValue = 0.67f,
+        targetValue = 0.28f,
         animationSpec = infiniteRepeatable(
             animation = tween(610, easing = FastOutSlowInEasing),
             repeatMode = RepeatMode.Reverse
         ),
-        label = "h4"
+        label = "s4"
     )
 
     Row(
@@ -653,17 +623,30 @@ private fun EqualizerBars(
         horizontalArrangement = Arrangement.spacedBy(2.dp),
         verticalAlignment = Alignment.Bottom
     ) {
-        listOf(h1, h2, h3, h4).forEach { heightVal ->
-            val barHeight = if (isPlaying) heightVal.dp else 4.dp
-            Box(
-                modifier = Modifier
-                    .width(3.dp)
-                    .height(barHeight)
-                    .clip(RoundedCornerShape(1.5.dp))
-                    .background(color)
-            )
-        }
+        EqualizerBarItem(isPlaying = isPlaying, color = color, scaleProvider = { s1 })
+        EqualizerBarItem(isPlaying = isPlaying, color = color, scaleProvider = { s2 })
+        EqualizerBarItem(isPlaying = isPlaying, color = color, scaleProvider = { s3 })
+        EqualizerBarItem(isPlaying = isPlaying, color = color, scaleProvider = { s4 })
     }
+}
+
+@Composable
+private fun EqualizerBarItem(
+    isPlaying: Boolean,
+    color: Color,
+    scaleProvider: () -> Float
+) {
+    Box(
+        modifier = Modifier
+            .width(3.dp)
+            .height(18.dp)
+            .graphicsLayer {
+                scaleY = if (isPlaying) scaleProvider() else 0.22f
+                transformOrigin = TransformOrigin(0.5f, 1f)
+            }
+            .clip(RoundedCornerShape(1.5.dp))
+            .background(color)
+    )
 }
 
 /**
@@ -681,6 +664,17 @@ fun CoolMusicThumbnail(
     dominantColor: Color,
     modifier: Modifier = Modifier,
 ) {
+    val context = LocalContext.current
+    val artUri = currentItem?.artworkUri
+    val artworkRequest = remember(artUri, currentItem?.id) {
+        artUri?.let { uri ->
+            ImageRequest.Builder(context)
+                .data(uri)
+                .size(512, 512)
+                .crossfade(true)
+                .build()
+        }
+    }
     var isVinylMode by rememberSaveable { mutableStateOf(true) }
     var currentRotation by remember { mutableFloatStateOf(0f) }
 
@@ -729,243 +723,413 @@ fun CoolMusicThumbnail(
         )
 
         if (isVinylMode) {
-            // VINYL TURNTABLE DISC
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .shadow(
-                        elevation = if (isPlaying) 28.dp else 12.dp,
-                        shape = CircleShape,
-                        ambientColor = accentColor.copy(alpha = 0.4f),
-                        spotColor = accentColor.copy(alpha = 0.5f)
-                    )
-                    .clip(CircleShape)
-                    .background(Color(0xFF0C0D12))
-                    .graphicsLayer {
-                        rotationZ = currentRotation
-                    },
-                contentAlignment = Alignment.Center
-            ) {
-                // Concentric Micro-Grooves & Sheen Reflection
-                Canvas(modifier = Modifier.fillMaxSize()) {
-                    val center = Offset(size.width / 2f, size.height / 2f)
-                    val maxRadius = size.minDimension / 2f
-
-                    // Micro groove rings
-                    for (i in 1..10) {
-                        val r = maxRadius * (0.50f + i * 0.046f)
-                        if (r < maxRadius - 6f) {
-                            drawCircle(
-                                color = Color.White.copy(alpha = if (i % 2 == 0) 0.055f else 0.025f),
-                                radius = r,
-                                center = center,
-                                style = Stroke(width = 1.3f)
-                            )
-                        }
-                    }
-
-                    // Dual glossy reflection sheen arcs
-                    drawArc(
-                        brush = Brush.radialGradient(
-                            listOf(Color.White.copy(alpha = 0.09f), Color.Transparent),
-                            center = center,
-                            radius = maxRadius
-                        ),
-                        startAngle = 40f,
-                        sweepAngle = 45f,
-                        useCenter = true
-                    )
-                    drawArc(
-                        brush = Brush.radialGradient(
-                            listOf(Color.White.copy(alpha = 0.09f), Color.Transparent),
-                            center = center,
-                            radius = maxRadius
-                        ),
-                        startAngle = 220f,
-                        sweepAngle = 45f,
-                        useCenter = true
-                    )
-                }
-
-                // Center Record Label (Diameter 48% of vinyl)
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize(0.48f)
-                        .clip(CircleShape)
-                        .border(2.5.dp, accentColor.copy(alpha = 0.7f), CircleShape)
-                        .background(Color(0xFF161824)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    val artUri = currentItem?.artworkUri
-                    if (artUri != null) {
-                        AsyncImage(
-                            model = ImageRequest.Builder(LocalContext.current)
-                                .data(artUri)
-                                .crossfade(true)
-                                .build(),
-                            contentDescription = "Album Art",
-                            modifier = Modifier.fillMaxSize(),
-                            contentScale = ContentScale.Crop
-                        )
-                    } else {
-                        // Dynamic stylized fallback disc label
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .background(
-                                    Brush.radialGradient(
-                                        listOf(
-                                            accentColor.copy(alpha = 0.85f),
-                                            dominantColor,
-                                            Color(0xFF0F1018)
-                                        )
-                                    )
-                                ),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Icon(
-                                    imageVector = Icons.Rounded.MusicNote,
-                                    contentDescription = null,
-                                    tint = Color.White,
-                                    modifier = Modifier.size(28.dp)
-                                )
-                                val labelText = currentItem?.title?.take(3)?.uppercase() ?: "MP"
-                                Text(
-                                    text = labelText,
-                                    color = Color.White,
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Black,
-                                    letterSpacing = 1.sp
-                                )
-                            }
-                        }
-                    }
-
-                    // Center Metallic Spindle Hole
-                    Box(
-                        modifier = Modifier
-                            .size(24.dp)
-                            .clip(CircleShape)
-                            .background(Color.Black)
-                            .border(2.dp, Color(0xFFD4AF37), CircleShape)
-                    )
-                }
-            }
+            VinylDiscArtwork(
+                currentItem = currentItem,
+                artworkRequest = artworkRequest,
+                isPlaying = isPlaying,
+                currentRotationProvider = { currentRotation },
+                accentColor = accentColor,
+                dominantColor = dominantColor
+            )
         } else {
-            // MODERN FULL COVER ART CARD
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .shadow(
-                        elevation = if (isPlaying) 26.dp else 12.dp,
-                        shape = RoundedCornerShape(26.dp),
-                        ambientColor = accentColor.copy(alpha = 0.4f),
-                        spotColor = accentColor.copy(alpha = 0.55f)
-                    )
-                    .clip(RoundedCornerShape(26.dp))
-                    .background(Color(0xFF131520)),
-                contentAlignment = Alignment.Center
-            ) {
-                val artUri = currentItem?.artworkUri
-                if (artUri != null) {
-                    AsyncImage(
-                        model = ImageRequest.Builder(LocalContext.current)
-                            .data(artUri)
-                            .crossfade(true)
-                            .build(),
-                        contentDescription = "Album Artwork",
-                        modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Crop
-                    )
-                } else {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(
-                                Brush.radialGradient(
-                                    listOf(
-                                        accentColor.copy(alpha = 0.35f),
-                                        dominantColor.copy(alpha = 0.5f),
-                                        Color(0xFF0E101A)
-                                    )
-                                )
-                            ),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Box(
-                                modifier = Modifier
-                                    .size(92.dp)
-                                    .clip(CircleShape)
-                                    .background(accentColor.copy(alpha = 0.16f))
-                                    .border(2.dp, accentColor.copy(alpha = 0.45f), CircleShape),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Rounded.MusicNote,
-                                    contentDescription = null,
-                                    tint = accentColor,
-                                    modifier = Modifier.size(50.dp)
-                                )
-                            }
-                            Spacer(modifier = Modifier.height(12.dp))
-                            Text(
-                                text = currentItem?.title ?: "Music Player",
-                                color = Color.White.copy(alpha = 0.9f),
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 13.sp,
-                                maxLines = 1
-                            )
-                        }
-                    }
-                }
-            }
-        }
-
-        // Mode Switch Pill Badge at Top
-        Surface(
-            shape = RoundedCornerShape(10.dp),
-            color = Color(0x99000000),
-            border = BorderStroke(0.8.dp, Color(0x33FFFFFF)),
-            modifier = Modifier
-                .align(Alignment.TopCenter)
-                .padding(top = 10.dp)
-        ) {
-            Text(
-                text = if (isVinylMode) "VINYL • TAP TO FLIP" else "COVER ART • TAP TO FLIP",
-                fontSize = 9.sp,
-                fontWeight = FontWeight.Bold,
-                color = Color(0xDDFFFFFF),
-                letterSpacing = 0.8.sp,
-                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+            CoverArtCard(
+                currentItem = currentItem,
+                artworkRequest = artworkRequest,
+                isPlaying = isPlaying,
+                accentColor = accentColor,
+                dominantColor = dominantColor
             )
         }
 
-        // Live Animated Equalizer Badge at Bottom
-        Surface(
-            shape = RoundedCornerShape(12.dp),
-            color = Color(0xD90F111A),
-            border = BorderStroke(1.dp, accentColor.copy(alpha = 0.45f)),
+        ThumbnailModeBadge(
+            isVinylMode = isVinylMode,
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .padding(top = 10.dp)
+        )
+
+        PlaybackStatusBadge(
+            isPlaying = isPlaying,
+            accentColor = accentColor,
             modifier = Modifier
                 .align(Alignment.BottomEnd)
                 .padding(10.dp)
-        ) {
-            Row(
-                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                EqualizerBars(isPlaying = isPlaying, color = accentColor)
-                Spacer(modifier = Modifier.width(3.dp))
-                Text(
-                    text = if (isPlaying) "PLAYING" else "PAUSED",
-                    fontSize = 9.sp,
-                    fontFamily = FontFamily.Monospace,
-                    fontWeight = FontWeight.Bold,
-                    color = accentColor
+        )
+    }
+}
+
+@Composable
+private fun VinylDiscArtwork(
+    currentItem: MediaItemModel?,
+    artworkRequest: ImageRequest?,
+    isPlaying: Boolean,
+    currentRotationProvider: () -> Float,
+    accentColor: Color,
+    dominantColor: Color
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .shadow(
+                elevation = if (isPlaying) 28.dp else 12.dp,
+                shape = CircleShape,
+                ambientColor = accentColor.copy(alpha = 0.4f),
+                spotColor = accentColor.copy(alpha = 0.5f)
+            )
+            .clip(CircleShape)
+            .background(Color(0xFF0C0D12))
+            .graphicsLayer {
+                rotationZ = currentRotationProvider()
+            },
+        contentAlignment = Alignment.Center
+    ) {
+        VinylGroovesCanvas()
+
+        VinylCenterLabel(
+            currentItem = currentItem,
+            artworkRequest = artworkRequest,
+            accentColor = accentColor,
+            dominantColor = dominantColor
+        )
+    }
+}
+
+@Composable
+private fun VinylGroovesCanvas() {
+    Canvas(modifier = Modifier.fillMaxSize()) {
+        val center = Offset(size.width / 2f, size.height / 2f)
+        val maxRadius = size.minDimension / 2f
+
+        for (i in 1..10) {
+            val r = maxRadius * (0.50f + i * 0.046f)
+            if (r < maxRadius - 6f) {
+                drawCircle(
+                    color = Color.White.copy(alpha = if (i % 2 == 0) 0.055f else 0.025f),
+                    radius = r,
+                    center = center,
+                    style = Stroke(width = 1.3f)
                 )
             }
+        }
+
+        drawArc(
+            brush = Brush.radialGradient(
+                listOf(Color.White.copy(alpha = 0.09f), Color.Transparent),
+                center = center,
+                radius = maxRadius
+            ),
+            startAngle = 40f,
+            sweepAngle = 45f,
+            useCenter = true
+        )
+        drawArc(
+            brush = Brush.radialGradient(
+                listOf(Color.White.copy(alpha = 0.09f), Color.Transparent),
+                center = center,
+                radius = maxRadius
+            ),
+            startAngle = 220f,
+            sweepAngle = 45f,
+            useCenter = true
+        )
+    }
+}
+
+@Composable
+private fun VinylCenterLabel(
+    currentItem: MediaItemModel?,
+    artworkRequest: ImageRequest?,
+    accentColor: Color,
+    dominantColor: Color
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize(0.48f)
+            .clip(CircleShape)
+            .border(2.5.dp, accentColor.copy(alpha = 0.7f), CircleShape)
+            .background(Color(0xFF161824)),
+        contentAlignment = Alignment.Center
+    ) {
+        if (artworkRequest != null) {
+            AsyncImage(
+                model = artworkRequest,
+                contentDescription = "Album Art",
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop
+            )
+        } else {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(
+                        Brush.radialGradient(
+                            listOf(
+                                accentColor.copy(alpha = 0.85f),
+                                dominantColor,
+                                Color(0xFF0F1018)
+                            )
+                        )
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(
+                        imageVector = Icons.Rounded.MusicNote,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(28.dp)
+                    )
+                    val labelText = currentItem?.title?.take(3)?.uppercase() ?: "MP"
+                    Text(
+                        text = labelText,
+                        color = Color.White,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Black,
+                        letterSpacing = 1.sp
+                    )
+                }
+            }
+        }
+
+        Box(
+            modifier = Modifier
+                .size(24.dp)
+                .clip(CircleShape)
+                .background(Color.Black)
+                .border(2.dp, Color(0xFFD4AF37), CircleShape)
+        )
+    }
+}
+
+@Composable
+private fun CoverArtCard(
+    currentItem: MediaItemModel?,
+    artworkRequest: ImageRequest?,
+    isPlaying: Boolean,
+    accentColor: Color,
+    dominantColor: Color
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .shadow(
+                elevation = if (isPlaying) 26.dp else 12.dp,
+                shape = RoundedCornerShape(26.dp),
+                ambientColor = accentColor.copy(alpha = 0.4f),
+                spotColor = accentColor.copy(alpha = 0.55f)
+            )
+            .clip(RoundedCornerShape(26.dp))
+            .background(Color(0xFF131520)),
+        contentAlignment = Alignment.Center
+    ) {
+        if (artworkRequest != null) {
+            AsyncImage(
+                model = artworkRequest,
+                contentDescription = "Album Artwork",
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop
+            )
+        } else {
+            CoverArtFallbackPlaceholder(
+                title = currentItem?.title ?: "Music Player",
+                accentColor = accentColor,
+                dominantColor = dominantColor
+            )
+        }
+    }
+}
+
+@Composable
+private fun CoverArtFallbackPlaceholder(
+    title: String,
+    accentColor: Color,
+    dominantColor: Color
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(
+                Brush.radialGradient(
+                    listOf(
+                        accentColor.copy(alpha = 0.35f),
+                        dominantColor.copy(alpha = 0.5f),
+                        Color(0xFF0E101A)
+                    )
+                )
+            ),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Box(
+                modifier = Modifier
+                    .size(92.dp)
+                    .clip(CircleShape)
+                    .background(accentColor.copy(alpha = 0.16f))
+                    .border(2.dp, accentColor.copy(alpha = 0.45f), CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.MusicNote,
+                    contentDescription = null,
+                    tint = accentColor,
+                    modifier = Modifier.size(50.dp)
+                )
+            }
+            Spacer(modifier = Modifier.height(12.dp))
+            Text(
+                text = title,
+                color = Color.White.copy(alpha = 0.9f),
+                fontWeight = FontWeight.Bold,
+                fontSize = 13.sp,
+                maxLines = 1
+            )
+        }
+    }
+}
+
+@Composable
+private fun ThumbnailModeBadge(
+    isVinylMode: Boolean,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        shape = RoundedCornerShape(10.dp),
+        color = Color(0x99000000),
+        border = BorderStroke(0.8.dp, Color(0x33FFFFFF)),
+        modifier = modifier
+    ) {
+        Text(
+            text = if (isVinylMode) "VINYL • TAP TO FLIP" else "COVER ART • TAP TO FLIP",
+            fontSize = 9.sp,
+            fontWeight = FontWeight.Bold,
+            color = Color(0xDDFFFFFF),
+            letterSpacing = 0.8.sp,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+        )
+    }
+}
+
+@Composable
+private fun PlaybackStatusBadge(
+    isPlaying: Boolean,
+    accentColor: Color,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        shape = RoundedCornerShape(12.dp),
+        color = Color(0xD90F111A),
+        border = BorderStroke(1.dp, accentColor.copy(alpha = 0.45f)),
+        modifier = modifier
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            EqualizerBars(isPlaying = isPlaying, color = accentColor)
+            Spacer(modifier = Modifier.width(3.dp))
+            Text(
+                text = if (isPlaying) "PLAYING" else "PAUSED",
+                fontSize = 9.sp,
+                fontFamily = FontFamily.Monospace,
+                fontWeight = FontWeight.Bold,
+                color = accentColor
+            )
+        }
+    }
+}
+
+@Composable
+private fun NowPlayingFormatBadges(
+    playerManager: MediaPlayerManager,
+    currentItem: MediaItemModel?,
+    accentColor: Color
+) {
+    val streamInfo by playerManager.audioStreamInfo.collectAsState()
+
+    val effectiveSampleRate = streamInfo?.sampleRateHz?.takeIf { it > 0 }
+        ?: currentItem?.sampleRate?.takeIf { it > 0 }
+        ?: 44100
+    val effectiveChannels = streamInfo?.channelCount?.takeIf { it > 0 }
+        ?: currentItem?.channels?.takeIf { it > 0 }
+        ?: 2
+    val effectiveCodec = streamInfo?.codec?.takeIf { it.isNotBlank() }
+        ?: currentItem?.codecBadge?.takeIf { it.isNotBlank() && it != "PCM Audio" }
+        ?: currentItem?.mimeType?.substringAfterLast("/")?.removePrefix("x-")?.uppercase()
+        ?: "AUDIO"
+    val isHiRes = (currentItem?.bitDepth ?: 16) >= 24 ||
+        effectiveSampleRate >= 48000 ||
+        effectiveCodec.contains("FLAC", ignoreCase = true) ||
+        effectiveCodec.contains("ALAC", ignoreCase = true) ||
+        effectiveCodec.contains("DSD", ignoreCase = true) ||
+        effectiveCodec.contains("Lossless", ignoreCase = true)
+
+    val primaryBadge = if (isHiRes && !effectiveCodec.contains("Opus", ignoreCase = true)) {
+        if (effectiveCodec.contains("Hi-Res", ignoreCase = true) || effectiveCodec.contains("Lossless", ignoreCase = true)) {
+            effectiveCodec.uppercase()
+        } else {
+            "HI-RES • ${effectiveCodec.uppercase()}"
+        }
+    } else {
+        effectiveCodec.uppercase()
+    }
+
+    val channelLabel = when (effectiveChannels) {
+        1 -> "MONO"
+        2 -> "STEREO"
+        else -> "${effectiveChannels}CH"
+    }
+    val rateLabel = com.mediaplayer.util.AudioFormatUtils.formatSampleRate(effectiveSampleRate).uppercase()
+    val bitrateBps = streamInfo?.bitrateBps ?: 0
+    val formatText = if (bitrateBps >= 1000) {
+        "$channelLabel • $rateLabel • ${bitrateBps / 1000} KBPS"
+    } else {
+        "$channelLabel • $rateLabel"
+    }
+
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Surface(
+            shape = RoundedCornerShape(8.dp),
+            color = accentColor.copy(alpha = 0.14f),
+            border = BorderStroke(1.dp, accentColor.copy(alpha = 0.4f))
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.GraphicEq,
+                    contentDescription = null,
+                    tint = accentColor,
+                    modifier = Modifier.size(13.dp)
+                )
+                Spacer(modifier = Modifier.width(4.dp))
+                Text(
+                    text = primaryBadge,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = accentColor,
+                    fontFamily = FontFamily.Monospace
+                )
+            }
+        }
+
+        Surface(
+            shape = RoundedCornerShape(8.dp),
+            color = Color(0x22FFFFFF),
+            border = BorderStroke(1.dp, Color(0x33FFFFFF))
+        ) {
+            Text(
+                text = formatText,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color(0xFFC0C0D0),
+                fontFamily = FontFamily.Monospace,
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+            )
         }
     }
 }

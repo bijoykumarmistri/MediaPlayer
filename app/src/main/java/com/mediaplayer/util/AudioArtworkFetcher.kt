@@ -19,6 +19,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import android.graphics.Color
+import android.graphics.ImageDecoder
 import android.provider.MediaStore
 import androidx.core.graphics.drawable.toDrawable
 
@@ -28,7 +29,7 @@ private val emptyArtworkDrawable = Color.TRANSPARENT.toDrawable()
  * High-performance audio album artwork fetcher.
  * 1. O(1) in-memory bitmap cache and negative hit cache (tracks without art skip immediately).
  * 2. Returns empty transparent drawable for tracks without art to prevent Coil from falling through to ContentUriFetcher.
- * 3. Downsampled embedded picture fallback with inSampleSize to eliminate memory overhead.
+ * 3. Single-pass ImageDecoder (API 28+) / downsampled stream fallback for albumart URIs.
  */
 class AudioArtworkFetcher(
     private val context: Context,
@@ -108,25 +109,42 @@ class AudioArtworkFetcher(
         val targetW = (options.size.width as? Dimension.Pixels)?.px?.coerceIn(96, 512) ?: 144
         val targetH = (options.size.height as? Dimension.Pixels)?.px?.coerceIn(96, 512) ?: 144
 
-        // 3. Ultra-fast MediaStore thumbnail query on API 29+ (sub-millisecond check via system MediaProvider)
-        if ((Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) && (uri.authority == MediaStore.AUTHORITY)) {
-            try {
-                val thumb = context.contentResolver.loadThumbnail(uri, Size(targetW, targetH), null)
-                memoryCache.put(uri, thumb)
-                return@withContext DrawableResult(
-                    drawable = thumb.toDrawable(context.resources),
-                    isSampled = true,
-                    dataSource = DataSource.DISK
-                )
-            } catch (_: Throwable) {
-                // MediaStore confirmed this audio track has no album artwork thumbnail.
-                // Instantly mark in negative cache and return empty transparent drawable in <1ms!
+        // 3. Direct MediaStore /albumart single-pass decode or API 29+ loadThumbnail for audio row URIs
+        if (uri.authority == MediaStore.AUTHORITY) {
+            val isAlbumArtUri = uri.toString().contains("/albumart")
+            if (isAlbumArtUri) {
+                val decoded = decodeAlbumArtUri(targetW, targetH)
+                if (decoded != null) {
+                    memoryCache.put(uri, decoded)
+                    return@withContext DrawableResult(
+                        drawable = decoded.toDrawable(context.resources),
+                        isSampled = true,
+                        dataSource = DataSource.DISK
+                    )
+                }
                 noArtworkCache.add(uri)
                 return@withContext DrawableResult(
                     drawable = emptyArtworkDrawable,
                     isSampled = false,
                     dataSource = DataSource.MEMORY
                 )
+            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                try {
+                    val thumb = context.contentResolver.loadThumbnail(uri, Size(targetW, targetH), null)
+                    memoryCache.put(uri, thumb)
+                    return@withContext DrawableResult(
+                        drawable = thumb.toDrawable(context.resources),
+                        isSampled = true,
+                        dataSource = DataSource.DISK
+                    )
+                } catch (_: Throwable) {
+                    noArtworkCache.add(uri)
+                    return@withContext DrawableResult(
+                        drawable = emptyArtworkDrawable,
+                        isSampled = false,
+                        dataSource = DataSource.MEMORY
+                    )
+                }
             }
         }
 
@@ -196,6 +214,54 @@ class AudioArtworkFetcher(
                     dataSource = DataSource.MEMORY
                 )
             }
+        }
+    }
+
+    private fun decodeAlbumArtUri(targetW: Int, targetH: Int): Bitmap? {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            return try {
+                val source = ImageDecoder.createSource(context.contentResolver, uri)
+                ImageDecoder.decodeBitmap(source) { decoder, info, _ ->
+                    decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
+                    val srcW = info.size.width
+                    val srcH = info.size.height
+                    if (srcW > targetW && srcH > targetH && srcW > 0 && srcH > 0) {
+                        var sampleSize = 1
+                        while (srcW / (sampleSize * 2) >= targetW && srcH / (sampleSize * 2) >= targetH) {
+                            sampleSize *= 2
+                        }
+                        if (sampleSize > 1) {
+                            decoder.setTargetSampleSize(sampleSize)
+                        }
+                    }
+                }
+            } catch (_: Throwable) {
+                null
+            }
+        }
+        return try {
+            val boundsOpts = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            context.contentResolver.openInputStream(uri)?.use { stream ->
+                BitmapFactory.decodeStream(stream, null, boundsOpts)
+            }
+            if (boundsOpts.outWidth > 0 && boundsOpts.outHeight > 0) {
+                var sampleSize = 1
+                while (boundsOpts.outWidth / (sampleSize * 2) >= targetW &&
+                    boundsOpts.outHeight / (sampleSize * 2) >= targetH
+                ) {
+                    sampleSize *= 2
+                }
+                val decodeOpts = BitmapFactory.Options().apply {
+                    inSampleSize = sampleSize
+                }
+                context.contentResolver.openInputStream(uri)?.use { stream ->
+                    BitmapFactory.decodeStream(stream, null, decodeOpts)
+                }
+            } else {
+                null
+            }
+        } catch (_: Throwable) {
+            null
         }
     }
 
