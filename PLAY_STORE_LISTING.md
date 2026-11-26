@@ -141,6 +141,6 @@ Run:
 ./gradlew :app:bundlePlaystoreRelease
 ```
 Upload the generated file from:
-`app/build/outputs/bundle/playstoreRelease/BKMPlayer-v1.9-playstore-release.aab`
+`app/build/outputs/bundle/playstoreRelease/BKMPlayer-v1.10-playstore-release.aab`
 
 *(To build the sideloadable GitHub APK with direct UPI & GitHub auto-updater, run `./gradlew :app:assembleGithubRelease`.)*

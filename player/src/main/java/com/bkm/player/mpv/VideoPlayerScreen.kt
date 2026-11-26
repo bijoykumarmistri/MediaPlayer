@@ -132,6 +132,7 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -142,6 +143,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.platform.LocalConfiguration
@@ -783,8 +785,10 @@ fun VideoPlayerScreen(
             // 10. (Child Lock moved to top of Z-stack below controls overlay)
 
             // 11. BKM Player Top & Bottom Controls Overlays
+            // Hide only during full-screen gesture scrubbing so dragging the timeline Slider
+            // keeps the slider mounted and prevents orphaned scrub HUD state.
             BkmPlayerControlsOverlay(
-                isVisible = uiState.controlsVisible && !uiState.isScrubbing && !isScreenLocked,
+                isVisible = uiState.controlsVisible && !uiState.isGestureScrubbing && !isScreenLocked,
                 showMoreDropdown = showOverflowMenu,
                 onMoreDropdownChange = { showOverflowMenu = it },
                 uiState = uiState,
@@ -1193,175 +1197,189 @@ private fun VideoGestureLayer(
                         }
                     }
 
-                    while (true) {
-                        val event = awaitPointerEvent()
-                        val active = event.changes.filter { it.pressed }
+                    try {
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            val active = event.changes.filter { it.pressed }
 
-                        if (active.size >= 2) {
-                            holdSpeedJob?.cancel()
-                            if (isHoldingForSpeed) {
-                                isHoldingForSpeed = false
-                                viewModel.stopFastForward()
-                            }
-
-                            if (!isScreenLocked) {
-                                val p1 = active[0]
-                                val p2 = active[1]
-                                val dx = p2.position.x - p1.position.x
-                                val dy = p2.position.y - p1.position.y
-                                val dist = sqrt(dx * dx + dy * dy)
-
-                                if (lastPinchDist > 0f) {
-                                    val factor = dist / lastPinchDist
-                                    val newScale = (zoomScaleState.floatValue * factor).coerceIn(1.0f, 5.0f)
-                                    zoomScaleState.floatValue = newScale
-                                    onShowZoomHud()
-
-                                    val centerChange = (p1.positionChange() + p2.positionChange()) / 2f
-                                    if (newScale > 1.01f) {
-                                        val maxPanX = (size.width * (newScale - 1f)) / 2f
-                                        val maxPanY = (size.height * (newScale - 1f)) / 2f
-                                        val newPan = panOffsetState.value + centerChange
-                                        panOffsetState.value = Offset(
-                                            x = newPan.x.coerceIn(-maxPanX, maxPanX),
-                                            y = newPan.y.coerceIn(-maxPanY, maxPanY)
-                                        )
-                                    }
-                                }
-                                lastPinchDist = dist
-                            }
-                            active[0].consume()
-                            active[1].consume()
-                            isDrag = true
-                        } else if (active.size == 1) {
-                            val change = active[0]
-                            val totalDx = change.position.x - startX
-                            val totalDy = change.position.y - startY
-
-                            if (!isDrag && (abs(totalDx) > 24f || abs(totalDy) > 24f)) {
-                                isDrag = true
+                            if (active.size >= 2) {
                                 holdSpeedJob?.cancel()
                                 if (isHoldingForSpeed) {
                                     isHoldingForSpeed = false
                                     viewModel.stopFastForward()
                                 }
+                                if (dragDirection == 1) {
+                                    viewModel.onHorizontalScrubEnd()
+                                    dragDirection = 0
+                                } else if (dragDirection == 2) {
+                                    viewModel.hideVerticalHud()
+                                    dragDirection = 0
+                                }
 
                                 if (!isScreenLocked) {
-                                    if (abs(totalDx) > abs(totalDy) * 1.2f && viewModel.uiState.value.hasMediaLoaded) {
-                                        if (fastScrubEnabled) {
-                                            dragDirection = 1
-                                            seekStartX = change.position.x
-                                            viewModel.onHorizontalScrubStart()
-                                        }
-                                    } else if (swipeGesturesEnabled) {
-                                        dragDirection = 2
-                                        dragStartY = change.position.y
-                                        startBrightness = activity?.window?.attributes?.screenBrightness?.takeIf { it >= 0f } ?: 0.5f
-                                        startVolumeFraction = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC).toFloat() / maxSystemVol.toFloat()
-                                    }
-                                } else {
-                                    onShowUnlockPrompt()
-                                }
-                            }
+                                    val p1 = active[0]
+                                    val p2 = active[1]
+                                    val dx = p2.position.x - p1.position.x
+                                    val dy = p2.position.y - p1.position.y
+                                    val dist = sqrt(dx * dx + dy * dy)
 
-                            if (isDrag) {
-                                change.consume()
-                                if (!isScreenLocked) {
-                                    if (dragDirection == 1) {
-                                        val currentDx = change.position.x - seekStartX
-                                        val normalizedX = (currentDx / size.width.toFloat()).coerceIn(-1.0f, 1.0f)
-                                        val duration = viewModel.progressState.value.durationSeconds
-                                            .takeIf { it > 0.0 } ?: viewModel.uiState.value.durationSeconds
-                                        val maxSpan = when {
-                                            duration <= 60.0 -> duration.coerceAtLeast(10.0)
-                                            duration <= 600.0 -> 60.0 + (duration - 60.0) * 0.35
-                                            else -> (249.0 + (duration - 600.0) * 0.12).coerceAtMost(1200.0)
-                                        }
-                                        val sign = if (normalizedX >= 0f) 1.0 else -1.0
-                                        val magnitude = abs(normalizedX).toDouble()
-                                        val deltaSeconds = sign * maxSpan * magnitude.pow(1.25)
-                                        viewModel.onHorizontalScrubDelta(deltaSeconds)
-                                    } else if (dragDirection == 2) {
-                                        val isLeftSide = startX < size.width * 0.45f
-                                        val currentDy = change.position.y - dragStartY
-                                        val deltaFraction = -currentDy / (size.height.toFloat() * 0.75f)
-
-                                        if (isLeftSide && activity != null) {
-                                            val targetB = (startBrightness + deltaFraction).coerceIn(0.01f, 1.0f)
-                                            val lp = activity.window.attributes
-                                            lp.screenBrightness = targetB
-                                            activity.window.attributes = lp
-                                            viewModel.showBrightnessHud((targetB * 100f).roundToInt())
-                                        } else {
-                                            val targetVol = (startVolumeFraction + deltaFraction).coerceIn(0f, 2.0f)
-                                            if (targetVol <= 1.0f) {
-                                                val streamVol = (targetVol * maxSystemVol).roundToInt().coerceIn(0, maxSystemVol)
-                                                audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, streamVol, 0)
-                                                viewModel.setSoftwareVolumeBoost(100)
-                                                viewModel.showVolumeHud((targetVol * 100f).roundToInt(), false)
-                                            } else {
-                                                audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, maxSystemVol, 0)
-                                                val boost = (targetVol * 100f).roundToInt()
-                                                viewModel.setSoftwareVolumeBoost(boost)
-                                                viewModel.showVolumeHud(boost, true)
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        } else {
-                            holdSpeedJob?.cancel()
-                            if (isHoldingForSpeed) {
-                                isHoldingForSpeed = false
-                                viewModel.stopFastForward()
-                            } else if (!isDrag) {
-                                val now = System.currentTimeMillis()
-                                if (!isScreenLocked && now - lastTapTime < 350L && abs(startX - lastTapX) < 140f) {
-                                    lastTapTime = 0L
-                                    if (zoomScaleState.floatValue > 1.05f) {
-                                        zoomScaleState.floatValue = 1.0f
-                                        panOffsetState.value = Offset.Zero
+                                    if (lastPinchDist > 0f) {
+                                        val factor = dist / lastPinchDist
+                                        val newScale = (zoomScaleState.floatValue * factor).coerceIn(1.0f, 5.0f)
+                                        zoomScaleState.floatValue = newScale
                                         onShowZoomHud()
-                                    } else {
-                                        val third = size.width / 3f
-                                        val seekDelta = doubleTapSeekSeconds.toDouble()
-                                        when {
-                                            startX < third -> {
-                                                viewModel.seekRelative(-seekDelta)
-                                                scope.launch {
-                                                    leftRippleAlpha.snapTo(0.85f)
-                                                    leftRippleAlpha.animateTo(0f, tween(500))
-                                                }
-                                            }
-                                            startX > third * 2f -> {
-                                                viewModel.seekRelative(seekDelta)
-                                                scope.launch {
-                                                    rightRippleAlpha.snapTo(0.85f)
-                                                    rightRippleAlpha.animateTo(0f, tween(500))
-                                                }
-                                            }
-                                            else -> {
-                                                viewModel.togglePlayPause()
-                                            }
+
+                                        val centerChange = (p1.positionChange() + p2.positionChange()) / 2f
+                                        if (newScale > 1.01f) {
+                                            val maxPanX = (size.width * (newScale - 1f)) / 2f
+                                            val maxPanY = (size.height * (newScale - 1f)) / 2f
+                                            val newPan = panOffsetState.value + centerChange
+                                            panOffsetState.value = Offset(
+                                                x = newPan.x.coerceIn(-maxPanX, maxPanX),
+                                                y = newPan.y.coerceIn(-maxPanY, maxPanY)
+                                            )
                                         }
                                     }
-                                } else {
-                                    lastTapTime = now
-                                    lastTapX = startX
-                                    if (isScreenLocked) {
-                                        onShowUnlockPrompt()
+                                    lastPinchDist = dist
+                                }
+                                active[0].consume()
+                                active[1].consume()
+                                isDrag = true
+                            } else if (active.size == 1) {
+                                val change = active[0]
+                                val totalDx = change.position.x - startX
+                                val totalDy = change.position.y - startY
+
+                                if (!isDrag && (abs(totalDx) > 24f || abs(totalDy) > 24f)) {
+                                    isDrag = true
+                                    holdSpeedJob?.cancel()
+                                    if (isHoldingForSpeed) {
+                                        isHoldingForSpeed = false
+                                        viewModel.stopFastForward()
+                                    }
+
+                                    if (!isScreenLocked) {
+                                        if (abs(totalDx) > abs(totalDy) * 1.2f && viewModel.uiState.value.hasMediaLoaded) {
+                                            if (fastScrubEnabled) {
+                                                dragDirection = 1
+                                                seekStartX = change.position.x
+                                                viewModel.onHorizontalScrubStart()
+                                            }
+                                        } else if (swipeGesturesEnabled) {
+                                            dragDirection = 2
+                                            dragStartY = change.position.y
+                                            startBrightness = activity?.window?.attributes?.screenBrightness?.takeIf { it >= 0f } ?: 0.5f
+                                            startVolumeFraction = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC).toFloat() / maxSystemVol.toFloat()
+                                        }
                                     } else {
-                                        viewModel.toggleControlsVisibility()
+                                        onShowUnlockPrompt()
+                                    }
+                                }
+
+                                if (isDrag) {
+                                    change.consume()
+                                    if (!isScreenLocked) {
+                                        if (dragDirection == 1) {
+                                            val currentDx = change.position.x - seekStartX
+                                            val normalizedX = (currentDx / size.width.toFloat()).coerceIn(-1.0f, 1.0f)
+                                            val duration = viewModel.progressState.value.durationSeconds
+                                                .takeIf { it > 0.0 } ?: viewModel.uiState.value.durationSeconds
+                                            val maxSpan = when {
+                                                duration <= 60.0 -> duration.coerceAtLeast(10.0)
+                                                duration <= 600.0 -> 60.0 + (duration - 60.0) * 0.35
+                                                else -> (249.0 + (duration - 600.0) * 0.12).coerceAtMost(1200.0)
+                                            }
+                                            val sign = if (normalizedX >= 0f) 1.0 else -1.0
+                                            val magnitude = abs(normalizedX).toDouble()
+                                            val deltaSeconds = sign * maxSpan * magnitude.pow(1.25)
+                                            viewModel.onHorizontalScrubDelta(deltaSeconds)
+                                        } else if (dragDirection == 2) {
+                                            val isLeftSide = startX < size.width * 0.45f
+                                            val currentDy = change.position.y - dragStartY
+                                            val deltaFraction = -currentDy / (size.height.toFloat() * 0.75f)
+
+                                            if (isLeftSide && activity != null) {
+                                                val targetB = (startBrightness + deltaFraction).coerceIn(0.01f, 1.0f)
+                                                val lp = activity.window.attributes
+                                                lp.screenBrightness = targetB
+                                                activity.window.attributes = lp
+                                                viewModel.showBrightnessHud((targetB * 100f).roundToInt())
+                                            } else {
+                                                val targetVol = (startVolumeFraction + deltaFraction).coerceIn(0f, 2.0f)
+                                                if (targetVol <= 1.0f) {
+                                                    val streamVol = (targetVol * maxSystemVol).roundToInt().coerceIn(0, maxSystemVol)
+                                                    audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, streamVol, 0)
+                                                    viewModel.setSoftwareVolumeBoost(100)
+                                                    viewModel.showVolumeHud((targetVol * 100f).roundToInt(), false)
+                                                } else {
+                                                    audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, maxSystemVol, 0)
+                                                    val boost = (targetVol * 100f).roundToInt()
+                                                    viewModel.setSoftwareVolumeBoost(boost)
+                                                    viewModel.showVolumeHud(boost, true)
+                                                }
+                                            }
+                                        }
                                     }
                                 }
                             } else {
-                                if (dragDirection == 1) {
-                                    viewModel.onHorizontalScrubEnd()
-                                } else if (dragDirection == 2) {
-                                    viewModel.hideVerticalHud()
+                                holdSpeedJob?.cancel()
+                                if (isHoldingForSpeed) {
+                                    isHoldingForSpeed = false
+                                    viewModel.stopFastForward()
+                                } else if (!isDrag) {
+                                    val now = System.currentTimeMillis()
+                                    if (!isScreenLocked && now - lastTapTime < 350L && abs(startX - lastTapX) < 140f) {
+                                        lastTapTime = 0L
+                                        if (zoomScaleState.floatValue > 1.05f) {
+                                            zoomScaleState.floatValue = 1.0f
+                                            panOffsetState.value = Offset.Zero
+                                            onShowZoomHud()
+                                        } else {
+                                            val third = size.width / 3f
+                                            val seekDelta = doubleTapSeekSeconds.toDouble()
+                                            when {
+                                                startX < third -> {
+                                                    viewModel.seekRelative(-seekDelta)
+                                                    scope.launch {
+                                                        leftRippleAlpha.snapTo(0.85f)
+                                                        leftRippleAlpha.animateTo(0f, tween(500))
+                                                    }
+                                                }
+                                                startX > third * 2f -> {
+                                                    viewModel.seekRelative(seekDelta)
+                                                    scope.launch {
+                                                        rightRippleAlpha.snapTo(0.85f)
+                                                        rightRippleAlpha.animateTo(0f, tween(500))
+                                                    }
+                                                }
+                                                else -> {
+                                                    viewModel.togglePlayPause()
+                                                }
+                                            }
+                                        }
+                                    } else {
+                                        lastTapTime = now
+                                        lastTapX = startX
+                                        if (isScreenLocked) {
+                                            onShowUnlockPrompt()
+                                        } else {
+                                            viewModel.toggleControlsVisibility()
+                                        }
+                                    }
                                 }
+                                break
                             }
-                            break
+                        }
+                    } finally {
+                        holdSpeedJob?.cancel()
+                        if (isHoldingForSpeed) {
+                            isHoldingForSpeed = false
+                            viewModel.stopFastForward()
+                        }
+                        if (dragDirection == 1) {
+                            viewModel.onHorizontalScrubEnd()
+                        } else if (dragDirection == 2) {
+                            viewModel.hideVerticalHud()
                         }
                     }
                 }
@@ -1787,6 +1805,17 @@ private fun BkmVideoTimelineRow(
 ) {
     val progress by progressFlow.collectAsStateWithLifecycle()
     val showHours = progress.durationSeconds >= 3600.0
+    var isSliderTouchActive by remember { mutableStateOf(false) }
+    val currentOnSliderScrubEnd by rememberUpdatedState(onSliderScrubEnd)
+
+    DisposableEffect(Unit) {
+        onDispose {
+            if (isSliderTouchActive) {
+                isSliderTouchActive = false
+                currentOnSliderScrubEnd()
+            }
+        }
+    }
 
     Row(
         verticalAlignment = Alignment.CenterVertically,
@@ -1810,7 +1839,21 @@ private fun BkmVideoTimelineRow(
         Box(
             modifier = Modifier
                 .weight(1f)
-                .padding(horizontal = 6.dp),
+                .padding(horizontal = 6.dp)
+                .pointerInput(Unit) {
+                    awaitPointerEventScope {
+                        while (true) {
+                            val event = awaitPointerEvent(PointerEventPass.Final)
+                            val anyPressed = event.changes.any { it.pressed }
+                            if (anyPressed) {
+                                isSliderTouchActive = true
+                            } else if (isSliderTouchActive) {
+                                isSliderTouchActive = false
+                                currentOnSliderScrubEnd()
+                            }
+                        }
+                    }
+                },
             contentAlignment = Alignment.CenterStart
         ) {
             if (progress.durationSeconds > 0 && progress.cacheDurationSeconds > 0) {
@@ -1828,9 +1871,13 @@ private fun BkmVideoTimelineRow(
             Slider(
                 value = sliderValue,
                 onValueChange = { targetSec ->
+                    isSliderTouchActive = true
                     onSliderScrubChange(targetSec.toDouble())
                 },
-                onValueChangeFinished = onSliderScrubEnd,
+                onValueChangeFinished = {
+                    isSliderTouchActive = false
+                    currentOnSliderScrubEnd()
+                },
                 valueRange = 0f..progress.durationSeconds.coerceAtLeast(1.0).toFloat(),
                 colors = SliderDefaults.colors(
                     thumbColor = MxBlue,

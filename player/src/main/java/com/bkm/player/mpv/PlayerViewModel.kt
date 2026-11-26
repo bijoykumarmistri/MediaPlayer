@@ -46,6 +46,7 @@ data class PlayerUiState(
     val videoWidth: Int = 0,
     val videoHeight: Int = 0,
     val isScrubbing: Boolean = false,
+    val isGestureScrubbing: Boolean = false,
     val scrubPreviewSeconds: Double = 0.0,
     val scrubDeltaSeconds: Double = 0.0,
     val verticalHud: VerticalGestureHud? = null,
@@ -221,11 +222,16 @@ class PlayerViewModel : ViewModel() {
         override fun onFileLoaded() {
             hasTriggeredEofForCurrentMedia = false
             isAudioDisabled = false
+            _progressState.update {
+                if (it.isScrubbing) it.copy(isScrubbing = false, scrubDeltaSeconds = 0.0) else it
+            }
             _uiState.update {
                 it.copy(
                     hasMediaLoaded = true,
                     isPlaying = true,
                     isBuffering = false,
+                    isScrubbing = false,
+                    isGestureScrubbing = false,
                     isMuted = false,
                     errorMessage = null
                 )
@@ -247,7 +253,17 @@ class PlayerViewModel : ViewModel() {
                 progress.positionSeconds >= (progress.durationSeconds - 2.5).coerceAtLeast(1.0)
             ) {
                 hasTriggeredEofForCurrentMedia = true
-                _uiState.update { it.copy(isPlaying = false, isBuffering = false) }
+                _progressState.update {
+                    if (it.isScrubbing) it.copy(isScrubbing = false, scrubDeltaSeconds = 0.0) else it
+                }
+                _uiState.update {
+                    it.copy(
+                        isPlaying = false,
+                        isBuffering = false,
+                        isScrubbing = false,
+                        isGestureScrubbing = false
+                    )
+                }
                 onIsPlayingChanged?.invoke(false)
                 onEndOfFileReached?.invoke()
             }
@@ -285,6 +301,10 @@ class PlayerViewModel : ViewModel() {
                 hasMediaLoaded = false,
                 positionSeconds = startPositionMs / 1000.0,
                 durationSeconds = 0.0,
+                isScrubbing = false,
+                isGestureScrubbing = false,
+                verticalHud = null,
+                isFastForwarding = false,
                 errorMessage = null,
                 isBuffering = true
             )
@@ -330,6 +350,10 @@ class PlayerViewModel : ViewModel() {
                 isPlaying = false,
                 hasMediaLoaded = false,
                 isBuffering = false,
+                isScrubbing = false,
+                isGestureScrubbing = false,
+                verticalHud = null,
+                isFastForwarding = false,
                 positionSeconds = 0.0,
                 durationSeconds = 0.0,
                 audioTracks = emptyList(),
@@ -393,10 +417,11 @@ class PlayerViewModel : ViewModel() {
                 scrubDeltaSeconds = 0.0
             )
         }
-        if (current.isScrubbing || current.isBuffering) {
+        if (current.isScrubbing || current.isGestureScrubbing || current.isBuffering) {
             _uiState.update {
                 it.copy(
                     isScrubbing = false,
+                    isGestureScrubbing = false,
                     scrubDeltaSeconds = 0.0,
                     isBuffering = false
                 )
@@ -796,6 +821,7 @@ class PlayerViewModel : ViewModel() {
         _uiState.update {
             it.copy(
                 isScrubbing = true,
+                isGestureScrubbing = true,
                 isBuffering = false
             )
         }
@@ -832,9 +858,13 @@ class PlayerViewModel : ViewModel() {
         if (!progress.isScrubbing) {
             scrubOriginSeconds = progress.positionSeconds
             lastScrubDispatchNanos = 0L
+            engine.beginKeyframeScrub()
+        }
+        if (!current.isScrubbing || current.isGestureScrubbing || current.isBuffering) {
             _uiState.update {
                 it.copy(
                     isScrubbing = true,
+                    isGestureScrubbing = false,
                     isBuffering = false
                 )
             }
@@ -860,22 +890,26 @@ class PlayerViewModel : ViewModel() {
 
     fun onHorizontalScrubEnd() {
         val progress = _progressState.value
-        if (!progress.isScrubbing) return
+        val ui = _uiState.value
+        if (!progress.isScrubbing && !ui.isScrubbing && !ui.isGestureScrubbing) return
 
         bufferingDebounceJob?.cancel()
-        val finalTarget = progress.scrubPreviewSeconds
-        engine.seekTo(finalTarget)
+        if (progress.isScrubbing) {
+            val finalTarget = progress.scrubPreviewSeconds
+            engine.seekTo(finalTarget)
 
-        _progressState.update {
-            it.copy(
-                isScrubbing = false,
-                positionSeconds = finalTarget,
-                scrubDeltaSeconds = 0.0
-            )
+            _progressState.update {
+                it.copy(
+                    isScrubbing = false,
+                    positionSeconds = finalTarget,
+                    scrubDeltaSeconds = 0.0
+                )
+            }
         }
         _uiState.update {
             it.copy(
                 isScrubbing = false,
+                isGestureScrubbing = false,
                 isBuffering = false
             )
         }

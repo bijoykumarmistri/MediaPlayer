@@ -57,6 +57,8 @@ class VideoPlayerFeaturesTest {
             scrubDeltaSeconds = -15.0
         )
         assertFalse(state.isMuted)
+        assertFalse(state.isScrubbing)
+        assertFalse(state.isGestureScrubbing)
         assertEquals(0, state.videoBrightness)
         assertEquals(0, state.videoContrast)
         assertEquals(0, state.videoSaturation)

@@ -186,6 +186,12 @@ class NativeMpvEngine(
     private var lastVideoHeight: Int = 0
 
     @Volatile
+    private var lastSurfaceWidth: Int = 0
+
+    @Volatile
+    private var lastSurfaceHeight: Int = 0
+
+    @Volatile
     private var hasFileLoadedForSurfaceRefresh: Boolean = false
 
     private val engineLock = Any()
@@ -193,6 +199,7 @@ class NativeMpvEngine(
     private var audioFocusRequest: AudioFocusRequest? = null
     private var legacyAudioFocusListener: AudioManager.OnAudioFocusChangeListener? = null
     private var tracksChangedRunnable: Runnable? = null
+    private val pausedSurfaceRefreshRunnables = mutableListOf<Runnable>()
 
     private fun requestAudioFocus(context: Context) {
         val am = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return
@@ -404,15 +411,69 @@ class NativeMpvEngine(
     override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
         if (isDestroyed.get() || !isInitialized.get()) return
         if (width > 0 && height > 0) {
+            val sizeChanged = lastSurfaceWidth > 0 && lastSurfaceHeight > 0 &&
+                (width != lastSurfaceWidth || height != lastSurfaceHeight)
+            lastSurfaceWidth = width
+            lastSurfaceHeight = height
             try {
                 MPVLib.setPropertyString("android-surface-size", "${width}x${height}")
+                if (sizeChanged) {
+                    schedulePausedSurfaceRefresh(width, height)
+                }
             } catch (e: Exception) {
                 Log.w(TAG, "Failed to update surface size: ${e.message}")
             }
         }
     }
 
+    private fun cancelPausedSurfaceRefresh() {
+        pausedSurfaceRefreshRunnables.forEach { mainHandler.removeCallbacks(it) }
+        pausedSurfaceRefreshRunnables.clear()
+    }
+
+    private fun schedulePausedSurfaceRefresh(width: Int, height: Int) {
+        cancelPausedSurfaceRefresh()
+        if (!hasFileLoadedForSurfaceRefresh) return
+        val paused = isPausedState || (runCatching { MPVLib.getPropertyBoolean("pause") == true }.getOrDefault(false))
+        if (!paused) return
+
+        // On Android BLASTBufferQueue + Adreno EGL, the first frame after a rotation/resize can
+        // be rejected due to a pre-dequeued stale buffer or pre-rotation transform hint (transform=7).
+        // When paused, mpv only renders once per resize, leaving the old buffer stretched on screen.
+        // Nudge panscan subtly after the rotation transaction settles so vo_gpu swaps a fresh frame
+        // matching the active surface size and transform without re-decoding or seeking.
+        val delaysMs = longArrayOf(60L, 220L)
+        for (delayMs in delaysMs) {
+            val r = Runnable {
+                if (isDestroyed.get() || !isInitialized.get() || !isSurfaceAttached.get() || !hasFileLoadedForSurfaceRefresh) {
+                    return@Runnable
+                }
+                val stillPaused = isPausedState || (runCatching { MPVLib.getPropertyBoolean("pause") == true }.getOrDefault(false))
+                if (!stillPaused) return@Runnable
+                val view = surfaceViewRef?.get()
+                val targetW = view?.width?.takeIf { it > 0 } ?: width
+                val targetH = view?.height?.takeIf { it > 0 } ?: height
+                try {
+                    if (targetW != width || targetH != height) {
+                        lastSurfaceWidth = targetW
+                        lastSurfaceHeight = targetH
+                        MPVLib.setPropertyString("android-surface-size", "${targetW}x${targetH}")
+                    }
+                    val basePanscan = if (currentResizeMode == ResizeMode.CROP) 1.0 else 0.0
+                    val nudgePanscan = if (currentResizeMode == ResizeMode.CROP) 0.9999 else 0.0001
+                    MPVLib.setPropertyDouble("panscan", nudgePanscan)
+                    MPVLib.setPropertyDouble("panscan", basePanscan)
+                } catch (e: Exception) {
+                    Log.w(TAG, "Paused surface refresh failed: ${e.message}")
+                }
+            }
+            pausedSurfaceRefreshRunnables.add(r)
+            mainHandler.postDelayed(r, delayMs)
+        }
+    }
+
     override fun surfaceDestroyed(holder: SurfaceHolder) {
+        cancelPausedSurfaceRefresh()
         detachSurfaceInternal()
     }
 
@@ -436,6 +497,8 @@ class NativeMpvEngine(
                 if (fHeight > 0) fHeight else surfaceViewRef?.get()?.height ?: 0
             }
             if (w > 0 && h > 0) {
+                lastSurfaceWidth = w
+                lastSurfaceHeight = h
                 MPVLib.setPropertyString("android-surface-size", "${w}x${h}")
             }
 
@@ -460,6 +523,8 @@ class NativeMpvEngine(
     }
 
     private fun detachSurfaceInternal() {
+        lastSurfaceWidth = 0
+        lastSurfaceHeight = 0
         if (isDestroyed.get() || !isInitialized.get()) return
         if (isSurfaceAttached.getAndSet(false)) {
             try {
@@ -718,6 +783,9 @@ class NativeMpvEngine(
     fun setPaused(paused: Boolean) {
         if (isDestroyed.get() || !isInitialized.get()) return
         isPausedState = paused
+        if (!paused) {
+            cancelPausedSurfaceRefresh()
+        }
         MPVLib.setPropertyBoolean("pause", paused)
         if (paused) {
             contextRef?.get()?.let { abandonAudioFocus(it) }
@@ -742,6 +810,7 @@ class NativeMpvEngine(
      */
     fun stop() {
         if (isDestroyed.get() || !isInitialized.get()) return
+        cancelPausedSurfaceRefresh()
         isPausedState = true
         hasFileLoadedForSurfaceRefresh = false
         try {
@@ -1153,12 +1222,15 @@ class NativeMpvEngine(
             hasFileLoadedForSurfaceRefresh = false
             lastVideoWidth = 0
             lastVideoHeight = 0
+            lastSurfaceWidth = 0
+            lastSurfaceHeight = 0
             pendingMediaPath = null
             pendingStartPositionMs = 0L
 
             try {
                 tracksChangedRunnable?.let { mainHandler.removeCallbacks(it) }
                 tracksChangedRunnable = null
+                cancelPausedSurfaceRefresh()
                 contextRef?.get()?.let { abandonAudioFocus(it) }
                 mainHandler.removeCallbacksAndMessages(null)
                 MPVLib.removeObserver(this)
