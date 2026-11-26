@@ -150,8 +150,11 @@ class MainActivity : ComponentActivity() {
         val action = intent?.action ?: return
         if ((action == Intent.ACTION_VIEW) && (intent.data != null)) {
             val uri = intent.data ?: return
+            if ((intent.flags and Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION) != 0) {
+                repository.takePersistableReadPermission(uri)
+            }
             lifecycleScope.launch {
-                val item = repository.importSafSingleFile(uri)
+                val item = repository.importSafSingleFile(uri, fallbackToVideoIfUnknown = true)
                 if (item != null) {
                     playerManager.playMedia(item)
                     playerManager.setPlayerExpanded(expanded = true)

@@ -29,8 +29,9 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -87,6 +88,7 @@ import com.mediaplayer.data.MediaItemModel
 import com.mediaplayer.ui.components.EmptyStateView
 import com.mediaplayer.ui.components.MusicFolderItem
 import com.mediaplayer.ui.components.PermissionOnboardingCard
+import com.mediaplayer.ui.components.deduplicateLazyKeys
 import com.mediaplayer.ui.components.formatFileSize
 import com.mediaplayer.ui.components.formatFolderDuration
 import com.mediaplayer.ui.components.shareMediaFiles
@@ -1104,7 +1106,7 @@ fun MusicTabScreen(
         onOpenFolder(null)
     }
 
-    val filterTabs = remember { listOf("Folders", "All Tracks", "Albums", "Artists", "Hi-Res / Lossless") }
+    val filterTabs = remember { listOf("All Tracks", "Folders", "Albums", "Artists", "Hi-Res / Lossless") }
 
     val folderItems = remember(audioList, searchQuery, filterTab, recentThresholdEpochSec) {
         if (filterTab != "Folders") emptyList()
@@ -1423,6 +1425,9 @@ private fun MusicCollectionSection(
         }
     }
 
+    val sectionKeys = remember(items, keySelector) {
+        deduplicateLazyKeys(items, keySelector)
+    }
     if (items.isEmpty()) {
         EmptyStateView(
             title = emptyTitle,
@@ -1437,7 +1442,11 @@ private fun MusicCollectionSection(
             horizontalArrangement = Arrangement.spacedBy(14.dp),
             modifier = Modifier.fillMaxSize()
         ) {
-            items(items = items, key = keySelector, contentType = { gridContentType }) { folder ->
+            itemsIndexed(
+                items = items,
+                key = { index, _ -> sectionKeys[index] },
+                contentType = { _, _ -> gridContentType }
+            ) { _, folder ->
                 MusicFolderGridItem(
                     folder = folder,
                     context = context,
@@ -1450,7 +1459,11 @@ private fun MusicCollectionSection(
             contentPadding = PaddingValues(top = 4.dp, bottom = 96.dp),
             modifier = Modifier.fillMaxSize()
         ) {
-            items(items = items, key = keySelector, contentType = { listContentType }) { folder ->
+            itemsIndexed(
+                items = items,
+                key = { index, _ -> sectionKeys[index] },
+                contentType = { _, _ -> listContentType }
+            ) { _, folder ->
                 MusicFolderListItem(
                     folder = folder,
                     context = context,
@@ -1612,6 +1625,9 @@ private fun MusicTrackGridOrList(
     context: Context
 ) {
     val isSelectionMode = selectedMediaItems.isNotEmpty()
+    val trackKeys = remember(tracks) {
+        deduplicateLazyKeys(tracks) { it.id }
+    }
     if (isGridView) {
         LazyVerticalGrid(
             columns = GridCells.Adaptive(minSize = 160.dp),
@@ -1620,7 +1636,11 @@ private fun MusicTrackGridOrList(
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             modifier = Modifier.fillMaxSize()
         ) {
-            items(items = tracks, key = { it.id }, contentType = { "music_grid_card" }) { track ->
+            itemsIndexed(
+                items = tracks,
+                key = { index, _ -> trackKeys[index] },
+                contentType = { _, _ -> "music_grid_card" }
+            ) { _, track ->
                 val isSelected = selectedMediaItems.contains(track)
                 MusicCardItem(
                     item = track,
@@ -1643,7 +1663,11 @@ private fun MusicTrackGridOrList(
             verticalArrangement = Arrangement.spacedBy(8.dp),
             modifier = Modifier.fillMaxSize()
         ) {
-            items(items = tracks, key = { it.id }, contentType = { "music_list_card" }) { track ->
+            itemsIndexed(
+                items = tracks,
+                key = { index, _ -> trackKeys[index] },
+                contentType = { _, _ -> "music_list_card" }
+            ) { _, track ->
                 val isSelected = selectedMediaItems.contains(track)
                 MusicListItem(
                     item = track,

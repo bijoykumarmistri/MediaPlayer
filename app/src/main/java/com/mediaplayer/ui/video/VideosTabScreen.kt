@@ -28,8 +28,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.grid.itemsIndexed
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -88,6 +88,7 @@ import com.mediaplayer.data.MediaItemModel
 import com.mediaplayer.ui.components.EmptyStateView
 import com.mediaplayer.ui.components.PermissionOnboardingCard
 import com.mediaplayer.ui.components.VideoFolderItem
+import com.mediaplayer.ui.components.deduplicateLazyKeys
 import com.mediaplayer.ui.components.formatFileSize
 import com.mediaplayer.ui.components.formatFolderDuration
 import com.mediaplayer.ui.components.shareMediaFiles
@@ -1111,15 +1112,17 @@ fun VideosTabScreen(
 
     val continueWatchingVideos = remember(videos, playbackPositions, playbackTimestamps, searchQuery) {
         if (searchQuery.isNotBlank()) emptyList()
-        else videos.asSequence().mapNotNull { video ->
-            val pos = playbackPositions[video.id] ?: 0L
-            val isInProgress = pos > 3000L && (video.durationMs <= 0L || pos < (video.durationMs * 0.92).toLong())
-            if (isInProgress) {
-                Triple(video, pos, playbackTimestamps[video.id] ?: 0L)
-            } else {
-                null
-            }
-        }.sortedByDescending { it.third }.take(10).toList()
+        else videos.asSequence()
+            .distinctBy { it.id }
+            .mapNotNull { video ->
+                val pos = playbackPositions[video.id] ?: 0L
+                val isInProgress = pos > 3000L && (video.durationMs <= 0L || pos < (video.durationMs * 0.92).toLong())
+                if (isInProgress) {
+                    Triple(video, pos, playbackTimestamps[video.id] ?: 0L)
+                } else {
+                    null
+                }
+            }.sortedByDescending { it.third }.take(10).toList()
     }
 
     // Group videos by folder name & path
@@ -1305,6 +1308,9 @@ private fun VideosOpenedFolderContent(
     val sortedFolderVideos = remember(folder.videos, sortOrder) {
         sortVideosList(folder.videos, sortOrder)
     }
+    val videoKeys = remember(sortedFolderVideos) {
+        deduplicateLazyKeys(sortedFolderVideos) { it.id }
+    }
     val isSelectionMode = selectedMediaItems.isNotEmpty()
 
     Column(modifier = Modifier.fillMaxSize()) {
@@ -1322,7 +1328,11 @@ private fun VideosOpenedFolderContent(
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 modifier = Modifier.fillMaxSize()
             ) {
-                items(items = sortedFolderVideos, key = { it.id }, contentType = { "video_grid_card" }) { video ->
+                itemsIndexed(
+                    items = sortedFolderVideos,
+                    key = { index, _ -> videoKeys[index] },
+                    contentType = { _, _ -> "video_grid_card" }
+                ) { _, video ->
                     val pos = playbackPositions[video.id] ?: 0L
                     val isPlayed = playedMediaIds.contains(video.id) || pos > 0
                     val isSelected = selectedMediaItems.contains(video)
@@ -1351,7 +1361,11 @@ private fun VideosOpenedFolderContent(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
                 modifier = Modifier.fillMaxSize()
             ) {
-                items(items = sortedFolderVideos, key = { it.id }, contentType = { "video_list_card" }) { video ->
+                itemsIndexed(
+                    items = sortedFolderVideos,
+                    key = { index, _ -> videoKeys[index] },
+                    contentType = { _, _ -> "video_list_card" }
+                ) { _, video ->
                     val pos = playbackPositions[video.id] ?: 0L
                     val isPlayed = playedMediaIds.contains(video.id) || pos > 0
                     val isSelected = selectedMediaItems.contains(video)
@@ -1456,6 +1470,9 @@ private fun VideosHomeContent(
             }
         }
 
+        val folderKeys = remember(folderItems) {
+            deduplicateLazyKeys(folderItems) { "${it.path}/${it.name}" }
+        }
         if (folderItems.isEmpty()) {
             EmptyStateView(
                 title = "No video folders found",
@@ -1470,7 +1487,11 @@ private fun VideosHomeContent(
                 horizontalArrangement = Arrangement.spacedBy(14.dp),
                 modifier = Modifier.fillMaxSize()
             ) {
-                items(items = folderItems, key = { it.path + "/" + it.name }, contentType = { "folder_grid_card" }) { folder ->
+                itemsIndexed(
+                    items = folderItems,
+                    key = { index, _ -> folderKeys[index] },
+                    contentType = { _, _ -> "folder_grid_card" }
+                ) { _, folder ->
                     FolderGridItem(
                         folder = folder,
                         onClick = { onOpenFolder(folder) },
@@ -1483,7 +1504,11 @@ private fun VideosHomeContent(
                 contentPadding = PaddingValues(top = 4.dp, bottom = 96.dp),
                 modifier = Modifier.fillMaxSize()
             ) {
-                items(items = folderItems, key = { it.path + "/" + it.name }, contentType = { "folder_list_card" }) { folder ->
+                itemsIndexed(
+                    items = folderItems,
+                    key = { index, _ -> folderKeys[index] },
+                    contentType = { _, _ -> "folder_list_card" }
+                ) { _, folder ->
                     FolderListItem(
                         folder = folder,
                         onClick = { onOpenFolder(folder) },
@@ -1582,15 +1607,18 @@ private fun ContinueWatchingSection(
             )
         }
 
+        val cwKeys = remember(items) {
+            deduplicateLazyKeys(items) { (video, _, _) -> "cw_${video.id}" }
+        }
         LazyRow(
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            items(
+            itemsIndexed(
                 items = items,
-                key = { (video, _, _) -> "cw_${video.id}" },
-                contentType = { "continue_watching_card" }
-            ) { (video, posMs, _) ->
+                key = { index, _ -> cwKeys[index] },
+                contentType = { _, _ -> "continue_watching_card" }
+            ) { _, (video, posMs, _) ->
                 val isPlaying = currentPlayingId == video.id
                 val (cleanTitle, _) = remember(video.title) { cleanMovieDisplayTitle(video.title) }
                 val imageRequest = remember(video.artworkUri, video.id) {

@@ -14,6 +14,7 @@ import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
@@ -27,6 +28,7 @@ import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -256,8 +258,8 @@ enum class RepeatMode(val label: String) {
  *   - Transport row: Child Lock (left), Skip Prev, Rewind 10s, Hero Play/Pause, Forward 10s, Skip Next (center), Speed, Repeat, Aspect Ratio (right).
  * - Exact MX Player Gestures & HUDs:
  *   - Horizontal swipe: Large time HUD `00:14:22 [+00:15]` with mini progress bar.
- *   - Vertical left: Brightness HUD with sun icon & level bar.
- *   - Vertical right: Volume HUD with speaker icon, level bar, and SW Volume Boost (up to 200%).
+ *   - Vertical left swipe: Brightness HUD (centered) with sun icon & level bar.
+ *   - Vertical right swipe: Volume HUD (centered) with speaker icon, level bar, and SW Volume Boost (up to 200%).
  *   - Double-tap left/right ±10s seek ripple feedback.
  *   - Multi-touch pinch-to-zoom (1.0x .. 5.0x) with Zoom % HUD.
  *   - Screen Child Lock: Blocks touches and displays top-left floating lock button.
@@ -432,6 +434,12 @@ fun VideoPlayerScreen(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri: Uri? ->
         if (uri != null) {
+            try {
+                context.contentResolver.takePersistableUriPermission(
+                    uri,
+                    android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
+                )
+            } catch (_: Throwable) {}
             viewModel.openDocument(context, uri)
         }
     }
@@ -753,7 +761,7 @@ fun VideoPlayerScreen(
                 modifier = Modifier.align(Alignment.Center)
             )
 
-            // 5. Vertical Gesture HUD Sliders (Brightness on Left, Volume + SW Boost on Right)
+            // 5. Centered Vertical Gesture HUD Sliders (Brightness & Volume + SW Boost)
             VideoVerticalGestureHuds(
                 verticalHud = uiState.verticalHud,
                 modifier = Modifier.fillMaxSize()
@@ -808,7 +816,6 @@ fun VideoPlayerScreen(
                     viewModel.refreshTracks()
                     showAudioTracksDialog = true
                 },
-                onOpenAudioDelayDialog = { showAudioDelayDialog = true },
                 onToggleNightMode = {
                     viewModel.toggleNightModeAudio()
                     Toast.makeText(
@@ -828,11 +835,6 @@ fun VideoPlayerScreen(
                 onOpenSubtitleDialog = {
                     viewModel.refreshTracks()
                     showSubtitleTracksDialog = true
-                },
-                onOpenSubtitleDelayDialog = { showSubtitleDelayDialog = true },
-                onOpenSubtitleAppearanceDialog = { showSubtitleAppearanceDialog = true },
-                onOpenExternalSubtitle = {
-                    openSubtitleLauncher.launch(arrayOf("*/*"))
                 },
                 onOpenSpeedDialog = { showSpeedDialog = true },
                 onCycleResizeMode = onCycleResizeMode,
@@ -1506,91 +1508,85 @@ private fun VideoVerticalGestureHuds(
     verticalHud: VerticalGestureHud?,
     modifier: Modifier = Modifier
 ) {
-    var lastBrightnessHud by remember { mutableStateOf<VerticalGestureHud.Brightness?>(null) }
-    var lastVolumeHud by remember { mutableStateOf<VerticalGestureHud.Volume?>(null) }
-    when (verticalHud) {
-        is VerticalGestureHud.Brightness -> lastBrightnessHud = verticalHud
-        is VerticalGestureHud.Volume -> lastVolumeHud = verticalHud
-        null -> Unit
+    var lastActiveHud by remember { mutableStateOf<VerticalGestureHud?>(null) }
+    if (verticalHud != null) {
+        lastActiveHud = verticalHud
     }
 
     Box(modifier = modifier) {
         AnimatedVisibility(
-            visible = verticalHud is VerticalGestureHud.Brightness,
+            visible = verticalHud != null,
             enter = fadeIn(tween(140)) + scaleIn(initialScale = 0.90f, animationSpec = tween(140)),
             exit = fadeOut(tween(260)) + scaleOut(targetScale = 0.92f, animationSpec = tween(260)),
-            modifier = Modifier
-                .align(Alignment.CenterStart)
-                .windowInsetsPadding(
-                    WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal)
-                )
-                .padding(start = 28.dp)
+            modifier = Modifier.align(Alignment.Center)
         ) {
-            lastBrightnessHud?.let { hud ->
-                val animatedFraction by animateFloatAsState(
-                    targetValue = (hud.percent / 100f).coerceIn(0f, 1f),
-                    animationSpec = spring(
-                        stiffness = Spring.StiffnessMediumLow,
-                        dampingRatio = Spring.DampingRatioNoBouncy
-                    ),
-                    label = "brightnessVerticalSlider"
-                )
-                VerticalGestureSliderPill(
-                    icon = Icons.Rounded.Brightness6,
-                    iconTint = MxWhite,
-                    fraction = animatedFraction,
-                    fillColor = MxWhite,
-                    valueText = "${hud.percent}%",
-                    valueColor = MxWhite
-                )
-            }
-        }
-
-        AnimatedVisibility(
-            visible = verticalHud is VerticalGestureHud.Volume,
-            enter = fadeIn(tween(140)) + scaleIn(initialScale = 0.90f, animationSpec = tween(140)),
-            exit = fadeOut(tween(260)) + scaleOut(targetScale = 0.92f, animationSpec = tween(260)),
-            modifier = Modifier
-                .align(Alignment.CenterEnd)
-                .windowInsetsPadding(
-                    WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal)
-                )
-                .padding(end = 28.dp)
-        ) {
-            lastVolumeHud?.let { hud ->
-                val animatedFraction by animateFloatAsState(
-                    targetValue = (hud.percent / 200f).coerceIn(0f, 1f),
-                    animationSpec = spring(
-                        stiffness = Spring.StiffnessMediumLow,
-                        dampingRatio = Spring.DampingRatioNoBouncy
-                    ),
-                    label = "volumeVerticalSlider"
-                )
-                val accentColor by animateColorAsState(
-                    targetValue = when {
-                        hud.isSoftwareBoosted -> MxRed
-                        hud.percent == 0 -> MxRed
-                        else -> MxBlue
+            val activeHud = verticalHud ?: lastActiveHud
+            if (activeHud != null) {
+                AnimatedContent(
+                    targetState = activeHud,
+                    contentKey = { it::class },
+                    transitionSpec = {
+                        (fadeIn(tween(120)) + scaleIn(initialScale = 0.92f, animationSpec = tween(120)))
+                            .togetherWith(fadeOut(tween(100)) + scaleOut(targetScale = 0.92f, animationSpec = tween(100)))
                     },
-                    animationSpec = tween(160),
-                    label = "volumeAccentColor"
-                )
-                val volumeIcon = when {
-                    hud.percent <= 0 -> Icons.AutoMirrored.Rounded.VolumeOff
-                    hud.percent <= 50 -> Icons.AutoMirrored.Rounded.VolumeDown
-                    else -> Icons.AutoMirrored.Rounded.VolumeUp
+                    label = "centerGestureHudSwitch"
+                ) { hud ->
+                    when (hud) {
+                        is VerticalGestureHud.Brightness -> {
+                            val animatedFraction by animateFloatAsState(
+                                targetValue = (hud.percent / 100f).coerceIn(0f, 1f),
+                                animationSpec = spring(
+                                    stiffness = Spring.StiffnessMediumLow,
+                                    dampingRatio = Spring.DampingRatioNoBouncy
+                                ),
+                                label = "brightnessVerticalSlider"
+                            )
+                            VerticalGestureSliderPill(
+                                icon = Icons.Rounded.Brightness6,
+                                iconTint = MxWhite,
+                                fraction = animatedFraction,
+                                fillColor = MxWhite,
+                                valueText = "${hud.percent}%",
+                                valueColor = MxWhite
+                            )
+                        }
+                        is VerticalGestureHud.Volume -> {
+                            val animatedFraction by animateFloatAsState(
+                                targetValue = (hud.percent / 200f).coerceIn(0f, 1f),
+                                animationSpec = spring(
+                                    stiffness = Spring.StiffnessMediumLow,
+                                    dampingRatio = Spring.DampingRatioNoBouncy
+                                ),
+                                label = "volumeVerticalSlider"
+                            )
+                            val accentColor by animateColorAsState(
+                                targetValue = when {
+                                    hud.isSoftwareBoosted -> MxRed
+                                    hud.percent == 0 -> MxRed
+                                    else -> MxBlue
+                                },
+                                animationSpec = tween(160),
+                                label = "volumeAccentColor"
+                            )
+                            val volumeIcon = when {
+                                hud.percent <= 0 -> Icons.AutoMirrored.Rounded.VolumeOff
+                                hud.percent <= 50 -> Icons.AutoMirrored.Rounded.VolumeDown
+                                else -> Icons.AutoMirrored.Rounded.VolumeUp
+                            }
+                            VerticalGestureSliderPill(
+                                icon = volumeIcon,
+                                iconTint = if (hud.isSoftwareBoosted || hud.percent == 0) accentColor else MxWhite,
+                                fraction = animatedFraction,
+                                fillColor = accentColor,
+                                secondaryBaseColor = if (hud.isSoftwareBoosted) MxBlue else null,
+                                showMidpointDivider = true,
+                                valueText = "${hud.percent}%",
+                                valueColor = if (hud.isSoftwareBoosted) MxRed else MxWhite,
+                                badgeText = if (hud.isSoftwareBoosted) "BOOST" else null
+                            )
+                        }
+                    }
                 }
-                VerticalGestureSliderPill(
-                    icon = volumeIcon,
-                    iconTint = if (hud.isSoftwareBoosted || hud.percent == 0) accentColor else MxWhite,
-                    fraction = animatedFraction,
-                    fillColor = accentColor,
-                    secondaryBaseColor = if (hud.isSoftwareBoosted) MxBlue else null,
-                    showMidpointDivider = true,
-                    valueText = "${hud.percent}%",
-                    valueColor = if (hud.isSoftwareBoosted) MxRed else MxWhite,
-                    badgeText = if (hud.isSoftwareBoosted) "BOOST" else null
-                )
             }
         }
     }
@@ -1895,13 +1891,9 @@ private fun BkmPlayerControlsOverlay(
     onEnterPip: (() -> Unit)? = null,
     onOpenDecoderDialog: () -> Unit,
     onOpenAudioDialog: () -> Unit,
-    onOpenAudioDelayDialog: () -> Unit,
     onToggleNightMode: () -> Unit,
     onToggleMute: () -> Unit,
     onOpenSubtitleDialog: () -> Unit,
-    onOpenSubtitleDelayDialog: () -> Unit,
-    onOpenSubtitleAppearanceDialog: () -> Unit,
-    onOpenExternalSubtitle: () -> Unit,
     onOpenSpeedDialog: () -> Unit,
     onCycleResizeMode: () -> Unit,
     onOpenSleepTimerDialog: () -> Unit,
@@ -1945,13 +1937,9 @@ private fun BkmPlayerControlsOverlay(
                 onEnterPip = onEnterPip,
                 onOpenDecoderDialog = onOpenDecoderDialog,
                 onOpenAudioDialog = onOpenAudioDialog,
-                onOpenAudioDelayDialog = onOpenAudioDelayDialog,
                 onToggleNightMode = onToggleNightMode,
                 onToggleMute = onToggleMute,
                 onOpenSubtitleDialog = onOpenSubtitleDialog,
-                onOpenSubtitleDelayDialog = onOpenSubtitleDelayDialog,
-                onOpenSubtitleAppearanceDialog = onOpenSubtitleAppearanceDialog,
-                onOpenExternalSubtitle = onOpenExternalSubtitle,
                 onOpenSleepTimerDialog = onOpenSleepTimerDialog,
                 onOpenAbRepeatDialog = onOpenAbRepeatDialog,
                 onOpenPlaylistDialog = onOpenPlaylistDialog,
@@ -2019,13 +2007,9 @@ private fun BkmPlayerTopBar(
     onEnterPip: (() -> Unit)?,
     onOpenDecoderDialog: () -> Unit,
     onOpenAudioDialog: () -> Unit,
-    onOpenAudioDelayDialog: () -> Unit,
     onToggleNightMode: () -> Unit,
     onToggleMute: () -> Unit,
     onOpenSubtitleDialog: () -> Unit,
-    onOpenSubtitleDelayDialog: () -> Unit,
-    onOpenSubtitleAppearanceDialog: () -> Unit,
-    onOpenExternalSubtitle: () -> Unit,
     onOpenSleepTimerDialog: () -> Unit,
     onOpenAbRepeatDialog: () -> Unit,
     onOpenPlaylistDialog: () -> Unit,
@@ -2191,24 +2175,7 @@ private fun BkmPlayerTopBar(
                     expanded = showMoreDropdown,
                     onDismissRequest = { onMoreDropdownChange(false) },
                     uiState = uiState,
-                    orientationMode = orientationMode,
                     sleepTimerMinutes = sleepTimerMinutes,
-                    playlistCount = playlistCount,
-                    currentPlaylistIndex = currentPlaylistIndex,
-                    onCycleOrientation = {
-                        onMoreDropdownChange(false)
-                        onCycleOrientation()
-                    },
-                    onEnterPip = onEnterPip?.let { pipAction ->
-                        {
-                            onMoreDropdownChange(false)
-                            pipAction()
-                        }
-                    },
-                    onOpenPlaylistDialog = {
-                        onMoreDropdownChange(false)
-                        onOpenPlaylistDialog()
-                    },
                     onOpenChaptersDialog = {
                         onMoreDropdownChange(false)
                         onOpenChaptersDialog()
@@ -2217,7 +2184,6 @@ private fun BkmPlayerTopBar(
                         onMoreDropdownChange(false)
                         onOpenPictureAdjustDialog()
                     },
-                    onToggleMute = onToggleMute,
                     onOpenSleepTimerDialog = {
                         onMoreDropdownChange(false)
                         onOpenSleepTimerDialog()
@@ -2226,23 +2192,7 @@ private fun BkmPlayerTopBar(
                         onMoreDropdownChange(false)
                         onOpenAbRepeatDialog()
                     },
-                    onOpenAudioDelayDialog = {
-                        onMoreDropdownChange(false)
-                        onOpenAudioDelayDialog()
-                    },
                     onToggleNightMode = onToggleNightMode,
-                    onOpenSubtitleDelayDialog = {
-                        onMoreDropdownChange(false)
-                        onOpenSubtitleDelayDialog()
-                    },
-                    onOpenSubtitleAppearanceDialog = {
-                        onMoreDropdownChange(false)
-                        onOpenSubtitleAppearanceDialog()
-                    },
-                    onOpenExternalSubtitle = {
-                        onMoreDropdownChange(false)
-                        onOpenExternalSubtitle()
-                    },
                     onResetZoom = {
                         onMoreDropdownChange(false)
                         onResetZoom()
@@ -2933,23 +2883,12 @@ private fun BkmPlayerOverflowMenu(
     expanded: Boolean,
     onDismissRequest: () -> Unit,
     uiState: PlayerUiState,
-    orientationMode: OrientationMode,
     sleepTimerMinutes: Int,
-    playlistCount: Int,
-    currentPlaylistIndex: Int,
-    onCycleOrientation: () -> Unit,
-    onEnterPip: (() -> Unit)?,
-    onOpenPlaylistDialog: () -> Unit,
     onOpenChaptersDialog: () -> Unit,
     onOpenPictureAdjustDialog: () -> Unit,
-    onToggleMute: () -> Unit,
     onOpenSleepTimerDialog: () -> Unit,
     onOpenAbRepeatDialog: () -> Unit,
-    onOpenAudioDelayDialog: () -> Unit,
     onToggleNightMode: () -> Unit,
-    onOpenSubtitleDelayDialog: () -> Unit,
-    onOpenSubtitleAppearanceDialog: () -> Unit,
-    onOpenExternalSubtitle: () -> Unit,
     onResetZoom: () -> Unit,
     onOpenPropertiesDialog: () -> Unit,
     onCaptureScreenshot: () -> Unit,
@@ -3004,15 +2943,6 @@ private fun BkmPlayerOverflowMenu(
 
         HorizontalDivider(color = Color(0x1AFFFFFF), modifier = Modifier.padding(horizontal = 12.dp))
 
-        if (playlistCount > 1) {
-            MxMenuActionItem(
-                icon = Icons.AutoMirrored.Rounded.QueueMusic,
-                title = "Playlist Queue",
-                trailing = "${currentPlaylistIndex + 1}/$playlistCount",
-                onClick = onOpenPlaylistDialog
-            )
-        }
-
         if (uiState.chapters.isNotEmpty()) {
             MxMenuActionItem(
                 icon = Icons.Rounded.Bookmarks,
@@ -3032,43 +2962,7 @@ private fun BkmPlayerOverflowMenu(
             onClick = onOpenPictureAdjustDialog
         )
 
-        // Screen Orientation
-        MxMenuActionItem(
-            icon = Icons.Rounded.ScreenRotation,
-            title = "Screen Orientation",
-            trailing = orientationMode.label,
-            onClick = onCycleOrientation
-        )
-
-        if (onEnterPip != null) {
-            MxMenuActionItem(
-                icon = Icons.Rounded.PictureInPictureAlt,
-                title = "Picture-in-Picture",
-                trailing = null,
-                onClick = onEnterPip
-            )
-        }
-
-        HorizontalDivider(color = Color(0x12FFFFFF), modifier = Modifier.padding(horizontal = 12.dp))
-
-        // 1. Audio Mute Quick Toggle
-        MxMenuToggleItem(
-            icon = Icons.AutoMirrored.Rounded.VolumeOff,
-            title = "Mute Audio",
-            subtitle = "Silence output without losing track",
-            checked = uiState.isMuted,
-            onCheckedChange = { onToggleMute() }
-        )
-
-        // 2. Audio Sync Delay
-        MxMenuActionItem(
-            icon = Icons.Rounded.Timer,
-            title = "Audio Delay",
-            trailing = "${String.format(Locale.US, "%.1f", uiState.audioDelaySeconds)}s",
-            onClick = onOpenAudioDelayDialog
-        )
-
-        // 3. Speech Clarifier (Night Mode Voice Boost)
+        // Speech Clarifier (Night Mode Voice Boost)
         MxMenuToggleItem(
             icon = Icons.Rounded.Hearing,
             title = "Speech Clarifier",
@@ -3079,33 +2973,7 @@ private fun BkmPlayerOverflowMenu(
 
         HorizontalDivider(color = Color(0x12FFFFFF), modifier = Modifier.padding(horizontal = 12.dp))
 
-        // 4. Subtitle Sync Delay
-        MxMenuActionItem(
-            icon = Icons.Rounded.Timer,
-            title = "Subtitle Delay",
-            trailing = "${String.format(Locale.US, "%.1f", uiState.subtitleDelaySeconds)}s",
-            onClick = onOpenSubtitleDelayDialog
-        )
-
-        // 5. Subtitle Style & Size
-        MxMenuActionItem(
-            icon = Icons.Rounded.Subtitles,
-            title = "Subtitle Style & Size",
-            trailing = "${uiState.subtitleFontSize}sp",
-            onClick = onOpenSubtitleAppearanceDialog
-        )
-
-        // 6. Open External Subtitle File
-        MxMenuActionItem(
-            icon = Icons.Rounded.FolderOpen,
-            title = "Load Subtitle File...",
-            trailing = null,
-            onClick = onOpenExternalSubtitle
-        )
-
-        HorizontalDivider(color = Color(0x12FFFFFF), modifier = Modifier.padding(horizontal = 12.dp))
-
-        // 7. Sleep Timer
+        // Sleep Timer
         MxMenuActionItem(
             icon = Icons.Rounded.Timer,
             title = "Sleep Timer",
@@ -3113,7 +2981,7 @@ private fun BkmPlayerOverflowMenu(
             onClick = onOpenSleepTimerDialog
         )
 
-        // 8. A-B Repeat Loop
+        // A-B Repeat Loop
         MxMenuActionItem(
             icon = Icons.Rounded.RepeatOne,
             title = "A-B Repeat",
@@ -3121,7 +2989,7 @@ private fun BkmPlayerOverflowMenu(
             onClick = onOpenAbRepeatDialog
         )
 
-        // 9. Reset Video Zoom (if zoomed)
+        // Reset Video Zoom (if zoomed)
         MxMenuActionItem(
             icon = Icons.Rounded.AspectRatio,
             title = "Reset Video Zoom",
@@ -3131,7 +2999,7 @@ private fun BkmPlayerOverflowMenu(
 
         HorizontalDivider(color = Color(0x12FFFFFF), modifier = Modifier.padding(horizontal = 12.dp))
 
-        // 10. Frame Capture / Screenshot
+        // Frame Capture / Screenshot
         MxMenuActionItem(
             icon = Icons.Rounded.CameraAlt,
             title = "Capture Frame",
@@ -3139,7 +3007,7 @@ private fun BkmPlayerOverflowMenu(
             onClick = onCaptureScreenshot
         )
 
-        // 11. Media Properties & Codecs
+        // Media Properties & Codecs
         MxMenuActionItem(
             icon = Icons.Rounded.Info,
             title = "Media Properties",
@@ -3147,7 +3015,7 @@ private fun BkmPlayerOverflowMenu(
             onClick = onOpenPropertiesDialog
         )
 
-        // 12. Open Another Video
+        // Open Another Video
         MxMenuActionItem(
             icon = Icons.Rounded.FolderOpen,
             title = "Open Video File...",

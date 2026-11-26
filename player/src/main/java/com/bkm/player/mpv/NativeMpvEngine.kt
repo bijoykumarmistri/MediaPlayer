@@ -1,5 +1,6 @@
 package com.bkm.player.mpv
 
+import android.content.ContentUris
 import android.content.Context
 import android.graphics.Bitmap
 import android.media.AudioAttributes
@@ -8,9 +9,12 @@ import android.media.AudioManager
 import android.media.MediaCodecList
 import android.net.Uri
 import android.os.Build
+import android.os.Environment
 import android.os.Handler
 import android.os.Looper
 import android.os.ParcelFileDescriptor
+import android.provider.DocumentsContract
+import android.provider.MediaStore
 import android.system.ErrnoException
 import android.util.Log
 import android.view.PixelCopy
@@ -507,18 +511,38 @@ class NativeMpvEngine(
             return true
         }
 
-        return try {
-            val pfd = when {
+        val pfd: ParcelFileDescriptor? = try {
+            when {
                 (uri.scheme == null || uri.scheme == "file") && uri.path != null -> {
-                    ParcelFileDescriptor.open(java.io.File(uri.path!!), ParcelFileDescriptor.MODE_READ_ONLY)
+                    ParcelFileDescriptor.open(File(uri.path!!), ParcelFileDescriptor.MODE_READ_ONLY)
                 }
                 else -> context.contentResolver.openFileDescriptor(uri, "r")
             }
-            if (pfd == null) {
-                mainHandler.post { listener.onError("Unable to open file descriptor for selected video.") }
+        } catch (se: SecurityException) {
+            Log.w(TAG, "Permission denied opening URI: $uri, attempting primary storage fallback", se)
+            val recovered = openPrimaryStorageFallbackDescriptor(context, uri, allowAudioOnlyWithoutSurface)
+            if (recovered != null) {
+                Log.i(TAG, "Recovered access to expired SAF URI via primary storage fallback: $uri")
+                recovered
+            } else {
+                Log.e(TAG, "Permission denied opening URI: $uri", se)
+                mainHandler.post {
+                    listener.onError("Permission expired for this file. Please re-open it using Open Files or Open Folder.")
+                }
                 return false
             }
+        } catch (t: Throwable) {
+            Log.e(TAG, "Failed to open content URI: $uri", t)
+            mainHandler.post { listener.onError("Failed to open video: ${t.localizedMessage ?: "Unknown error"}") }
+            return false
+        }
 
+        if (pfd == null) {
+            mainHandler.post { listener.onError("Unable to open file descriptor for selected video.") }
+            return false
+        }
+
+        return try {
             val rawFd = pfd.detachFd()
             val supersededPendingFd = synchronized(fdLock) {
                 val oldPending = pendingOpenFd
@@ -538,15 +562,55 @@ class NativeMpvEngine(
             }
 
             true
-        } catch (se: SecurityException) {
-            Log.e(TAG, "Permission denied opening URI: $uri", se)
-            mainHandler.post { listener.onError("Permission denied for selected video.") }
-            false
         } catch (t: Throwable) {
-            Log.e(TAG, "Failed to open content URI: $uri", t)
+            Log.e(TAG, "Failed to prepare file descriptor for URI: $uri", t)
             mainHandler.post { listener.onError("Failed to open video: ${t.localizedMessage ?: "Unknown error"}") }
             false
         }
+    }
+
+    private fun openPrimaryStorageFallbackDescriptor(
+        context: Context,
+        uri: Uri,
+        includeAudioStore: Boolean
+    ): ParcelFileDescriptor? {
+        val docId = runCatching { DocumentsContract.getDocumentId(uri) }.getOrNull()
+        val relPath = extractPrimaryRelativePath(uri.authority, docId, uri.pathSegments) ?: return null
+        val targetFile = File(Environment.getExternalStorageDirectory(), relPath)
+
+        // 1. Direct file read (works on Android 11+ FUSE when READ_MEDIA_VIDEO / READ_EXTERNAL_STORAGE is granted)
+        try {
+            if (targetFile.exists() && targetFile.isFile && targetFile.canRead()) {
+                return ParcelFileDescriptor.open(targetFile, ParcelFileDescriptor.MODE_READ_ONLY)
+            }
+        } catch (_: Throwable) {}
+
+        // 2. MediaStore lookup by DATA path (works on Android 10 scoped storage and older)
+        val collections = buildList {
+            add(MediaStore.Video.Media.EXTERNAL_CONTENT_URI)
+            if (includeAudioStore) {
+                add(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI)
+            }
+        }
+        val projection = arrayOf(MediaStore.MediaColumns._ID)
+        val selection = "${MediaStore.MediaColumns.DATA} = ?"
+        val selectionArgs = arrayOf(targetFile.absolutePath)
+
+        for (collection in collections) {
+            try {
+                context.contentResolver.query(collection, projection, selection, selectionArgs, null)?.use { cursor ->
+                    if (cursor.moveToFirst()) {
+                        val id = cursor.getLong(cursor.getColumnIndexOrThrow(MediaStore.MediaColumns._ID))
+                        val mediaStoreUri = ContentUris.withAppendedId(collection, id)
+                        val fallbackPfd = context.contentResolver.openFileDescriptor(mediaStoreUri, "r")
+                        if (fallbackPfd != null) {
+                            return fallbackPfd
+                        }
+                    }
+                }
+            } catch (_: Throwable) {}
+        }
+        return null
     }
 
     private fun loadPathInternal(
@@ -1306,5 +1370,32 @@ class NativeMpvEngine(
     companion object {
         private const val TAG = "NativeMpvEngine"
         private const val NO_FD = -1
+
+        fun extractPrimaryRelativePath(
+            authority: String?,
+            documentId: String?,
+            pathSegments: List<String> = emptyList()
+        ): String? {
+            if (!authority.equals("com.android.externalstorage.documents", ignoreCase = true)) {
+                return null
+            }
+            val resolvedDocId = documentId?.takeIf { it.isNotBlank() } ?: run {
+                val docIdx = pathSegments.indexOf("document")
+                if (docIdx >= 0 && docIdx + 1 < pathSegments.size) {
+                    pathSegments[docIdx + 1]
+                } else {
+                    null
+                }
+            } ?: return null
+
+            if (!resolvedDocId.startsWith("primary:", ignoreCase = true)) {
+                return null
+            }
+            val relative = resolvedDocId.substringAfter(':').trimStart('/')
+            if (relative.isEmpty() || relative.split('/', '\\').any { it == ".." }) {
+                return null
+            }
+            return relative
+        }
     }
 }

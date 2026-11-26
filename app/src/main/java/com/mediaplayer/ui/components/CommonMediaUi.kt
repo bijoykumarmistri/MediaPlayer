@@ -78,6 +78,26 @@ fun formatFolderDuration(durationMs: Long): String {
     return String.format(java.util.Locale.US, "%02d:%02d:%02d", hours, minutes, seconds)
 }
 
+fun <T> deduplicateLazyKeys(
+    items: List<T>,
+    rawKey: (T) -> Any
+): List<Any> {
+    if (items.isEmpty()) return emptyList()
+    val usedKeys = HashSet<Any>(items.size)
+    return ArrayList<Any>(items.size).apply {
+        for (item in items) {
+            val base = rawKey(item)
+            var candidate: Any = base
+            var suffix = 1
+            while (!usedKeys.add(candidate)) {
+                candidate = "${base}_dup_$suffix"
+                suffix++
+            }
+            add(candidate)
+        }
+    }
+}
+
 fun shareMediaFiles(ctx: Context, items: List<MediaItemModel>) {
     if (items.isEmpty()) return
     val uris = ArrayList<Uri>(items.map { it.uri })

@@ -29,8 +29,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.grid.itemsIndexed
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -376,6 +376,9 @@ fun PrivacyVaultScreen(
                 }
             } else {
                 if (selectedTab == 0) {
+                    val videoKeys = remember(videos) {
+                        com.mediaplayer.ui.components.deduplicateLazyKeys(videos) { it.id }
+                    }
                     // Videos Grid
                     LazyVerticalGrid(
                         columns = GridCells.Fixed(2),
@@ -384,7 +387,7 @@ fun PrivacyVaultScreen(
                         verticalArrangement = Arrangement.spacedBy(10.dp),
                         modifier = Modifier.fillMaxSize()
                     ) {
-                        items(videos, key = { it.id }) { videoItem ->
+                        itemsIndexed(videos, key = { index, _ -> videoKeys[index] }) { _, videoItem ->
                             VaultVideoCard(
                                 item = videoItem,
                                 onPlay = { onPlayMedia(videoItem.toMediaItemModel()) },
@@ -393,13 +396,16 @@ fun PrivacyVaultScreen(
                         }
                     }
                 } else {
+                    val audioKeys = remember(audios) {
+                        com.mediaplayer.ui.components.deduplicateLazyKeys(audios) { it.id }
+                    }
                     // Audio List
                     LazyColumn(
                         contentPadding = PaddingValues(12.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                         modifier = Modifier.fillMaxSize()
                     ) {
-                        items(audios, key = { it.id }) { audioItem ->
+                        itemsIndexed(audios, key = { index, _ -> audioKeys[index] }) { _, audioItem ->
                             VaultAudioCard(
                                 item = audioItem,
                                 onPlay = { onPlayMedia(audioItem.toMediaItemModel()) },

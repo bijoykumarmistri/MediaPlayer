@@ -302,8 +302,8 @@ fun MainMediaPlayerScreen(
     var musicSortOrder by remember { mutableIntStateOf(0) }
     var showMusicSortMenu by remember { mutableStateOf(false) }
 
-    // Music filters: Folders, All Tracks, Albums, Artists, Hi-Res / Lossless
-    var musicFilterTab by remember { mutableStateOf("Folders") }
+    // Music filters: All Tracks, Folders, Albums, Artists, Hi-Res / Lossless
+    var musicFilterTab by remember { mutableStateOf("All Tracks") }
 
     // Multi-Selection and Deletion state
     var selectedMediaItems by remember { mutableStateOf<Set<MediaItemModel>>(emptySet()) }
@@ -559,23 +559,30 @@ fun MainMediaPlayerScreen(
                 val newAudios = mutableListOf<MediaItemModel>()
                 val newVideos = mutableListOf<MediaItemModel>()
                 for (uri in uris) {
+                    repository.takePersistableReadPermission(uri)
                     val item = repository.importSafSingleFile(uri)
                     if (item != null) {
                         if (item.isVideo) newVideos.add(item) else newAudios.add(item)
                     }
                 }
                 if (newAudios.isNotEmpty()) {
-                    audioList = newAudios + audioList
-                    repository.saveCachedAudios(audioList)
+                    val mergedAudios = repository.mergeUniqueItems(newAudios, audioList)
+                    audioList = mergedAudios
+                    repository.saveCachedAudios(mergedAudios)
                 }
                 if (newVideos.isNotEmpty()) {
-                    videoList = newVideos + videoList
-                    repository.saveCachedVideos(videoList)
+                    val mergedVideos = repository.mergeUniqueItems(newVideos, videoList)
+                    videoList = mergedVideos
+                    repository.saveCachedVideos(mergedVideos)
                 }
                 val firstItem = newVideos.firstOrNull() ?: newAudios.firstOrNull()
                 if (firstItem != null) {
-                    playerManager.playMedia(firstItem, if (firstItem.isVideo) videoList else audioList)
+                    val targetPlaylist = if (firstItem.isVideo) videoList else audioList
+                    val resolvedFirst = targetPlaylist.find { it.uri == firstItem.uri || it.title.equals(firstItem.title, ignoreCase = true) } ?: firstItem
+                    playerManager.playMedia(resolvedFirst, targetPlaylist)
                     playerManager.setPlayerExpanded(true)
+                } else {
+                    Toast.makeText(context, "Unable to import selected file(s)", Toast.LENGTH_SHORT).show()
                 }
             }
         }
@@ -586,15 +593,25 @@ fun MainMediaPlayerScreen(
     ) { treeUri ->
         if (treeUri != null) {
             scope.launch {
+                repository.takePersistableReadPermission(treeUri)
                 val (audios, videos) = repository.scanSafFolder(treeUri)
                 if (audios.isNotEmpty()) {
-                    audioList = audios + audioList
-                    repository.saveCachedAudios(audioList)
+                    val mergedAudios = repository.mergeUniqueItems(audios, audioList)
+                    audioList = mergedAudios
+                    repository.saveCachedAudios(mergedAudios)
                 }
                 if (videos.isNotEmpty()) {
-                    videoList = videos + videoList
-                    repository.saveCachedVideos(videoList)
+                    val mergedVideos = repository.mergeUniqueItems(videos, videoList)
+                    videoList = mergedVideos
+                    repository.saveCachedVideos(mergedVideos)
                 }
+                val totalFound = audios.size + videos.size
+                val message = if (totalFound == 0) {
+                    "No audio or video files found in selected folder"
+                } else {
+                    "Found $totalFound media file${if (totalFound == 1) "" else "s"} in folder"
+                }
+                Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
             }
         }
     }
