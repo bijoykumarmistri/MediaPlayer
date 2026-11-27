@@ -773,6 +773,7 @@ fun VideoPlayerScreen(
             VideoStatusHuds(
                 isBuffering = uiState.isBuffering,
                 hasMediaLoaded = uiState.hasMediaLoaded,
+                hasPlaybackFailed = uiState.hasPlaybackFailed,
                 isScrubbing = uiState.isScrubbing,
                 errorMessage = uiState.errorMessage,
                 isFastForwarding = uiState.isFastForwarding,
@@ -885,9 +886,11 @@ fun VideoPlayerScreen(
             )
 
             // 12. Empty State Prompt
-            if (initialUri == null && !uiState.hasMediaLoaded) {
+            if ((initialUri == null || uiState.hasPlaybackFailed) &&
+                !uiState.hasMediaLoaded &&
+                uiState.errorMessage == null
+            ) {
                 MxEmptyPlayerPrompt(
-                    errorMessage = uiState.errorMessage,
                     onOpenFileClick = { openVideoLauncher.launch(arrayOf("video/*")) },
                     modifier = Modifier.align(Alignment.Center)
                 )
@@ -1116,7 +1119,13 @@ fun VideoPlayerScreen(
     // Playback Error Dialog
     if (uiState.errorMessage != null) {
         AlertDialog(
-            onDismissRequest = { viewModel.dismissError() },
+            onDismissRequest = {
+                val shouldExit = !uiState.hasMediaLoaded
+                viewModel.dismissError()
+                if (shouldExit) {
+                    onBack?.invoke()
+                }
+            },
             containerColor = MxDialogBg,
             title = {
                 Text("Playback Error", color = MxWhite, fontWeight = FontWeight.Bold)
@@ -1614,6 +1623,7 @@ private fun VideoVerticalGestureHuds(
 private fun VideoStatusHuds(
     isBuffering: Boolean,
     hasMediaLoaded: Boolean,
+    hasPlaybackFailed: Boolean,
     isScrubbing: Boolean,
     errorMessage: String?,
     isFastForwarding: Boolean,
@@ -1623,7 +1633,7 @@ private fun VideoStatusHuds(
     zoomScale: Float
 ) {
     Box(modifier = Modifier.fillMaxSize()) {
-        if ((isBuffering || !hasMediaLoaded) && !isScrubbing && errorMessage == null) {
+        if ((isBuffering || (!hasMediaLoaded && !hasPlaybackFailed)) && !isScrubbing && errorMessage == null) {
             CircularProgressIndicator(
                 color = MxBlue,
                 modifier = Modifier
@@ -4457,7 +4467,6 @@ private fun MxPropertyRow(label: String, value: String) {
 
 @Composable
 private fun MxEmptyPlayerPrompt(
-    errorMessage: String?,
     onOpenFileClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -4489,15 +4498,6 @@ private fun MxEmptyPlayerPrompt(
                 style = MaterialTheme.typography.bodySmall,
                 color = MxSubtext
             )
-
-            if (!errorMessage.isNullOrBlank()) {
-                Spacer(modifier = Modifier.height(12.dp))
-                Text(
-                    text = errorMessage,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.error
-                )
-            }
 
             Spacer(modifier = Modifier.height(16.dp))
             Button(

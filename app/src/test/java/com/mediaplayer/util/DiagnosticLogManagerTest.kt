@@ -34,4 +34,21 @@ class DiagnosticLogManagerTest {
         val raw = "ExoPlayer error: ERROR_CODE_DECODING_FAILED (4003)"
         assertEquals(raw, DiagnosticLogManager.sanitizeLine(raw))
     }
+
+    @Test
+    fun mpvDiagnosticLogger_forwardsToSink() {
+        val captured = mutableListOf<Pair<String, String>>()
+        val previous = com.bkm.player.mpv.MpvDiagnosticLogger.sink
+        try {
+            com.bkm.player.mpv.MpvDiagnosticLogger.sink = { tag, msg ->
+                captured.add(tag to msg)
+            }
+            com.bkm.player.mpv.MpvDiagnosticLogger.log("MPV", "file-loaded hwdec=mediacodec")
+            assertEquals(1, captured.size)
+            assertEquals("MPV", captured[0].first)
+            assertEquals("file-loaded hwdec=mediacodec", captured[0].second)
+        } finally {
+            com.bkm.player.mpv.MpvDiagnosticLogger.sink = previous
+        }
+    }
 }

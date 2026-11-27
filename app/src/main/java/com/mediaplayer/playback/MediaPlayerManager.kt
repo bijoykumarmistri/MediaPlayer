@@ -72,7 +72,8 @@ class MediaPlayerManager(
     val playbackState: StateFlow<Int> = _playbackState.asStateFlow()
 
     private val _playbackError = MutableStateFlow<String?>(null)
-    @Suppress("unused")
+    val playbackError: StateFlow<String?> = _playbackError.asStateFlow()
+
     fun clearPlaybackError() {
         _playbackError.value = null
     }
@@ -413,6 +414,7 @@ class MediaPlayerManager(
                     "ExoPlayer",
                     "${error.errorCodeName} (${error.errorCode}): ${error.cause?.javaClass?.simpleName ?: error.message}"
                 )
+                val currentUrl = _currentMediaItem.value?.uri?.toString()
                 val msg = when (error.errorCode) {
                     androidx.media3.common.PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED,
                     androidx.media3.common.PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT ->
@@ -420,13 +422,20 @@ class MediaPlayerManager(
                     androidx.media3.common.PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS ->
                         "Server returned an HTTP error (${(error.cause as? androidx.media3.datasource.HttpDataSource.InvalidResponseCodeException)?.responseCode ?: "error"}). Stream may be offline or geo-restricted."
                     androidx.media3.common.PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED,
+                    androidx.media3.common.PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED,
                     androidx.media3.common.PlaybackException.ERROR_CODE_PARSING_MANIFEST_MALFORMED ->
-                        "Stream manifest or container format is invalid or unsupported."
+                        if (com.bkm.player.mpv.NativeMpvEngine.isLikelyWebPageUrl(currentUrl)) {
+                            "This looks like a web page link, not a direct audio stream. Paste a direct media URL (.mp3, .flac, .aac, .m3u8, or rtsp://)."
+                        } else {
+                            "Stream manifest or container format is invalid or unsupported."
+                        }
                     androidx.media3.common.PlaybackException.ERROR_CODE_IO_UNSPECIFIED ->
                         "Unable to connect to stream server. Please verify the URL."
                     else -> error.localizedMessage ?: "Playback error encountered."
                 }
                 _playbackError.value = msg
+                _isPlaying.value = false
+                forwardingPlayer?.notifyStateChanged()
             }
 
             override fun onPlaybackStateChanged(state: Int) {
@@ -600,6 +609,10 @@ class MediaPlayerManager(
 
         val isNetworkStream = item.uri.scheme?.lowercase() in listOf("http", "https", "rtsp")
         _playbackError.value = null
+        com.mediaplayer.util.DiagnosticLogManager.recordEvent(
+            "ExoPlayer",
+            "playMedia audio scheme=${item.uri.scheme ?: "none"} mime=${item.mimeType.ifBlank { "-" }} listSize=${playlist.size}"
+        )
 
         // Determine starting position: resume from saved position if valid.
         // For network streams without explicit start position, default to C.TIME_UNSET so live streams start at the live edge!
@@ -774,6 +787,7 @@ class MediaPlayerManager(
         } catch (e: Exception) {
             e.printStackTrace()
         }
+        _playbackError.value = null
         if (p.mediaItemCount == 0 && _currentMediaItem.value != null) {
             val item = _currentMediaItem.value!!
             val pos = _currentPositionMs.value
@@ -816,6 +830,7 @@ class MediaPlayerManager(
             p.stop()
             p.clearMediaItems()
         }
+        _playbackError.value = null
         _currentMediaItem.value = null
         _audioStreamInfo.value = null
         _isPlaying.value = false

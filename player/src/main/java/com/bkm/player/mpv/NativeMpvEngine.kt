@@ -195,6 +195,17 @@ class NativeMpvEngine(
     private var hasFileLoadedForSurfaceRefresh: Boolean = false
 
     private val engineLock = Any()
+    private val loadStateLock = Any()
+    private var nextLoadSeq: Long = 0L
+    private val pendingIssuedLoads = ArrayDeque<Pair<Long, String>>()
+    private var startedLoadSeq: Long = 0L
+    private var startedLoadPath: String? = null
+    private var startedLoadSucceeded: Boolean = false
+    private var explicitStopRequested: Boolean = false
+    private var lastDemuxOrStreamError: String? = null
+    private var lastPlayerError: String? = null
+    private var pendingFailureRunnable: Runnable? = null
+
     private var contextRef: WeakReference<Context>? = null
     private var audioFocusRequest: AudioFocusRequest? = null
     private var legacyAudioFocusListener: AudioManager.OnAudioFocusChangeListener? = null
@@ -273,6 +284,7 @@ class NativeMpvEngine(
             MPVLib.addObserver(this)
             MPVLib.addLogObserver(this)
             observeCoreProperties()
+            MpvDiagnosticLogger.log("MPV", "NativeMpvEngine initialized")
         }
     }
 
@@ -306,6 +318,7 @@ class NativeMpvEngine(
         MPVLib.setOptionString("hr-seek-framedrop", "yes")
 
         // Network streaming & TLS options for HLS, DASH, RTSP, and direct HTTP/HTTPS video streams
+        MPVLib.setOptionString("ytdl", "no")
         MPVLib.setOptionString("user-agent", "Mozilla/5.0 (Linux; Android 14) MediaPlayer/2.0")
         MPVLib.setOptionString("tls-verify", "no")
         MPVLib.setOptionString("network-timeout", "15")
@@ -506,6 +519,7 @@ class NativeMpvEngine(
             applyResizeModeInternal(currentResizeMode)
         } catch (e: Exception) {
             Log.e(TAG, "Error attaching surface to libmpv", e)
+            MpvDiagnosticLogger.log("MPV", "Error attaching surface: ${e.message}")
         }
 
         val queued = pendingMediaPath
@@ -534,6 +548,7 @@ class NativeMpvEngine(
                 MPVLib.detachSurface()
             } catch (e: Exception) {
                 Log.e(TAG, "Error detaching surface from libmpv", e)
+                MpvDiagnosticLogger.log("MPV", "Error detaching surface: ${e.message}")
             }
         }
     }
@@ -585,12 +600,15 @@ class NativeMpvEngine(
             }
         } catch (se: SecurityException) {
             Log.w(TAG, "Permission denied opening URI: $uri, attempting primary storage fallback", se)
+            MpvDiagnosticLogger.log("MPV", "Permission denied opening ${scheme ?: "content"} URI, trying primary storage fallback")
             val recovered = openPrimaryStorageFallbackDescriptor(context, uri, allowAudioOnlyWithoutSurface)
             if (recovered != null) {
                 Log.i(TAG, "Recovered access to expired SAF URI via primary storage fallback: $uri")
+                MpvDiagnosticLogger.log("MPV", "Recovered expired SAF URI via primary storage fallback")
                 recovered
             } else {
                 Log.e(TAG, "Permission denied opening URI: $uri", se)
+                MpvDiagnosticLogger.log("MPV", "Permission denied opening URI (scheme=${scheme ?: "unknown"}): ${se.message}")
                 mainHandler.post {
                     listener.onError("Permission expired for this file. Please re-open it using Open Files or Open Folder.")
                 }
@@ -598,11 +616,13 @@ class NativeMpvEngine(
             }
         } catch (t: Throwable) {
             Log.e(TAG, "Failed to open content URI: $uri", t)
+            MpvDiagnosticLogger.log("MPV", "Failed opening URI (scheme=${scheme ?: "unknown"}): ${t.javaClass.simpleName}: ${t.message}")
             mainHandler.post { listener.onError("Failed to open video: ${t.localizedMessage ?: "Unknown error"}") }
             return false
         }
 
         if (pfd == null) {
+            MpvDiagnosticLogger.log("MPV", "Null ParcelFileDescriptor for URI (scheme=${scheme ?: "unknown"})")
             mainHandler.post { listener.onError("Unable to open file descriptor for selected video.") }
             return false
         }
@@ -629,6 +649,7 @@ class NativeMpvEngine(
             true
         } catch (t: Throwable) {
             Log.e(TAG, "Failed to prepare file descriptor for URI: $uri", t)
+            MpvDiagnosticLogger.log("MPV", "Failed detaching fd for URI: ${t.javaClass.simpleName}: ${t.message}")
             mainHandler.post { listener.onError("Failed to open video: ${t.localizedMessage ?: "Unknown error"}") }
             false
         }
@@ -752,6 +773,26 @@ class NativeMpvEngine(
         }
 
         isPausedState = false
+        val pathKind = when {
+            path.startsWith("fd://") -> "fd://"
+            path.startsWith("http") -> path.substringBefore('?')
+            else -> path.substringBefore("://") + "://"
+        }
+        MpvDiagnosticLogger.log(
+            "MPV",
+            "loadfile kind=$pathKind mode=${currentDecoderMode.label} surface=${isSurfaceAttached.get()} startMs=$startPositionMs"
+        )
+        synchronized(loadStateLock) {
+            pendingFailureRunnable?.let { mainHandler.removeCallbacks(it) }
+            pendingFailureRunnable = null
+            explicitStopRequested = false
+            val seq = ++nextLoadSeq
+            pendingIssuedLoads.addLast(seq to path)
+            if (startedLoadSeq == 0L) {
+                lastDemuxOrStreamError = null
+                lastPlayerError = null
+            }
+        }
         MPVLib.command(arrayOf("loadfile", path, "replace"))
         MPVLib.setPropertyBoolean("pause", false)
 
@@ -774,6 +815,7 @@ class NativeMpvEngine(
     fun setDecoderMode(mode: DecoderMode) {
         if (isDestroyed.get() || !isInitialized.get()) return
         currentDecoderMode = mode
+        MpvDiagnosticLogger.log("MPV", "Decoder mode set to ${mode.label} (${mode.hwdecValue})")
         MPVLib.setOptionString("hwdec", mode.hwdecValue)
         MPVLib.setPropertyString("hwdec", mode.hwdecValue)
     }
@@ -810,6 +852,17 @@ class NativeMpvEngine(
      */
     fun stop() {
         if (isDestroyed.get() || !isInitialized.get()) return
+        synchronized(loadStateLock) {
+            explicitStopRequested = true
+            pendingIssuedLoads.clear()
+            startedLoadSeq = 0L
+            startedLoadPath = null
+            startedLoadSucceeded = false
+            lastDemuxOrStreamError = null
+            lastPlayerError = null
+            pendingFailureRunnable?.let { mainHandler.removeCallbacks(it) }
+            pendingFailureRunnable = null
+        }
         cancelPausedSurfaceRefresh()
         isPausedState = true
         hasFileLoadedForSurfaceRefresh = false
@@ -1218,6 +1271,17 @@ class NativeMpvEngine(
     fun releaseEngine() {
         synchronized(engineLock) {
             if (!isInitialized.compareAndSet(true, false)) return
+            synchronized(loadStateLock) {
+                explicitStopRequested = true
+                pendingIssuedLoads.clear()
+                startedLoadSeq = 0L
+                startedLoadPath = null
+                startedLoadSucceeded = false
+                lastDemuxOrStreamError = null
+                lastPlayerError = null
+                pendingFailureRunnable?.let { mainHandler.removeCallbacks(it) }
+                pendingFailureRunnable = null
+            }
             isPausedState = false
             hasFileLoadedForSurfaceRefresh = false
             lastVideoWidth = 0
@@ -1305,6 +1369,7 @@ class NativeMpvEngine(
 
     override fun eventProperty(property: String, value: String) {
         if (property == "hwdec-current") {
+            MpvDiagnosticLogger.log("MPV", "hwdec-current=${value.ifBlank { "sw" }}")
             mainHandler.post { listener.onHwdecChanged(value) }
         }
     }
@@ -1319,12 +1384,95 @@ class NativeMpvEngine(
 
     override fun event(eventId: Int) {
         when (eventId) {
+            MPVLib.MPV_EVENT_START_FILE -> {
+                synchronized(loadStateLock) {
+                    pendingFailureRunnable?.let { mainHandler.removeCallbacks(it) }
+                    pendingFailureRunnable = null
+                    val nextLoad = if (pendingIssuedLoads.isNotEmpty()) {
+                        pendingIssuedLoads.removeFirst()
+                    } else {
+                        ++nextLoadSeq to (startedLoadPath ?: "")
+                    }
+                    startedLoadSeq = nextLoad.first
+                    startedLoadPath = nextLoad.second
+                    startedLoadSucceeded = false
+                    lastDemuxOrStreamError = null
+                    lastPlayerError = null
+                }
+            }
             MPVLib.MPV_EVENT_END_FILE -> {
                 closeOldestDrainingFd()
+                var scheduleSeq = 0L
+                var schedulePath: String? = null
+                synchronized(loadStateLock) {
+                    val finishedSeq = startedLoadSeq
+                    val finishedPath = startedLoadPath
+                    val hadLoaded = startedLoadSucceeded
+                    val hasReplacementPending = pendingIssuedLoads.isNotEmpty()
+                    val wasExplicitStop = explicitStopRequested
+                    startedLoadSeq = 0L
+                    startedLoadPath = null
+                    startedLoadSucceeded = false
+
+                    if (!hadLoaded &&
+                        !hasReplacementPending &&
+                        !wasExplicitStop &&
+                        finishedSeq > 0L &&
+                        !isDestroyed.get()
+                    ) {
+                        scheduleSeq = finishedSeq
+                        schedulePath = finishedPath
+                    }
+                }
+                if (scheduleSeq > 0L) {
+                    val failureRunnable = Runnable {
+                        val errorToEmit: String? = synchronized(loadStateLock) {
+                            if (nextLoadSeq == scheduleSeq &&
+                                pendingIssuedLoads.isEmpty() &&
+                                startedLoadSeq == 0L &&
+                                !explicitStopRequested &&
+                                !isDestroyed.get() &&
+                                isInitialized.get()
+                            ) {
+                                buildFriendlyPlaybackError(
+                                    sourcePath = schedulePath,
+                                    detailError = lastDemuxOrStreamError,
+                                    playerError = lastPlayerError
+                                )
+                            } else {
+                                null
+                            }
+                        }
+                        if (errorToEmit != null) {
+                            MpvDiagnosticLogger.log("MPV-ERR", "Playback failed: $errorToEmit")
+                            listener.onError(errorToEmit)
+                        }
+                    }
+                    synchronized(loadStateLock) {
+                        pendingFailureRunnable?.let { mainHandler.removeCallbacks(it) }
+                        pendingFailureRunnable = failureRunnable
+                    }
+                    // Wait briefly so post-END_FILE cplayer/ffmpeg error log lines arrive first
+                    mainHandler.postDelayed(failureRunnable, 80L)
+                }
             }
             MPVLib.MPV_EVENT_FILE_LOADED -> {
                 hasFileLoadedForSurfaceRefresh = true
+                synchronized(loadStateLock) {
+                    startedLoadSucceeded = true
+                    lastDemuxOrStreamError = null
+                    lastPlayerError = null
+                    pendingFailureRunnable?.let { mainHandler.removeCallbacks(it) }
+                    pendingFailureRunnable = null
+                }
                 closeDrainingFds()
+                val hwdecActive = runCatching { MPVLib.getPropertyString("hwdec-current") }.getOrNull().orEmpty()
+                val vcodec = runCatching { MPVLib.getPropertyString("video-codec") }.getOrNull().orEmpty()
+                val acodec = runCatching { MPVLib.getPropertyString("audio-codec-name") }.getOrNull().orEmpty()
+                MpvDiagnosticLogger.log(
+                    "MPV",
+                    "file-loaded hwdec=${hwdecActive.ifBlank { "sw" }} vcodec=${vcodec.ifBlank { "-" }} acodec=${acodec.ifBlank { "-" }}"
+                )
                 if (isSurfaceAttached.get()) {
                     try {
                         MPVLib.setPropertyString("vo", "gpu")
@@ -1357,8 +1505,24 @@ class NativeMpvEngine(
         if (level > MPVLib.MPV_LOG_LEVEL_INFO) return
         val clean = text.trimEnd()
         when (level) {
-            MPVLib.MPV_LOG_LEVEL_FATAL, MPVLib.MPV_LOG_LEVEL_ERROR -> Log.e(TAG, "[$prefix] $clean")
-            MPVLib.MPV_LOG_LEVEL_WARN -> Log.w(TAG, "[$prefix] $clean")
+            MPVLib.MPV_LOG_LEVEL_FATAL, MPVLib.MPV_LOG_LEVEL_ERROR -> {
+                if (prefix.equals("ytdl_hook", ignoreCase = true)) return
+                Log.e(TAG, "[$prefix] $clean")
+                MpvDiagnosticLogger.log("MPV-ERR", "[$prefix] $clean")
+                if (clean.isNotBlank()) {
+                    synchronized(loadStateLock) {
+                        if (prefix.equals("cplayer", ignoreCase = true)) {
+                            lastPlayerError = clean
+                        } else if (lastDemuxOrStreamError == null) {
+                            lastDemuxOrStreamError = clean
+                        }
+                    }
+                }
+            }
+            MPVLib.MPV_LOG_LEVEL_WARN -> {
+                Log.w(TAG, "[$prefix] $clean")
+                MpvDiagnosticLogger.log("MPV-WARN", "[$prefix] $clean")
+            }
             MPVLib.MPV_LOG_LEVEL_INFO -> Log.i(TAG, "[$prefix] $clean")
         }
     }
@@ -1442,6 +1606,104 @@ class NativeMpvEngine(
     companion object {
         private const val TAG = "NativeMpvEngine"
         private const val NO_FD = -1
+
+        private val WEB_PAGE_HOSTS = setOf(
+            "youtube.com",
+            "www.youtube.com",
+            "m.youtube.com",
+            "music.youtube.com",
+            "youtu.be",
+            "vimeo.com",
+            "www.vimeo.com",
+            "dailymotion.com",
+            "www.dailymotion.com",
+            "dai.ly",
+            "tiktok.com",
+            "www.tiktok.com",
+            "vm.tiktok.com",
+            "instagram.com",
+            "www.instagram.com",
+            "facebook.com",
+            "www.facebook.com",
+            "m.facebook.com",
+            "fb.watch",
+            "twitch.tv",
+            "www.twitch.tv",
+            "x.com",
+            "twitter.com"
+        )
+
+        private val DIRECT_MEDIA_EXTENSIONS = setOf(
+            ".mp4", ".mkv", ".webm", ".avi", ".mov", ".m4v", ".ts", ".flv", ".3gp",
+            ".m3u8", ".mpd", ".ism",
+            ".mp3", ".flac", ".aac", ".m4a", ".ogg", ".opus", ".wav", ".alac"
+        )
+
+        fun isLikelyWebPageUrl(url: String?): Boolean {
+            if (url.isNullOrBlank()) return false
+            val trimmed = url.trim()
+            val schemeEnd = trimmed.indexOf("://")
+            val withoutScheme = if (schemeEnd >= 0) trimmed.substring(schemeEnd + 3) else trimmed
+            val host = withoutScheme
+                .substringBefore('/')
+                .substringBefore('?')
+                .substringBefore('#')
+                .substringBefore(':')
+                .lowercase(Locale.US)
+            if (host !in WEB_PAGE_HOSTS && WEB_PAGE_HOSTS.none { host.endsWith(".$it") }) {
+                return false
+            }
+            val pathLower = trimmed.substringBefore('?').substringBefore('#').lowercase(Locale.US)
+            return DIRECT_MEDIA_EXTENSIONS.none { pathLower.endsWith(it) }
+        }
+
+        fun buildFriendlyPlaybackError(
+            sourcePath: String?,
+            detailError: String?,
+            playerError: String?
+        ): String {
+            val combined = listOfNotNull(detailError, playerError)
+                .joinToString(" | ")
+                .trim()
+            val lower = combined.lowercase(Locale.US)
+            val isNetworkUrl = sourcePath?.let {
+                it.startsWith("http://", ignoreCase = true) ||
+                    it.startsWith("https://", ignoreCase = true) ||
+                    it.startsWith("rtsp://", ignoreCase = true) ||
+                    it.startsWith("rtmp://", ignoreCase = true)
+            } == true
+
+            return when {
+                lower.contains("404") || lower.contains("not found") ->
+                    "Stream not found (HTTP 404). Please check the URL."
+                lower.contains("403") || lower.contains("401") || lower.contains("forbidden") || lower.contains("unauthorized") ->
+                    "Access denied by stream server (HTTP 401/403)."
+                lower.contains("timed out") || lower.contains("timeout") ->
+                    "Connection timed out while opening the stream."
+                lower.contains("failed to resolve") || lower.contains("name or service not known") || lower.contains("no address") ->
+                    "Could not reach the server. Check the URL and your internet connection."
+                lower.contains("connection refused") ->
+                    "Connection refused by the stream server."
+                lower.contains("unrecognized") || lower.contains("failed to recognize file format") || lower.contains("invalid data found") -> {
+                    when {
+                        isLikelyWebPageUrl(sourcePath) ->
+                            "This looks like a web page link, not a direct media stream. BKM Player can only play direct stream or media file URLs (.m3u8, .mpd, .mp4, .mp3, .flac, or rtsp://)."
+                        isNetworkUrl ->
+                            "Could not play this URL because it did not return a recognized media stream. Make sure the link points directly to a media file or playlist (.m3u8, .mpd, .mp4, .mp3, .flac)."
+                        else ->
+                            "This file format is unsupported or the file is corrupted."
+                    }
+                }
+                combined.isNotEmpty() ->
+                    "Unable to play media: $combined"
+                isLikelyWebPageUrl(sourcePath) ->
+                    "This looks like a web page link, not a direct media stream. BKM Player requires a direct media URL (.m3u8, .mpd, .mp4, .mp3, .flac, or rtsp://)."
+                isNetworkUrl ->
+                    "Unable to open this network stream. Please verify the URL."
+                else ->
+                    "Unable to play the selected media file."
+            }
+        }
 
         fun extractPrimaryRelativePath(
             authority: String?,

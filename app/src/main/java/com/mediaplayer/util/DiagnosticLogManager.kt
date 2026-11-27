@@ -23,6 +23,7 @@ import java.text.SimpleDateFormat
 import java.util.ArrayDeque
 import java.util.Date
 import java.util.Locale
+import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -35,13 +36,20 @@ object DiagnosticLogManager {
     private const val TAG = "DiagnosticLogManager"
     private const val DIAGNOSTICS_DIR = "diagnostics"
     private const val CRASH_FILE_NAME = "last_crash.txt"
+    private const val EVENTS_FILE_NAME = "recent_events.log"
     private const val MAX_EVENTS = 250
+    private const val MAX_EVENTS_FILE_BYTES = 64L * 1024L
     private const val MAX_LOGCAT_LINES = 1500
     private const val MAX_ANR_TRACE_CHARS = 12_000
 
     private val crashHandlerInstalled = AtomicBoolean(false)
+    private val eventsLoaded = AtomicBoolean(false)
     private val recentEvents = ArrayDeque<String>(MAX_EVENTS)
     private val eventLock = Any()
+    private val eventPersistExecutor = Executors.newSingleThreadExecutor()
+
+    @Volatile
+    private var diagnosticsDir: File? = null
 
     private val sensitiveQueryRegex = Regex(
         """([?&](?:token|auth|key|apikey|api_key|sig|signature|password|pass|secret|cookie|session)=)([^&\s]+)""",
@@ -50,6 +58,7 @@ object DiagnosticLogManager {
     private val userFilePathRegex = Regex("""(/storage/emulated/\d+/[^\s"'\]]+)""")
 
     fun installCrashHandler(application: Application) {
+        initDiagnostics(application.applicationContext)
         if (!crashHandlerInstalled.compareAndSet(false, true)) return
         val appContext = application.applicationContext
         val previousHandler = Thread.getDefaultUncaughtExceptionHandler()
@@ -64,6 +73,33 @@ object DiagnosticLogManager {
         }
     }
 
+    private fun initDiagnostics(context: Context) {
+        val dir = File(context.applicationContext.filesDir, DIAGNOSTICS_DIR)
+        diagnosticsDir = dir
+        if (eventsLoaded.compareAndSet(false, true)) {
+            eventPersistExecutor.execute {
+                loadPersistedEvents(dir)
+            }
+        }
+    }
+
+    private fun loadPersistedEvents(dir: File) {
+        runCatching {
+            val file = File(dir, EVENTS_FILE_NAME)
+            if (!file.exists() || file.length() == 0L) return
+            val persisted = file.readLines(Charsets.UTF_8)
+                .filter { it.isNotBlank() }
+                .takeLast(MAX_EVENTS)
+            if (persisted.isEmpty()) return
+            synchronized(eventLock) {
+                val current = recentEvents.toList()
+                recentEvents.clear()
+                val combined = (persisted + current).takeLast(MAX_EVENTS)
+                combined.forEach { recentEvents.addLast(it) }
+            }
+        }
+    }
+
     fun recordEvent(tag: String, message: String) {
         val timestamp = formatNow()
         val line = "$timestamp [$tag] ${sanitizeLine(message)}"
@@ -72,6 +108,18 @@ object DiagnosticLogManager {
                 recentEvents.removeFirst()
             }
             recentEvents.addLast(line)
+        }
+        val dir = diagnosticsDir ?: return
+        eventPersistExecutor.execute {
+            runCatching {
+                if (!dir.exists()) dir.mkdirs()
+                val file = File(dir, EVENTS_FILE_NAME)
+                file.appendText("$line\n", Charsets.UTF_8)
+                if (file.length() > MAX_EVENTS_FILE_BYTES) {
+                    val snapshot = synchronized(eventLock) { recentEvents.toList() }
+                    file.writeText(snapshot.joinToString("\n", postfix = "\n"), Charsets.UTF_8)
+                }
+            }
         }
     }
 
@@ -150,9 +198,14 @@ object DiagnosticLogManager {
     }
 
     private fun buildDiagnosticReport(context: Context): String {
+        initDiagnostics(context.applicationContext)
         val (versionName, versionCode) = getVersionInfo(context)
         val isDebug = (context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
         val settings = AppSettingsManager(context)
+
+        // Capture logcat before querying MediaCodecList so decoder probing warnings
+        // (e.g. VideoCapabilities: Unsupported mime image/vnd.android.heic) do not pollute logcat.
+        val logcatLines = captureLogcatLines()
 
         return buildString(capacity = 32 * 1024) {
             appendLine("==================================================")
@@ -214,7 +267,7 @@ object DiagnosticLogManager {
             }
 
             appendLine("--- APP LOGCAT (LAST $MAX_LOGCAT_LINES LINES) ---")
-            appendLogcatSnapshot(this)
+            logcatLines.forEach { appendLine(it) }
         }
     }
 
@@ -309,9 +362,9 @@ object DiagnosticLogManager {
         }
     }
 
-    private fun appendLogcatSnapshot(out: StringBuilder) {
+    private fun captureLogcatLines(): List<String> {
         var process: Process? = null
-        try {
+        return try {
             val pid = android.os.Process.myPid()
             process = ProcessBuilder(
                 "logcat",
@@ -334,13 +387,13 @@ object DiagnosticLogManager {
             process.waitFor(3, TimeUnit.SECONDS)
 
             if (lines.isEmpty()) {
-                out.appendLine("(No logcat lines captured for pid=$pid)")
+                listOf("(No logcat lines captured for pid=$pid)")
             } else {
-                lines.forEach { out.appendLine(it) }
+                lines
             }
         } catch (t: Throwable) {
             Log.w(TAG, "Failed capturing logcat", t)
-            out.appendLine("Logcat capture failed: ${t.message}")
+            listOf("Logcat capture failed: ${t.message}")
         } finally {
             runCatching { process?.destroy() }
         }

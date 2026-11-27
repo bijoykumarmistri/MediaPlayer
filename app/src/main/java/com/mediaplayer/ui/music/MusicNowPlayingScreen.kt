@@ -45,6 +45,7 @@ import androidx.compose.material.icons.rounded.RepeatOne
 import androidx.compose.material.icons.rounded.Shuffle
 import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material.icons.rounded.SkipPrevious
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -111,6 +112,7 @@ fun MusicNowPlayingScreen(
     val shuffleMode by playerManager.shuffleMode.collectAsState()
     val playlist by playerManager.playlist.collectAsState()
     val currentIndex by playerManager.currentIndex.collectAsState()
+    val playbackError by playerManager.playbackError.collectAsState()
 
     var showQueueSheet by remember { mutableStateOf(false) }
     val sheetState = rememberModalBottomSheetState()
@@ -350,6 +352,42 @@ fun MusicNowPlayingScreen(
             }
 
             Spacer(modifier = Modifier.height(32.dp))
+        }
+
+        if (playbackError != null) {
+            AlertDialog(
+                onDismissRequest = { playerManager.clearPlaybackError() },
+                containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                title = {
+                    Text(
+                        text = "Playback Error",
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold
+                    )
+                },
+                text = {
+                    Text(
+                        text = playbackError ?: "Unable to play this audio stream.",
+                        color = Color(0xFFB0B0C4)
+                    )
+                },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            playerManager.clearPlaybackError()
+                            playerManager.stop()
+                            onCollapse()
+                        }
+                    ) {
+                        Text("OK", color = accentColor, fontWeight = FontWeight.Bold)
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { playerManager.retry() }) {
+                        Text("Retry", color = Color.White)
+                    }
+                }
+            )
         }
 
         // Up Next Queue Bottom Sheet

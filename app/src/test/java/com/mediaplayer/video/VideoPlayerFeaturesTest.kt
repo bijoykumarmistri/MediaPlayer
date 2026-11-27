@@ -3,6 +3,7 @@ package com.mediaplayer.video
 import com.bkm.player.mpv.DecoderMode
 import com.bkm.player.mpv.MediaChapter
 import com.bkm.player.mpv.MediaInfo
+import com.bkm.player.mpv.NativeMpvEngine
 import com.bkm.player.mpv.PlayerUiState
 import com.bkm.player.mpv.ResizeMode
 import com.bkm.player.mpv.OrientationMode
@@ -59,6 +60,7 @@ class VideoPlayerFeaturesTest {
         assertFalse(state.isMuted)
         assertFalse(state.isScrubbing)
         assertFalse(state.isGestureScrubbing)
+        assertFalse(state.hasPlaybackFailed)
         assertEquals(0, state.videoBrightness)
         assertEquals(0, state.videoContrast)
         assertEquals(0, state.videoSaturation)
@@ -91,5 +93,71 @@ class VideoPlayerFeaturesTest {
         val (title, year) = cleanMovieDisplayTitle("Interstellar.2014.1080p.BluRay.x265.HEVC.mkv")
         assertEquals("Interstellar", title)
         assertEquals("2014", year)
+    }
+
+    @Test
+    fun isLikelyWebPageUrl_detectsWebPagesAndAllowsDirectStreams() {
+        assertTrue(NativeMpvEngine.isLikelyWebPageUrl("https://youtu.be/PvG8d5cdB_I"))
+        assertTrue(NativeMpvEngine.isLikelyWebPageUrl("https://www.youtube.com/watch?v=PvG8d5cdB_I"))
+        assertTrue(NativeMpvEngine.isLikelyWebPageUrl("https://vimeo.com/123456"))
+
+        assertFalse(NativeMpvEngine.isLikelyWebPageUrl("https://example.com/live/stream.m3u8"))
+        assertFalse(NativeMpvEngine.isLikelyWebPageUrl("https://cdn.example.com/movie.mp4?token=abc"))
+        assertFalse(NativeMpvEngine.isLikelyWebPageUrl("rtsp://192.168.1.10/live"))
+        assertFalse(NativeMpvEngine.isLikelyWebPageUrl("  "))
+        assertFalse(NativeMpvEngine.isLikelyWebPageUrl(null))
+    }
+
+    @Test
+    fun buildFriendlyPlaybackError_mapsCommonNetworkAndFormatErrors() {
+        val youtubeError = NativeMpvEngine.buildFriendlyPlaybackError(
+            sourcePath = "https://youtu.be/PvG8d5cdB_I",
+            detailError = null,
+            playerError = "Failed to recognize file format."
+        )
+        assertTrue(youtubeError.contains("web page link", ignoreCase = true))
+        assertTrue(youtubeError.contains(".m3u8", ignoreCase = true))
+
+        val genericNetworkFormatError = NativeMpvEngine.buildFriendlyPlaybackError(
+            sourcePath = "https://example.com/watch/123",
+            detailError = "Failed to recognize file format.",
+            playerError = null
+        )
+        assertTrue(genericNetworkFormatError.contains("did not return a recognized media stream", ignoreCase = true))
+
+        val localFormatError = NativeMpvEngine.buildFriendlyPlaybackError(
+            sourcePath = "fd://12",
+            detailError = null,
+            playerError = "Failed to recognize file format."
+        )
+        assertEquals("This file format is unsupported or the file is corrupted.", localFormatError)
+
+        val notFoundError = NativeMpvEngine.buildFriendlyPlaybackError(
+            sourcePath = "https://example.com/video.mp4",
+            detailError = "HTTP error 404 Not Found",
+            playerError = null
+        )
+        assertTrue(notFoundError.contains("404"))
+
+        val forbiddenError = NativeMpvEngine.buildFriendlyPlaybackError(
+            sourcePath = "https://example.com/video.mp4",
+            detailError = "HTTP error 403 Forbidden",
+            playerError = null
+        )
+        assertTrue(forbiddenError.contains("401/403"))
+
+        val timeoutError = NativeMpvEngine.buildFriendlyPlaybackError(
+            sourcePath = "https://example.com/video.mp4",
+            detailError = "Connection timed out",
+            playerError = null
+        )
+        assertTrue(timeoutError.contains("timed out", ignoreCase = true))
+
+        val fallbackWebError = NativeMpvEngine.buildFriendlyPlaybackError(
+            sourcePath = "https://youtu.be/PvG8d5cdB_I",
+            detailError = null,
+            playerError = null
+        )
+        assertTrue(fallbackWebError.contains("web page link", ignoreCase = true))
     }
 }

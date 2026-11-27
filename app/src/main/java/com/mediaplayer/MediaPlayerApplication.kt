@@ -36,6 +36,13 @@ class MediaPlayerApplication : Application(), ImageLoaderFactory {
         super.onCreate()
         instance = this
         com.mediaplayer.util.DiagnosticLogManager.installCrashHandler(this)
+        com.bkm.player.mpv.MpvDiagnosticLogger.sink = { tag, message ->
+            com.mediaplayer.util.DiagnosticLogManager.recordEvent(tag, message)
+        }
+        com.mediaplayer.util.DiagnosticLogManager.recordEvent(
+            "App",
+            "Process started (${BuildConfig.VERSION_NAME}, code=${BuildConfig.VERSION_CODE}, flavor=${BuildConfig.FLAVOR})"
+        )
         if ((applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0) {
             StrictMode.setVmPolicy(
                 StrictMode.VmPolicy.Builder()

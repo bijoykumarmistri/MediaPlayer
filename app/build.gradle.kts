@@ -14,7 +14,7 @@ if (hasKeystore) {
 }
 
 base {
-    archivesName.set("BKMPlayer-v1.10")
+    archivesName.set("BKMPlayer-v1.11")
 }
 
 android {
@@ -25,8 +25,8 @@ android {
         applicationId = "com.bkm.player"
         minSdk = 26
         targetSdk = 36
-        versionCode = 11
-        versionName = "1.10"
+        versionCode = 12
+        versionName = "1.11"
 
         ndk {
             abiFilters.add("arm64-v8a")

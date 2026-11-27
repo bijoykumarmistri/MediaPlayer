@@ -2,7 +2,7 @@
 
 A modern, high-performance Android media player built with **Jetpack Compose** and **Kotlin**, featuring high-fidelity media playback, seamless music/video controls, and a fast **Privacy Vault**.
 
-[![Download APK](https://img.shields.io/badge/Download%20APK-v1.10-blue?logo=android&style=for-the-badge)](https://github.com/bijoykumarmistri/MediaPlayer/releases/latest/download/BKMPlayer-v1.10-release.apk)
+[![Download APK](https://img.shields.io/badge/Download%20APK-v1.11-blue?logo=android&style=for-the-badge)](https://github.com/bijoykumarmistri/MediaPlayer/releases/latest/download/BKMPlayer-v1.11-release.apk)
 [![Latest Release](https://img.shields.io/github/v/release/bijoykumarmistri/MediaPlayer?style=for-the-badge)](https://github.com/bijoykumarmistri/MediaPlayer/releases/latest)
 
 ---
@@ -10,7 +10,7 @@ A modern, high-performance Android media player built with **Jetpack Compose** a
 ## 📥 Download & Install
 
 Anyone can download and install the latest APK directly on their Android device:
-👉 **[Download BKMPlayer-v1.10-release.apk](https://github.com/bijoykumarmistri/MediaPlayer/releases/download/v1.10/BKMPlayer-v1.10-release.apk)**
+👉 **[Download BKMPlayer-v1.11-release.apk](https://github.com/bijoykumarmistri/MediaPlayer/releases/download/v1.11/BKMPlayer-v1.11-release.apk)**
 
 *Compatible with Android 8.0 (API level 26) and above.*
 

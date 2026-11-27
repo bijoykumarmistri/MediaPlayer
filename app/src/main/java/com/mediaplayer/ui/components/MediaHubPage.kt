@@ -31,6 +31,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
@@ -90,7 +92,11 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -539,6 +545,17 @@ private fun StreamHubTab(
     onDeleteRecentStream: (String) -> Unit,
     onClearAllRecentStreams: () -> Unit,
 ) {
+    val focusManager = LocalFocusManager.current
+    val keyboardController = LocalSoftwareKeyboardController.current
+    val dismissKeyboardAndPlayCurrent = {
+        focusManager.clearFocus()
+        keyboardController?.hide()
+        onPlayCurrent()
+    }
+    val showWebPageWarning = remember(streamUrlInput) {
+        com.bkm.player.mpv.NativeMpvEngine.isLikelyWebPageUrl(streamUrlInput)
+    }
+
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
         // Smart Clipboard Banner
         AnimatedVisibility(visible = (detectedClipboardUrl != null) && streamUrlInput.isBlank()) {
@@ -659,6 +676,17 @@ private fun StreamHubTab(
                         }
                     },
                     singleLine = true,
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = KeyboardType.Uri,
+                        imeAction = ImeAction.Go
+                    ),
+                    keyboardActions = KeyboardActions(
+                        onGo = {
+                            if (streamUrlInput.isNotBlank()) {
+                                dismissKeyboardAndPlayCurrent()
+                            }
+                        }
+                    ),
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(14.dp),
                     colors = OutlinedTextFieldDefaults.colors(
@@ -670,6 +698,34 @@ private fun StreamHubTab(
                         unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLowest
                     )
                 )
+
+                AnimatedVisibility(visible = showWebPageWarning) {
+                    Surface(
+                        color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.7f),
+                        shape = RoundedCornerShape(12.dp),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.35f)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.Info,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onErrorContainer,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Text(
+                                text = "This looks like a web page link. Direct stream URLs (.m3u8, .mpd, .mp4, .mp3, .flac, rtsp://) are required.",
+                                fontSize = 11.sp,
+                                lineHeight = 15.sp,
+                                color = MaterialTheme.colorScheme.onErrorContainer
+                            )
+                        }
+                    }
+                }
 
                 OutlinedTextField(
                     value = streamTitleInput,
@@ -735,7 +791,7 @@ private fun StreamHubTab(
                 }
 
                 Button(
-                    onClick = onPlayCurrent,
+                    onClick = dismissKeyboardAndPlayCurrent,
                     enabled = streamUrlInput.isNotBlank(),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = MaterialTheme.colorScheme.primary,
@@ -851,7 +907,11 @@ private fun StreamHubTab(
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clickable { onPlayRecent(item) }
+                                .clickable {
+                                    focusManager.clearFocus()
+                                    keyboardController?.hide()
+                                    onPlayRecent(item)
+                                }
                                 .padding(horizontal = 14.dp, vertical = 12.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {

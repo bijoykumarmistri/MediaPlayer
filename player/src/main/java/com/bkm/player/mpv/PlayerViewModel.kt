@@ -52,6 +52,7 @@ data class PlayerUiState(
     val verticalHud: VerticalGestureHud? = null,
     val controlsVisible: Boolean = true,
     val errorMessage: String? = null,
+    val hasPlaybackFailed: Boolean = false,
     // Track, Audio, Subtitle & Video Scaling states
     val audioTracks: List<MediaTrack> = emptyList(),
     val subtitleTracks: List<MediaTrack> = emptyList(),
@@ -233,7 +234,8 @@ class PlayerViewModel : ViewModel() {
                     isScrubbing = false,
                     isGestureScrubbing = false,
                     isMuted = false,
-                    errorMessage = null
+                    errorMessage = null,
+                    hasPlaybackFailed = false
                 )
             }
             onIsPlayingChanged?.invoke(true)
@@ -270,7 +272,17 @@ class PlayerViewModel : ViewModel() {
         }
 
         override fun onError(message: String) {
-            _uiState.update { it.copy(errorMessage = message) }
+            MpvDiagnosticLogger.log("PlayerVM", "onError: $message")
+            bufferingDebounceJob?.cancel()
+            _uiState.update {
+                it.copy(
+                    isBuffering = false,
+                    isPlaying = false,
+                    errorMessage = message,
+                    hasPlaybackFailed = true
+                )
+            }
+            onIsPlayingChanged?.invoke(false)
         }
     }
 
@@ -306,6 +318,7 @@ class PlayerViewModel : ViewModel() {
                 verticalHud = null,
                 isFastForwarding = false,
                 errorMessage = null,
+                hasPlaybackFailed = false,
                 isBuffering = true
             )
         }
@@ -364,7 +377,9 @@ class PlayerViewModel : ViewModel() {
                 abRepeatPointB = null,
                 chapters = emptyList(),
                 currentChapterIndex = -1,
-                isMuted = false
+                isMuted = false,
+                errorMessage = null,
+                hasPlaybackFailed = false
             )
         }
         onIsPlayingChanged?.invoke(false)

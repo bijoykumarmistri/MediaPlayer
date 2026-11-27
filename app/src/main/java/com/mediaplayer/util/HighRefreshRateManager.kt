@@ -82,21 +82,10 @@ class HighRefreshRateManager(private val activity: Activity) {
             val window = activity.window ?: return
             val layoutParams = window.attributes ?: return
 
-            // If power save mode is active, do not force high refresh rate
+            val highRefreshEnabled = AppSettingsManager(activity).highRefreshRateEnabled
             val isPowerSave = powerManager?.isPowerSaveMode == true
-            if (isPowerSave) {
-                var changed = false
-                if (layoutParams.preferredDisplayModeId != 0) {
-                    layoutParams.preferredDisplayModeId = 0
-                    changed = true
-                }
-                if ((Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) && (layoutParams.preferredRefreshRate != 0f)) {
-                    layoutParams.preferredRefreshRate = 0f
-                    changed = true
-                }
-                if (changed) {
-                    window.attributes = layoutParams
-                }
+            if (!highRefreshEnabled || isPowerSave) {
+                resetToSystemDefaultRefreshRate(window, layoutParams)
                 return
             }
 
@@ -114,9 +103,15 @@ class HighRefreshRateManager(private val activity: Activity) {
                 (mW == curW) && (mH == curH)
             }
 
-            // Pick the mode with highest refresh rate (e.g. 144Hz, 120Hz, 90Hz)
+            val distinctRates = matchingModes.map { kotlin.math.round(it.refreshRate) }.distinct()
             val highestMode = matchingModes.maxByOrNull { it.refreshRate } ?: currentMode
             val maxFps = highestMode.refreshRate
+
+            // On 60Hz-only displays with a single refresh rate, leave system defaults untouched
+            if (distinctRates.size <= 1 && maxFps <= 60.5f) {
+                resetToSystemDefaultRefreshRate(window, layoutParams)
+                return
+            }
 
             var changed = false
 
@@ -145,9 +140,29 @@ class HighRefreshRateManager(private val activity: Activity) {
             if (changed) {
                 window.attributes = layoutParams
                 Log.d(TAG, "Applied display refresh rate: ${maxFps}Hz (mode ${highestMode.modeId})")
+                DiagnosticLogManager.recordEvent(TAG, "Applied ${maxFps}Hz (mode ${highestMode.modeId})")
             }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to apply optimal refresh rate", e)
+            DiagnosticLogManager.recordEvent(TAG, "Failed applying refresh rate: ${e.message}")
+        }
+    }
+
+    private fun resetToSystemDefaultRefreshRate(
+        window: android.view.Window,
+        layoutParams: android.view.WindowManager.LayoutParams
+    ) {
+        var changed = false
+        if (layoutParams.preferredDisplayModeId != 0) {
+            layoutParams.preferredDisplayModeId = 0
+            changed = true
+        }
+        if ((Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) && (layoutParams.preferredRefreshRate != 0f)) {
+            layoutParams.preferredRefreshRate = 0f
+            changed = true
+        }
+        if (changed) {
+            window.attributes = layoutParams
         }
     }
 

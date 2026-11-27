@@ -1951,6 +1951,11 @@ private fun MainExpandedPlayerOverlay(
     onCollapseMusic: () -> Unit
 ) {
     val context = LocalContext.current
+    var activeIsVideo by remember { mutableStateOf(isVideo) }
+    if (visible) {
+        activeIsVideo = isVideo
+    }
+
     AnimatedVisibility(
         visible = visible,
         enter = if (inPip) EnterTransition.None else (slideInVertically(
@@ -1979,7 +1984,7 @@ private fun MainExpandedPlayerOverlay(
                 }
                 .background(Color.Black)
         ) {
-            if (isVideo) {
+            if (activeIsVideo) {
                 val videoColorScheme = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                     dynamicDarkColorScheme(context)
                 } else {

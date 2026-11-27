@@ -609,6 +609,7 @@ class MediaLibraryRepository(context: Context) {
             }
         } catch (e: Exception) {
             Log.e(tag, "Error querying MediaStore Audio", e)
+            com.mediaplayer.util.DiagnosticLogManager.recordEvent("MediaLibrary", "MediaStore audio error: ${e.message}")
         }
 
         val persistedSafAudios = collectPersistedSafItems(wantVideo = false)
@@ -717,6 +718,7 @@ class MediaLibraryRepository(context: Context) {
             }
         } catch (e: Exception) {
             Log.e(tag, "Error querying MediaStore Video", e)
+            com.mediaplayer.util.DiagnosticLogManager.recordEvent("MediaLibrary", "MediaStore video error: ${e.message}")
         }
 
         val persistedSafVideos = collectPersistedSafItems(wantVideo = true)
@@ -1003,6 +1005,7 @@ class MediaLibraryRepository(context: Context) {
             scanDirectory(rootDocId, rootFolderName, 0)
         } catch (e: Exception) {
             Log.e(tag, "Error scanning SAF tree: $treeUri", e)
+            com.mediaplayer.util.DiagnosticLogManager.recordEvent("MediaLibrary", "SAF scan error (${treeUri.authority}): ${e.message}")
         }
 
         Pair(audioList, videoList)
