@@ -492,7 +492,7 @@ private fun MusicScrubber(
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
-    val settingsManager = remember { AppSettingsManager(context) }
+    val settingsManager = remember { AppSettingsManager(context.applicationContext) }
     var showRemainingTime by rememberSaveable { mutableStateOf(settingsManager.musicTimeViewRemaining) }
 
     val positionMs by playerManager.currentPositionMs.collectAsState()
@@ -703,10 +703,11 @@ fun CoolMusicThumbnail(
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
+    val appContext = remember(context) { context.applicationContext }
     val artUri = currentItem?.artworkUri
     val artworkRequest = remember(artUri, currentItem?.id) {
         artUri?.let { uri ->
-            ImageRequest.Builder(context)
+            ImageRequest.Builder(appContext)
                 .data(uri)
                 .size(512, 512)
                 .crossfade(true)

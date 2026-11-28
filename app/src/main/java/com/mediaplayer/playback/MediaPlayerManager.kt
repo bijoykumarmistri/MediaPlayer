@@ -202,11 +202,13 @@ class MediaPlayerManager(
     }
 
     inner class UniversalForwardingPlayer(player: Player) : ForwardingSimpleBasePlayer(player) {
+        private val mainHandler = Handler(Looper.getMainLooper())
+
         fun notifyStateChanged() {
             if (Looper.myLooper() == Looper.getMainLooper()) {
                 invalidateState()
             } else {
-                Handler(Looper.getMainLooper()).post { invalidateState() }
+                mainHandler.post { invalidateState() }
             }
         }
 
@@ -433,6 +435,7 @@ class MediaPlayerManager(
                         "Unable to connect to stream server. Please verify the URL."
                     else -> error.localizedMessage ?: "Playback error encountered."
                 }
+                stopProgressPolling()
                 _playbackError.value = msg
                 _isPlaying.value = false
                 forwardingPlayer?.notifyStateChanged()
@@ -441,7 +444,8 @@ class MediaPlayerManager(
             override fun onPlaybackStateChanged(state: Int) {
                 if (_currentMediaItem.value?.isVideo == true) return
                 _playbackState.value = state
-                _durationMs.value = if (player.duration > 0) player.duration else 0L
+                val dur = if (player.duration > 0) player.duration else 0L
+                _durationMs.value = dur
                 if (state == Player.STATE_READY) {
                     _playbackError.value = null
                     if (player.isPlaying) {
@@ -449,6 +453,22 @@ class MediaPlayerManager(
                     }
                 } else if (state == Player.STATE_ENDED || state == Player.STATE_IDLE) {
                     stopProgressPolling()
+                    if (state == Player.STATE_ENDED) {
+                        com.mediaplayer.util.DiagnosticLogManager.recordEvent(
+                            "ExoPlayer",
+                            "STATE_ENDED durMs=$dur"
+                        )
+                        _currentMediaItem.value?.id?.let { mediaId ->
+                            if (dur > 0L) {
+                                // Record completion at 100%, then reset saved resume offset to 0 so
+                                // reopening the app does not restart right at the end of a finished track.
+                                historyManager.savePosition(mediaId, dur, dur)
+                                historyManager.savePosition(mediaId, 0L, dur)
+                                _playbackPositions.update { it + (mediaId to 0L) }
+                            }
+                        }
+                        forwardingPlayer?.notifyStateChanged()
+                    }
                 }
             }
 
@@ -555,10 +575,10 @@ class MediaPlayerManager(
             _audioStreamInfo.value = null
             // Video playback is handled 100% by C++ Core (libmpv HW+).
             videoStartPositionOverride = startPositionMs
-            val initialPos = startPositionMs ?: run {
-                val saved = historyManager.getPosition(item.id)
-                if (saved > 3000L && (item.durationMs <= 0L || saved < item.durationMs - 5000L)) saved else 0L
-            }
+            val initialPos = startPositionMs ?: resolveResumePositionMs(
+                savedPositionMs = historyManager.getPosition(item.id),
+                durationMs = item.durationMs
+            )
             _durationMs.value = if (item.durationMs > 0) item.durationMs else 0L
             currentNotifiedDurationMs = _durationMs.value
             _currentPositionMs.value = initialPos
@@ -607,7 +627,7 @@ class MediaPlayerManager(
             e.printStackTrace()
         }
 
-        val isNetworkStream = item.uri.scheme?.lowercase() in listOf("http", "https", "rtsp")
+        val isNetworkStream = item.uri.scheme?.lowercase() in listOf("http", "https", "rtsp", "rtmp", "mms")
         _playbackError.value = null
         com.mediaplayer.util.DiagnosticLogManager.recordEvent(
             "ExoPlayer",
@@ -620,12 +640,10 @@ class MediaPlayerManager(
             if (isNetworkStream) {
                 C.TIME_UNSET
             } else {
-                val saved = historyManager.getPosition(item.id)
-                if (saved > 3000L && (item.durationMs <= 0 || saved < item.durationMs - 5000L)) {
-                    saved
-                } else {
-                    0L
-                }
+                resolveResumePositionMs(
+                    savedPositionMs = historyManager.getPosition(item.id),
+                    durationMs = item.durationMs
+                )
             }
         }
 
@@ -637,15 +655,25 @@ class MediaPlayerManager(
     }
 
     fun restoreLastPlayedMedia(allMedia: List<MediaItemModel>) {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            Handler(Looper.getMainLooper()).post {
+                restoreLastPlayedMedia(allMedia)
+            }
+            return
+        }
         if (_currentMediaItem.value != null || allMedia.isEmpty()) return
         val lastId = historyManager.getLastPlayedMediaId() ?: return
         val item = allMedia.find { it.id == lastId } ?: return
-        val savedPos = historyManager.getPosition(item.id)
+        val (restoredPlaylist, restoredIndex) = resolveRestoredPlaylist(item, allMedia)
+        val resumePos = resolveResumePositionMs(
+            savedPositionMs = historyManager.getPosition(item.id),
+            durationMs = item.durationMs
+        )
 
         _currentMediaItem.value = item
-        _playlist.value = listOf(item)
-        _currentIndex.value = 0
-        _currentPositionMs.value = savedPos
+        _playlist.value = restoredPlaylist
+        _currentIndex.value = restoredIndex
+        _currentPositionMs.value = resumePos
         _durationMs.value = if (item.durationMs > 0) item.durationMs else 0L
 
         if (item.isVideo) {
@@ -654,12 +682,11 @@ class MediaPlayerManager(
             return
         }
 
-        // Defer audio engine setup until the user explicitly hits play, avoiding cold-start decoder stalls
+        // Defer audio decoder/codec preparation until the user explicitly presses play
         if (_player != null) {
             try {
-                val media3Item = item.toMedia3Item()
-                _player?.setMediaItem(media3Item, savedPos)
-                _player?.prepare()
+                val mediaItems = restoredPlaylist.map { it.toMedia3Item() }
+                _player?.setMediaItems(mediaItems, restoredIndex, resumePos)
                 _player?.pause()
             } catch (e: Exception) {
                 e.printStackTrace()
@@ -737,6 +764,7 @@ class MediaPlayerManager(
             currentNotifiedDurationMs = 0L
             _isPlayerExpanded.value = false
             forwardingPlayer?.notifyStateChanged()
+            UniversalMediaPlaybackService.stopIfRunning()
         }
     }
 
@@ -790,9 +818,23 @@ class MediaPlayerManager(
         _playbackError.value = null
         if (p.mediaItemCount == 0 && _currentMediaItem.value != null) {
             val item = _currentMediaItem.value!!
-            val pos = _currentPositionMs.value
-            val media3Item = item.toMedia3Item()
-            p.setMediaItem(media3Item, pos)
+            val targetList = _playlist.value.ifEmpty { listOf(item) }
+            val startIdx = _currentIndex.value.coerceIn(0, targetList.lastIndex)
+            val knownDuration = _durationMs.value.takeIf { it > 0L } ?: item.durationMs
+            val startPos = resolveResumePositionMs(_currentPositionMs.value, knownDuration)
+            _currentPositionMs.value = startPos
+            com.mediaplayer.util.DiagnosticLogManager.recordEvent(
+                "ExoPlayer",
+                "resume audio scheme=${item.uri.scheme ?: "none"} startMs=$startPos listSize=${targetList.size}"
+            )
+            p.setMediaItems(targetList.map { it.toMedia3Item() }, startIdx, startPos)
+        } else if (shouldSeekToStartOnPlay(p.playbackState, p.currentPosition, p.duration)) {
+            com.mediaplayer.util.DiagnosticLogManager.recordEvent(
+                "ExoPlayer",
+                "replay audio from start (state=${p.playbackState})"
+            )
+            p.seekTo(0L)
+            _currentPositionMs.value = 0L
         }
         if (p.playbackState == Player.STATE_IDLE || p.playbackState == Player.STATE_ENDED) {
             p.prepare()
@@ -825,6 +867,9 @@ class MediaPlayerManager(
     }
 
     fun stop() {
+        videoServiceStartJob?.cancel()
+        videoServiceStartJob = null
+        releaseWakeLock()
         stopProgressPolling()
         _player?.let { p ->
             p.stop()
@@ -837,6 +882,7 @@ class MediaPlayerManager(
         _currentPositionMs.value = 0L
         clearVideoCallbacks()
         forwardingPlayer?.notifyStateChanged()
+        UniversalMediaPlaybackService.stopIfRunning()
     }
 
     @Suppress("UsePropertyAccessSyntax")
@@ -994,16 +1040,7 @@ class MediaPlayerManager(
     }
 
     fun playUrl(url: String, title: String = "Streaming Media", isVideo: Boolean = false) {
-        val cleanUrl = url.trim().let {
-            if (!it.startsWith("http://", ignoreCase = true) &&
-                !it.startsWith("https://", ignoreCase = true) &&
-                !it.startsWith("rtsp://", ignoreCase = true)
-            ) {
-                "https://$it"
-            } else {
-                it
-            }
-        }
+        val cleanUrl = normalizeStreamUrl(url)
 
         historyManager.saveRecentStream(cleanUrl, title, isVideo)
         val uri = cleanUrl.toUri()
@@ -1101,5 +1138,77 @@ class MediaPlayerManager(
         _player?.release()
         _player = null
         scope.cancel()
+    }
+
+    companion object {
+        private const val MIN_RESUME_THRESHOLD_MS = 3000L
+        private const val EOF_RESET_MARGIN_MS = 5000L
+        private const val PLAY_EOF_SEEK_MARGIN_MS = 1000L
+
+        fun resolveResumePositionMs(savedPositionMs: Long, durationMs: Long): Long {
+            if (savedPositionMs <= MIN_RESUME_THRESHOLD_MS) return 0L
+            if (durationMs > 0L && savedPositionMs >= durationMs - EOF_RESET_MARGIN_MS) return 0L
+            return savedPositionMs
+        }
+
+        fun resolveRestoredPlaylistIndices(
+            targetId: Long,
+            targetIsVideo: Boolean,
+            candidateIdsAndTypes: List<Pair<Long, Boolean>>
+        ): Pair<List<Int>, Int> {
+            val matchingIndices = ArrayList<Int>()
+            var targetPosInMatching = -1
+            for (i in candidateIdsAndTypes.indices) {
+                val (id, isVideo) = candidateIdsAndTypes[i]
+                if (isVideo == targetIsVideo) {
+                    if (id == targetId && targetPosInMatching < 0) {
+                        targetPosInMatching = matchingIndices.size
+                    }
+                    matchingIndices.add(i)
+                }
+            }
+            return if (targetPosInMatching >= 0) {
+                matchingIndices to targetPosInMatching
+            } else {
+                emptyList<Int>() to 0
+            }
+        }
+
+        fun resolveRestoredPlaylist(
+            item: MediaItemModel,
+            allMedia: List<MediaItemModel>
+        ): Pair<List<MediaItemModel>, Int> {
+            val (indices, pos) = resolveRestoredPlaylistIndices(
+                targetId = item.id,
+                targetIsVideo = item.isVideo,
+                candidateIdsAndTypes = allMedia.map { it.id to it.isVideo }
+            )
+            return if (indices.isNotEmpty()) {
+                indices.map { allMedia[it] } to pos
+            } else {
+                listOf(item) to 0
+            }
+        }
+
+        fun shouldSeekToStartOnPlay(
+            playbackState: Int,
+            currentPositionMs: Long,
+            durationMs: Long
+        ): Boolean {
+            if (playbackState == Player.STATE_ENDED) return true
+            return durationMs > 0L && currentPositionMs >= durationMs - PLAY_EOF_SEEK_MARGIN_MS
+        }
+
+        fun normalizeStreamUrl(url: String): String {
+            val trimmed = url.trim()
+            if (trimmed.isEmpty()) return trimmed
+            val lower = trimmed.lowercase(java.util.Locale.ROOT)
+            val hasSupportedScheme = lower.startsWith("http://") ||
+                lower.startsWith("https://") ||
+                lower.startsWith("rtsp://") ||
+                lower.startsWith("rtmp://") ||
+                lower.startsWith("mms://")
+            return if (hasSupportedScheme) trimmed else "https://$trimmed"
+        }
     }
 }

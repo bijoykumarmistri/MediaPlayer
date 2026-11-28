@@ -22,6 +22,7 @@ class UniversalMediaPlaybackService : MediaSessionService() {
 
     override fun onCreate() {
         super.onCreate()
+        activeInstance = java.lang.ref.WeakReference(this)
         try {
             val notificationProvider = DefaultMediaNotificationProvider.Builder(this)
                 .setChannelId("media_playback_channel")
@@ -93,6 +94,9 @@ class UniversalMediaPlaybackService : MediaSessionService() {
     }
 
     override fun onDestroy() {
+        if (activeInstance?.get() === this) {
+            activeInstance = null
+        }
         mediaSession?.let {
             try {
                 removeSession(it)
@@ -104,6 +108,25 @@ class UniversalMediaPlaybackService : MediaSessionService() {
 
     companion object {
         const val ACTION_STOP = "com.bkm.player.action.STOP_SERVICE"
+
+        @Volatile
+        private var activeInstance: java.lang.ref.WeakReference<UniversalMediaPlaybackService>? = null
+
+        fun stopIfRunning() {
+            activeInstance?.get() ?: return
+            val stopAction = Runnable {
+                val current = activeInstance?.get() ?: return@Runnable
+                try {
+                    current.stopForeground(STOP_FOREGROUND_REMOVE)
+                } catch (_: Exception) {}
+                current.stopSelf()
+            }
+            if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) {
+                stopAction.run()
+            } else {
+                android.os.Handler(android.os.Looper.getMainLooper()).post(stopAction)
+            }
+        }
 
         @OptIn(UnstableApi::class)
         fun createExoPlayer(context: Context): ExoPlayer {

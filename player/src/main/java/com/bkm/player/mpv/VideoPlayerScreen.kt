@@ -320,7 +320,7 @@ fun VideoPlayerScreen(
             "HW" -> DecoderMode.HW
             else -> DecoderMode.HW_PLUS
         }
-        viewModel.selectDecoderMode(mode)
+        viewModel.applyDefaultDecoderMode(mode)
     }
 
     LaunchedEffect(defaultResizeMode) {
@@ -460,15 +460,25 @@ fun VideoPlayerScreen(
         }
     }
 
-    // Connect position update callback to persistent history
-    LaunchedEffect(onPositionUpdate) {
-        viewModel.onPositionUpdate = onPositionUpdate
-    }
+    val currentOnPositionUpdate by rememberUpdatedState(onPositionUpdate)
+    val currentRepeatMode by rememberUpdatedState(repeatMode)
+    val currentHasNext by rememberUpdatedState(hasNext)
+    val currentOnNext by rememberUpdatedState(onNext)
+    val currentAutoPlayNext by rememberUpdatedState(autoPlayNext)
+    val currentPlaylistItems by rememberUpdatedState(playlistItems)
+    val currentOnSelectPlaylistItem by rememberUpdatedState(onSelectPlaylistItem)
 
-    // Handle playlist EOF based on RepeatMode and autoPlayNext setting
-    LaunchedEffect(repeatMode, hasNext, onNext, autoPlayNext, playlistItems, onSelectPlaylistItem) {
-        viewModel.onEndOfFileReached = {
-            when (repeatMode) {
+    // Connect position update and EOF callbacks cleanly with identity-checked cleanup/restore on dispose
+    DisposableEffect(viewModel) {
+        val prevPositionCallback = viewModel.onPositionUpdate
+        val posCallback: (Long, Long) -> Unit = { posMs, durMs ->
+            currentOnPositionUpdate?.invoke(posMs, durMs)
+        }
+        viewModel.onPositionUpdate = posCallback
+
+        val prevEofCallback = viewModel.onEndOfFileReached
+        val eofCallback: () -> Unit = {
+            when (currentRepeatMode) {
                 RepeatMode.ONE -> {
                     viewModel.seekTo(0.0)
                     if (!viewModel.uiState.value.isPlaying) {
@@ -476,10 +486,10 @@ fun VideoPlayerScreen(
                     }
                 }
                 RepeatMode.ALL -> {
-                    if (hasNext) {
-                        onNext?.invoke()
-                    } else if (playlistItems.size > 1) {
-                        onSelectPlaylistItem?.invoke(0)
+                    if (currentHasNext) {
+                        currentOnNext?.invoke()
+                    } else if (currentPlaylistItems.size > 1) {
+                        currentOnSelectPlaylistItem?.invoke(0)
                     } else {
                         viewModel.seekTo(0.0)
                         if (!viewModel.uiState.value.isPlaying) {
@@ -488,10 +498,20 @@ fun VideoPlayerScreen(
                     }
                 }
                 RepeatMode.OFF -> {
-                    if (hasNext && autoPlayNext) {
-                        onNext?.invoke()
+                    if (currentHasNext && currentAutoPlayNext) {
+                        currentOnNext?.invoke()
                     }
                 }
+            }
+        }
+        viewModel.onEndOfFileReached = eofCallback
+
+        onDispose {
+            if (viewModel.onPositionUpdate === posCallback) {
+                viewModel.onPositionUpdate = prevPositionCallback
+            }
+            if (viewModel.onEndOfFileReached === eofCallback) {
+                viewModel.onEndOfFileReached = prevEofCallback
             }
         }
     }
@@ -4610,9 +4630,12 @@ private fun MpvSurfaceCanvas(
     engine: NativeMpvEngine,
     modifier: Modifier = Modifier
 ) {
+    var surfaceView by remember { mutableStateOf<SurfaceView?>(null) }
+
     DisposableEffect(engine) {
         onDispose {
-            engine.detachFromSurfaceView()
+            surfaceView?.let { engine.detachFromSurfaceView(it) }
+            surfaceView = null
         }
     }
 
@@ -4621,15 +4644,19 @@ private fun MpvSurfaceCanvas(
         factory = { ctx ->
             SurfaceView(ctx).apply {
                 keepScreenOn = true
+                surfaceView = this
                 engine.attachToSurfaceView(this)
             }
         },
         update = { view ->
+            surfaceView = view
             engine.attachToSurfaceView(view)
         },
         onRelease = { view ->
-            view.holder.removeCallback(engine)
-            engine.detachFromSurfaceView()
+            engine.detachFromSurfaceView(view)
+            if (surfaceView === view) {
+                surfaceView = null
+            }
         }
     )
 }

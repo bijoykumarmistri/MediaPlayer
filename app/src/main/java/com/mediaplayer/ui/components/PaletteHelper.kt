@@ -45,6 +45,8 @@ fun rememberDominantColors(uri: Uri?): DominantColors {
         mutableStateOf(uri?.let { dominantColorsCache[it] } ?: defaultFallback)
     }
 
+    val appContext = remember(context) { context.applicationContext }
+
     LaunchedEffect(uri, defaultFallback) {
         if (uri == null) {
             dominantColors = defaultFallback
@@ -59,8 +61,8 @@ fun rememberDominantColors(uri: Uri?): DominantColors {
 
         val extracted = withContext(Dispatchers.IO) {
             try {
-                val loader = context.imageLoader
-                val request = ImageRequest.Builder(context)
+                val loader = appContext.imageLoader
+                val request = ImageRequest.Builder(appContext)
                     .data(uri)
                     .allowHardware(enable = false)
                     .size(256)

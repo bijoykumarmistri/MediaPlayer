@@ -28,7 +28,6 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -107,6 +106,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -179,6 +179,15 @@ fun MainMediaPlayerScreen(
 
     val videoViewModel: PlayerViewModel = viewModel()
 
+    val currentItem by playerManager.currentMediaItem.collectAsState()
+    val isExpanded by playerManager.isPlayerExpanded.collectAsState()
+    val isVideoPlaying by playerManager.isVideoPlaying.collectAsState()
+    val isPlayerObscured = (isExpanded || inPip) && (currentItem != null)
+
+    val settingsManager = remember { AppSettingsManager(context.applicationContext) }
+    val latestCurrentItem by rememberUpdatedState(currentItem)
+    val latestSettingsManager by rememberUpdatedState(settingsManager)
+
     // Keep playerManager and videoViewModel synchronized across all screens & bottom mini player
     DisposableEffect(videoViewModel) {
         videoViewModel.onIsPlayingChanged = { playing ->
@@ -186,6 +195,17 @@ fun MainMediaPlayerScreen(
         }
         videoViewModel.onProgressUpdate = { posMs, durMs ->
             playerManager.updateVideoPosition(posMs, durMs)
+        }
+        videoViewModel.onPositionUpdate = { posMs, durMs ->
+            playerManager.updateVideoPosition(posMs, durMs)
+            latestCurrentItem?.takeIf { it.isVideo }?.id?.let { mediaId ->
+                playerManager.saveVideoPlaybackPosition(mediaId, posMs, durMs)
+            }
+        }
+        videoViewModel.onEndOfFileReached = {
+            if (latestSettingsManager.autoPlayNextVideo) {
+                playerManager.playNextVideo()
+            }
         }
         playerManager.onToggleVideoPlayPause = { videoViewModel.togglePlayPause() }
         playerManager.onPauseVideo = { videoViewModel.pausePlayback() }
@@ -197,18 +217,15 @@ fun MainMediaPlayerScreen(
         playerManager.onSeekVideoRelative = { deltaSec -> videoViewModel.seekRelative(deltaSec) }
         playerManager.onSeekVideoAbsolute = { posMs -> videoViewModel.seekTo(posMs / 1000.0) }
         onDispose {
+            videoViewModel.onIsPlayingChanged = null
+            videoViewModel.onProgressUpdate = null
+            videoViewModel.onPositionUpdate = null
+            videoViewModel.onEndOfFileReached = null
             playerManager.clearVideoCallbacks()
         }
     }
 
-    val currentItem by playerManager.currentMediaItem.collectAsState()
-    val isExpanded by playerManager.isPlayerExpanded.collectAsState()
-    val isVideoPlaying by playerManager.isVideoPlaying.collectAsState()
-    val isPlayerObscured = (isExpanded || inPip) && (currentItem != null)
-
-    val settingsManager = remember { AppSettingsManager(context) }
-
-    // Keep background video loading & EOF auto-advance working even when the video player is collapsed to the mini-player
+    // Keep background video loading working even when the video player is collapsed to the mini-player
     LaunchedEffect(currentItem?.id, isExpanded, inPip, isVideoPlaying) {
         val item = currentItem
         if (item != null && item.isVideo && !isExpanded && !inPip && isVideoPlaying) {
@@ -220,17 +237,6 @@ fun MainMediaPlayerScreen(
                         if (saved > 3000L && (dur <= 0L || saved < dur - 5000L)) saved else 0L
                     } else 0L
                 )
-                videoViewModel.onPositionUpdate = { posMs, durMs ->
-                    playerManager.updateVideoPosition(posMs, durMs)
-                    playerManager.saveVideoPlaybackPosition(item.id, posMs, durMs)
-                }
-                if (videoViewModel.onEndOfFileReached == null) {
-                    videoViewModel.onEndOfFileReached = {
-                        if (settingsManager.autoPlayNextVideo) {
-                            playerManager.playNextVideo()
-                        }
-                    }
-                }
                 videoViewModel.openDocument(
                     context = context,
                     uri = item.uri,
@@ -693,6 +699,53 @@ fun MainMediaPlayerScreen(
         }
     }
 
+    // Keep opened folder contents synchronized with live videoList/audioList on rename, delete, vault move, or reload
+    val effectiveOpenedVideoFolder = remember(openedVideoFolder, activeVideoList) {
+        val target = openedVideoFolder ?: return@remember null
+        val matching = activeVideoList.filter { video ->
+            val fName = video.folderName.ifEmpty { "Videos" }
+            val fPath = video.folderPath.ifEmpty { "/storage/emulated/0" }
+            fName == target.name && fPath == target.path
+        }
+        if (matching.isEmpty()) null else target.copy(
+            videos = matching,
+            totalDurationMs = matching.sumOf { it.durationMs }
+        )
+    }
+
+    val effectiveOpenedMusicFolder = remember(openedMusicFolder, audioList, musicFilterTab) {
+        val target = openedMusicFolder ?: return@remember null
+        val matching = when (musicFilterTab) {
+            "Folders" -> audioList.filter { audio ->
+                val fName = audio.folderName.ifEmpty { "Music" }
+                val fPath = audio.folderPath.ifEmpty { "/storage/emulated/0/Music" }
+                fName == target.name && fPath == target.path
+            }
+            "Albums" -> audioList.filter { it.album.ifEmpty { "Unknown Album" } == target.name }
+            "Artists" -> audioList.filter { it.artist.ifEmpty { "Unknown Artist" } == target.name }
+            else -> {
+                val existingIds = target.tracks.asSequence().map { it.id }.toSet()
+                audioList.filter { it.id in existingIds }
+            }
+        }
+        if (matching.isEmpty()) null else target.copy(
+            tracks = matching,
+            totalDurationMs = matching.sumOf { it.durationMs }
+        )
+    }
+
+    LaunchedEffect(openedVideoFolder, effectiveOpenedVideoFolder) {
+        if (openedVideoFolder != null && effectiveOpenedVideoFolder == null) {
+            openedVideoFolder = null
+        }
+    }
+
+    LaunchedEffect(openedMusicFolder, effectiveOpenedMusicFolder) {
+        if (openedMusicFolder != null && effectiveOpenedMusicFolder == null) {
+            openedMusicFolder = null
+        }
+    }
+
     val videoFolderCount = remember(activeVideoList) {
         activeVideoList.asSequence().map {
             it.folderName.ifEmpty { "Videos" } to it.folderPath.ifEmpty { "/storage/emulated/0" }
@@ -792,17 +845,17 @@ fun MainMediaPlayerScreen(
                                 selectedDestination = selectedDestination,
                                 selectedMediaItems = selectedMediaItems,
                                 currentSelectionPool = if (selectedDestination == 0) {
-                                    openedVideoFolder?.videos ?: filteredVideo
+                                    effectiveOpenedVideoFolder?.videos ?: filteredVideo
                                 } else {
-                                    filteredAudio
+                                    effectiveOpenedMusicFolder?.tracks ?: filteredAudio
                                 },
-                                openedVideoFolder = openedVideoFolder,
+                                openedVideoFolder = effectiveOpenedVideoFolder,
                                 videoFolderCount = videoFolderCount,
                                 activeVideoCount = activeVideoList.size,
                                 videoSortOrder = videoSortOrder,
                                 showVideoSortMenu = showVideoSortMenu,
                                 isVideoGridView = isVideoGridView,
-                                openedMusicFolder = openedMusicFolder,
+                                openedMusicFolder = effectiveOpenedMusicFolder,
                                 musicFolderCount = musicFolderCount,
                                 audioCount = audioList.size,
                                 musicSortOrder = musicSortOrder,
@@ -869,12 +922,12 @@ fun MainMediaPlayerScreen(
                             filteredVideo = filteredVideo,
                             activeVideoList = activeVideoList,
                             isVideoGridView = isVideoGridView,
-                            openedVideoFolder = openedVideoFolder,
+                            openedVideoFolder = effectiveOpenedVideoFolder,
                             videoSortOrder = videoSortOrder,
                             filteredAudio = filteredAudio,
                             audioList = audioList,
                             isMusicGridView = isMusicGridView,
-                            openedMusicFolder = openedMusicFolder,
+                            openedMusicFolder = effectiveOpenedMusicFolder,
                             musicSortOrder = musicSortOrder,
                             musicFilterTab = musicFilterTab,
                             playerManager = playerManager,

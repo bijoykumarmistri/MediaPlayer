@@ -1,7 +1,6 @@
 package com.mediaplayer.ui.video
 
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -33,7 +32,7 @@ fun VideoPlayerView(
     videoViewModel: PlayerViewModel = viewModel(),
 ) {
     val context = LocalContext.current
-    val currentSettings = remember(context, settingsManager) { settingsManager ?: AppSettingsManager(context) }
+    val currentSettings = remember(context, settingsManager) { settingsManager ?: AppSettingsManager(context.applicationContext) }
     val currentItem by playerManager.currentMediaItem.collectAsState()
     val playlist by playerManager.playlist.collectAsState()
     val currentIndex by playerManager.currentIndex.collectAsState()
@@ -65,22 +64,6 @@ fun VideoPlayerView(
             playerManager.player.pause()
             playerManager.player.stop()
             playerManager.player.clearMediaItems()
-        }
-    }
-
-    // Connect playerManager pause/play/seek controls to libmpv engine, enabling background audio playback
-    DisposableEffect(videoViewModel) {
-        playerManager.onToggleVideoPlayPause = { videoViewModel.togglePlayPause() }
-        playerManager.onPauseVideo = { videoViewModel.pausePlayback() }
-        playerManager.onStopVideo = {
-            videoViewModel.stopPlayback(releaseEngine = true)
-            playerManager.clearVideoCallbacks()
-            playerManager.setVideoPlaying(false)
-        }
-        playerManager.onSeekVideoRelative = { deltaSec -> videoViewModel.seekRelative(deltaSec) }
-        playerManager.onSeekVideoAbsolute = { posMs -> videoViewModel.seekTo(posMs / 1000.0) }
-        onDispose {
-            // Allow video audio to continue playing in background when collapsed to floating mini player
         }
     }
 

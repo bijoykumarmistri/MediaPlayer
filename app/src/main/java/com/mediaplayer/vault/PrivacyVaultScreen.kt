@@ -1,6 +1,5 @@
 package com.mediaplayer.vault
 
-import android.net.Uri
 import android.os.Build
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -139,22 +138,60 @@ fun PrivacyVaultScreen(
                 isLoading = true
                 val newItems = uris.mapNotNull { uri ->
                     try {
-                        val path = uri.path ?: uri.toString()
-                        val name = uri.lastPathSegment?.substringAfterLast('/') ?: "File"
-                        val mime = context.contentResolver.getType(uri) ?: ""
-                        val isVid = mime.startsWith("video", true) || name.endsWith(".mp4", true) || name.endsWith(".mkv", true)
+                        try {
+                            context.contentResolver.takePersistableUriPermission(
+                                uri,
+                                android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
+                            )
+                        } catch (_: Throwable) {}
+                        var displayName: String? = null
+                        var fileSize = 0L
+                        context.contentResolver.query(
+                            uri,
+                            arrayOf(
+                                android.provider.OpenableColumns.DISPLAY_NAME,
+                                android.provider.OpenableColumns.SIZE
+                            ),
+                            null,
+                            null,
+                            null
+                        )?.use { cursor ->
+                            if (cursor.moveToFirst()) {
+                                val nameIdx = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                                val sizeIdx = cursor.getColumnIndex(android.provider.OpenableColumns.SIZE)
+                                if (nameIdx >= 0 && !cursor.isNull(nameIdx)) {
+                                    displayName = cursor.getString(nameIdx)
+                                }
+                                if (sizeIdx >= 0 && !cursor.isNull(sizeIdx)) {
+                                    fileSize = cursor.getLong(sizeIdx)
+                                }
+                            }
+                        }
+                        val name = displayName
+                            ?: uri.lastPathSegment?.substringAfterLast('/')?.substringAfterLast(':')
+                            ?: "File"
+                        val mime = context.contentResolver.getType(uri).orEmpty()
+                        val mediaKind = com.mediaplayer.data.MediaLibraryRepository.classifyMediaKind(mime, name)
+                        val isVid = mediaKind == com.mediaplayer.data.MediaLibraryRepository.MediaKind.VIDEO ||
+                            mime.startsWith("video/", ignoreCase = true)
                         MediaItemModel(
-                            id = uri.hashCode().toLong(),
+                            id = com.mediaplayer.data.MediaLibraryRepository.stableSafItemId(uri.toString()),
                             uri = uri,
                             title = name,
                             isVideo = isVid,
-                            mimeType = mime
+                            mimeType = mime,
+                            sizeBytes = fileSize
                         )
                     } catch (_: Exception) { null }
                 }
-                vaultRepository.moveToVault(newItems)
+                val moved = vaultRepository.moveToVault(newItems)
                 refreshItems()
-                Toast.makeText(context, "${newItems.size} files secured in Vault", Toast.LENGTH_SHORT).show()
+                val msg = when {
+                    moved.isNotEmpty() -> "${moved.size} file${if (moved.size == 1) "" else "s"} secured in Vault"
+                    newItems.isNotEmpty() -> "Could not secure selected files in Vault"
+                    else -> "No valid media files selected"
+                }
+                Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -609,7 +646,7 @@ private fun VaultVideoCard(
                     }
                 }
                 AsyncImage(
-                    model = ImageRequest.Builder(context)
+                    model = ImageRequest.Builder(context.applicationContext)
                         .data(thumbnailFile)
                         .crossfade(true)
                         .build(),

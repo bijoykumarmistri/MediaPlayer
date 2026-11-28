@@ -13,6 +13,7 @@ import android.os.Environment
 import android.os.Handler
 import android.os.Looper
 import android.os.ParcelFileDescriptor
+import android.os.SystemClock
 import android.provider.DocumentsContract
 import android.provider.MediaStore
 import android.system.ErrnoException
@@ -129,6 +130,7 @@ interface MpvEngineListener {
     fun onBufferingChanged(buffering: Boolean) {}
     fun onCacheDurationChanged(seconds: Double) {}
     fun onHwdecChanged(activeHwdec: String) {}
+    fun onDecoderModeChanged(mode: DecoderMode) {}
     fun onVideoSizeChanged(width: Int, height: Int) {}
     fun onTracksChanged() {}
     fun onChaptersChanged() {}
@@ -205,6 +207,12 @@ class NativeMpvEngine(
     private var lastDemuxOrStreamError: String? = null
     private var lastPlayerError: String? = null
     private var pendingFailureRunnable: Runnable? = null
+    private val aiImageReaderTracker = AImageReaderFallbackTracker()
+    @Volatile
+    private var hasAutoFallenBackForCurrentLoad: Boolean = false
+
+    @Volatile
+    private var lastObservedHwdec: String = ""
 
     private var contextRef: WeakReference<Context>? = null
     private var audioFocusRequest: AudioFocusRequest? = null
@@ -215,8 +223,7 @@ class NativeMpvEngine(
     private fun requestAudioFocus(context: Context) {
         val am = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            if (audioFocusRequest != null) return // Already holding focus request
-            val req = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
+            val req = audioFocusRequest ?: AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
                 .setAudioAttributes(
                     AudioAttributes.Builder()
                         .setUsage(AudioAttributes.USAGE_MEDIA)
@@ -233,7 +240,7 @@ class NativeMpvEngine(
                     }
                 }
                 .build()
-            audioFocusRequest = req
+                .also { audioFocusRequest = it }
             am.requestAudioFocus(req)
         } else {
             val afListener = legacyAudioFocusListener ?: AudioManager.OnAudioFocusChangeListener { focusChange ->
@@ -411,6 +418,15 @@ class NativeMpvEngine(
         oldView?.holder?.removeCallback(this)
         surfaceViewRef = null
         detachSurfaceInternal()
+    }
+
+    fun detachFromSurfaceView(expectedSurfaceView: SurfaceView) {
+        expectedSurfaceView.holder.removeCallback(this)
+        val activeView = surfaceViewRef?.get()
+        if (activeView == null || activeView === expectedSurfaceView) {
+            surfaceViewRef = null
+            detachSurfaceInternal()
+        }
     }
 
     override fun surfaceCreated(holder: SurfaceHolder) {
@@ -739,6 +755,16 @@ class NativeMpvEngine(
             activePlayingFd = fdToActivate
         }
         hasFileLoadedForSurfaceRefresh = false
+        hasAutoFallenBackForCurrentLoad = false
+        lastObservedHwdec = ""
+        aiImageReaderTracker.reset()
+
+        val isNetwork = isNetworkStreamPath(path)
+        try {
+            MPVLib.setPropertyString("cache-pause", if (isNetwork) "yes" else "no")
+            MPVLib.setPropertyString("cache-pause-initial", if (isNetwork) "yes" else "no")
+            MPVLib.setPropertyString("cache-pause-wait", if (isNetwork) "1.5" else "0.2")
+        } catch (_: Exception) {}
 
         if (startPositionMs > 1000L) {
             val startSec = String.format(Locale.US, "%.3f", startPositionMs / 1000.0)
@@ -814,10 +840,18 @@ class NativeMpvEngine(
 
     fun setDecoderMode(mode: DecoderMode) {
         if (isDestroyed.get() || !isInitialized.get()) return
+        val activeSetting = runCatching { MPVLib.getPropertyString("hwdec") }.getOrNull()
+        if (currentDecoderMode == mode && activeSetting == mode.hwdecValue) {
+            return
+        }
         currentDecoderMode = mode
+        if (mode != DecoderMode.HW_PLUS) {
+            aiImageReaderTracker.reset()
+        }
         MpvDiagnosticLogger.log("MPV", "Decoder mode set to ${mode.label} (${mode.hwdecValue})")
         MPVLib.setOptionString("hwdec", mode.hwdecValue)
         MPVLib.setPropertyString("hwdec", mode.hwdecValue)
+        mainHandler.post { listener.onDecoderModeChanged(mode) }
     }
 
     fun getDecoderMode(): DecoderMode = currentDecoderMode
@@ -863,9 +897,12 @@ class NativeMpvEngine(
             pendingFailureRunnable?.let { mainHandler.removeCallbacks(it) }
             pendingFailureRunnable = null
         }
+        tracksChangedRunnable?.let { mainHandler.removeCallbacks(it) }
+        tracksChangedRunnable = null
         cancelPausedSurfaceRefresh()
         isPausedState = true
         hasFileLoadedForSurfaceRefresh = false
+        lastObservedHwdec = ""
         try {
             MPVLib.setPropertyBoolean("pause", true)
             MPVLib.command(arrayOf("stop"))
@@ -1084,7 +1121,9 @@ class NativeMpvEngine(
             if (it == 6) "5.1 Surround" else "$it Channels"
         } ?: ""
         val aRate = MPVLib.getPropertyInt("audio-params/samplerate")?.let { "${it / 1000} kHz" } ?: ""
-        val hwdec = MPVLib.getPropertyString("hwdec-current") ?: currentDecoderMode.hwdecValue
+        val hwdec = lastObservedHwdec.ifBlank {
+            if (currentDecoderMode == DecoderMode.SW) "no" else currentDecoderMode.hwdecValue
+        }
         val cacheSec = MPVLib.getPropertyDouble("demuxer-cache-duration")?.let { String.format(Locale.US, "%.1fs readahead", it) } ?: "Active"
 
         val res = if (lastVideoWidth > 0 && lastVideoHeight > 0) "${lastVideoWidth}x${lastVideoHeight}" else "Unknown"
@@ -1284,6 +1323,7 @@ class NativeMpvEngine(
             }
             isPausedState = false
             hasFileLoadedForSurfaceRefresh = false
+            lastObservedHwdec = ""
             lastVideoWidth = 0
             lastVideoHeight = 0
             lastSurfaceWidth = 0
@@ -1369,7 +1409,9 @@ class NativeMpvEngine(
 
     override fun eventProperty(property: String, value: String) {
         if (property == "hwdec-current") {
-            MpvDiagnosticLogger.log("MPV", "hwdec-current=${value.ifBlank { "sw" }}")
+            val resolved = value.ifBlank { "sw" }
+            lastObservedHwdec = resolved
+            MpvDiagnosticLogger.log("MPV", "hwdec-current=$resolved")
             mainHandler.post { listener.onHwdecChanged(value) }
         }
     }
@@ -1466,7 +1508,9 @@ class NativeMpvEngine(
                     pendingFailureRunnable = null
                 }
                 closeDrainingFds()
-                val hwdecActive = runCatching { MPVLib.getPropertyString("hwdec-current") }.getOrNull().orEmpty()
+                val hwdecActive = lastObservedHwdec.ifBlank {
+                    if (currentDecoderMode == DecoderMode.SW) "sw" else currentDecoderMode.hwdecValue
+                }
                 val vcodec = runCatching { MPVLib.getPropertyString("video-codec") }.getOrNull().orEmpty()
                 val acodec = runCatching { MPVLib.getPropertyString("audio-codec-name") }.getOrNull().orEmpty()
                 MpvDiagnosticLogger.log(
@@ -1510,11 +1554,31 @@ class NativeMpvEngine(
                 Log.e(TAG, "[$prefix] $clean")
                 MpvDiagnosticLogger.log("MPV-ERR", "[$prefix] $clean")
                 if (clean.isNotBlank()) {
-                    synchronized(loadStateLock) {
-                        if (prefix.equals("cplayer", ignoreCase = true)) {
-                            lastPlayerError = clean
-                        } else if (lastDemuxOrStreamError == null) {
-                            lastDemuxOrStreamError = clean
+                    if (isAImageReaderTimeoutError(prefix, clean) &&
+                        !hasAutoFallenBackForCurrentLoad &&
+                        aiImageReaderTracker.recordFailureAndShouldFallback(
+                            nowMs = SystemClock.elapsedRealtime(),
+                            currentMode = currentDecoderMode
+                        )
+                    ) {
+                        hasAutoFallenBackForCurrentLoad = true
+                        mainHandler.post {
+                            if (!isDestroyed.get() && isInitialized.get() && currentDecoderMode == DecoderMode.HW_PLUS) {
+                                MpvDiagnosticLogger.log(
+                                    "MPV",
+                                    "Auto-fallback HW+ -> HW (mediacodec-copy) after repeated aimagereader timeouts"
+                                )
+                                setDecoderMode(DecoderMode.HW)
+                            }
+                        }
+                    }
+                    if (!isNonFatalMediaLogError(prefix, clean)) {
+                        synchronized(loadStateLock) {
+                            if (prefix.equals("cplayer", ignoreCase = true)) {
+                                lastPlayerError = clean
+                            } else if (lastDemuxOrStreamError == null) {
+                                lastDemuxOrStreamError = clean
+                            }
                         }
                     }
                 }
@@ -1603,9 +1667,62 @@ class NativeMpvEngine(
         }
     }
 
+    class AImageReaderFallbackTracker(
+        private val threshold: Int = 4,
+        private val windowMs: Long = 5000L
+    ) {
+        private val failureTimestamps = ArrayDeque<Long>()
+
+        @Synchronized
+        fun reset() {
+            failureTimestamps.clear()
+        }
+
+        @Synchronized
+        fun recordFailureAndShouldFallback(nowMs: Long, currentMode: DecoderMode): Boolean {
+            if (currentMode != DecoderMode.HW_PLUS) {
+                failureTimestamps.clear()
+                return false
+            }
+            while (failureTimestamps.isNotEmpty() && nowMs - failureTimestamps.first() > windowMs) {
+                failureTimestamps.removeFirst()
+            }
+            failureTimestamps.addLast(nowMs)
+            return if (failureTimestamps.size >= threshold) {
+                failureTimestamps.clear()
+                true
+            } else {
+                false
+            }
+        }
+    }
+
     companion object {
         private const val TAG = "NativeMpvEngine"
         private const val NO_FD = -1
+
+        fun isNetworkStreamPath(path: String?): Boolean {
+            if (path.isNullOrBlank()) return false
+            val trimmed = path.trim()
+            return trimmed.startsWith("http://", ignoreCase = true) ||
+                trimmed.startsWith("https://", ignoreCase = true) ||
+                trimmed.startsWith("rtsp://", ignoreCase = true) ||
+                trimmed.startsWith("rtmp://", ignoreCase = true) ||
+                trimmed.startsWith("mms://", ignoreCase = true)
+        }
+
+        fun isAImageReaderTimeoutError(prefix: String, message: String): Boolean {
+            if (!prefix.contains("aimagereader", ignoreCase = true)) return false
+            return message.contains("acquireLatestImage failed", ignoreCase = true) ||
+                message.contains("Waiting for frame timed out", ignoreCase = true)
+        }
+
+        fun isNonFatalMediaLogError(prefix: String, message: String): Boolean {
+            if (prefix.startsWith("vo/", ignoreCase = true)) return true
+            if (prefix.equals("ffmpeg/audio", ignoreCase = true)) return true
+            if (prefix.startsWith("sub", ignoreCase = true) || prefix.equals("osd", ignoreCase = true)) return true
+            return isAImageReaderTimeoutError(prefix, message)
+        }
 
         private val WEB_PAGE_HOSTS = setOf(
             "youtube.com",

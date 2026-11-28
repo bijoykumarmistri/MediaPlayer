@@ -204,8 +204,18 @@ class PlayerViewModel : ViewModel() {
             }
         }
 
+        override fun onDecoderModeChanged(mode: DecoderMode) {
+            _uiState.update { it.copy(decoderMode = mode) }
+        }
+
         override fun onVideoSizeChanged(width: Int, height: Int) {
             _uiState.update { it.copy(videoWidth = width, videoHeight = height) }
+            val currentInfo = _uiState.value.mediaInfo
+            if (width > 0 && height > 0 &&
+                (currentInfo.videoCodec == "Unknown" || currentInfo.resolution == "Unknown")
+            ) {
+                refreshMediaInfo()
+            }
         }
 
         override fun onTracksChanged() {
@@ -288,6 +298,7 @@ class PlayerViewModel : ViewModel() {
 
     val engine: NativeMpvEngine = NativeMpvEngine(engineListener)
     private var openDocumentJob: Job? = null
+    private var appliedDefaultDecoderMode: DecoderMode? = null
 
     fun openDocument(
         context: Context,
@@ -384,10 +395,17 @@ class PlayerViewModel : ViewModel() {
         }
         onIsPlayingChanged?.invoke(false)
         if (releaseEngine) {
+            appliedDefaultDecoderMode = null
             engine.releaseEngine()
         } else {
             engine.stop()
         }
+    }
+
+    fun applyDefaultDecoderMode(mode: DecoderMode) {
+        if (appliedDefaultDecoderMode == mode) return
+        appliedDefaultDecoderMode = mode
+        selectDecoderMode(mode)
     }
 
     fun selectDecoderMode(mode: DecoderMode) {
@@ -995,6 +1013,10 @@ class PlayerViewModel : ViewModel() {
         sleepTimerJob?.cancel()
         bufferingDebounceJob?.cancel()
         openDocumentJob?.cancel()
+        onPositionUpdate = null
+        onProgressUpdate = null
+        onIsPlayingChanged = null
+        onEndOfFileReached = null
         engine.destroy()
         super.onCleared()
     }

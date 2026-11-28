@@ -111,11 +111,12 @@ fun MusicFolderListItem(
     modifier: Modifier = Modifier,
     context: Context = LocalContext.current
 ) {
+    val appContext = remember(context) { context.applicationContext }
     val firstTrack = remember(folder.tracks) { folder.tracks.firstOrNull() }
     val artUri = firstTrack?.artworkUri
     val imageRequest = remember(artUri) {
         if (artUri != null) {
-            ImageRequest.Builder(context)
+            ImageRequest.Builder(appContext)
                 .data(artUri)
                 .size(320, 200)
                 .diskCacheKey("athumb_$artUri")
@@ -261,11 +262,12 @@ fun MusicFolderGridItem(
     modifier: Modifier = Modifier,
     context: Context = LocalContext.current
 ) {
+    val appContext = remember(context) { context.applicationContext }
     val firstTrack = remember(folder.tracks) { folder.tracks.firstOrNull() }
     val artUri = firstTrack?.artworkUri
     val imageRequest = remember(artUri) {
         if (artUri != null) {
-            ImageRequest.Builder(context)
+            ImageRequest.Builder(appContext)
                 .data(artUri)
                 .size(360, 220)
                 .diskCacheKey("athumb_$artUri")
@@ -412,11 +414,12 @@ fun MusicCardItem(
     onLongClick: () -> Unit = onDeleteClick,
     context: Context = LocalContext.current
 ) {
+    val appContext = remember(context) { context.applicationContext }
     val artUri = item.artworkUri
     val imageRequest = remember(artUri) {
         if (artUri == null) null
         else {
-            ImageRequest.Builder(context)
+            ImageRequest.Builder(appContext)
                 .data(artUri)
                 .size(480, 480)
                 .diskCacheKey("athumb_$artUri")
@@ -639,11 +642,12 @@ fun MusicListItem(
     onLongClick: () -> Unit = onDeleteClick,
     context: Context = LocalContext.current
 ) {
+    val appContext = remember(context) { context.applicationContext }
     val artUri = item.artworkUri
     val imageRequest = remember(artUri) {
         if (artUri == null) null
         else {
-            ImageRequest.Builder(context)
+            ImageRequest.Builder(appContext)
                 .data(artUri)
                 .size(240, 240)
                 .diskCacheKey("athumb_$artUri")

@@ -10,6 +10,7 @@ import androidx.compose.animation.scaleOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.basicMarquee
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -32,10 +33,12 @@ import androidx.compose.material.icons.rounded.SkipPrevious
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.LocalMinimumInteractiveComponentSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -72,9 +75,10 @@ fun BottomMiniPlayer(
 
     val accentColor = if (isVideo) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.primary
 
+    val appContext = remember(context) { context.applicationContext }
     val imageRequest = remember(item.artworkUri, item.id) {
         item.artworkUri?.let { uri ->
-            ImageRequest.Builder(context)
+            ImageRequest.Builder(appContext)
                 .data(uri)
                 .size(128, 128)
                 .crossfade(false)
@@ -201,74 +205,81 @@ fun BottomMiniPlayer(
 
                 Spacer(modifier = Modifier.width(4.dp))
 
-                // Previous
-                IconButton(
-                    onClick = {
-                        if (isVideo) playerManager.playPreviousVideo() else playerManager.skipPrevious()
-                    },
-                    modifier = Modifier.size(32.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Rounded.SkipPrevious,
-                        contentDescription = "Previous",
-                        tint = MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier.size(19.dp)
-                    )
-                }
+                CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides 34.dp) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        // Previous
+                        IconButton(
+                            onClick = {
+                                if (isVideo) playerManager.playPreviousVideo() else playerManager.skipPrevious()
+                            },
+                            modifier = Modifier.size(34.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.SkipPrevious,
+                                contentDescription = "Previous",
+                                tint = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.size(19.dp)
+                            )
+                        }
 
-                // Play / Pause
-                IconButton(
-                    onClick = { playerManager.playPause() },
-                    modifier = Modifier
-                        .size(38.dp)
-                        .clip(CircleShape)
-                        .background(accentColor)
-                ) {
-                    AnimatedContent(
-                        targetState = isPlaying,
-                        transitionSpec = {
-                            (fadeIn(animationSpec = tween(140)) + scaleIn(initialScale = 0.7f, animationSpec = tween(140)))
-                                .togetherWith(fadeOut(animationSpec = tween(140)) + scaleOut(targetScale = 0.7f, animationSpec = tween(140)))
-                        },
-                        label = "miniPlayerPlayPauseAnimation"
-                    ) { playing ->
-                        Icon(
-                            imageVector = if (playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
-                            contentDescription = if (playing) "Pause" else "Play",
-                            tint = if (isVideo) MaterialTheme.colorScheme.onTertiary else MaterialTheme.colorScheme.onPrimary,
-                            modifier = Modifier.size(22.dp)
-                        )
+                        // Play / Pause
+                        IconButton(
+                            onClick = { playerManager.playPause() },
+                            modifier = Modifier
+                                .size(38.dp)
+                                .clip(CircleShape)
+                                .background(accentColor)
+                        ) {
+                            AnimatedContent(
+                                targetState = isPlaying,
+                                transitionSpec = {
+                                    (fadeIn(animationSpec = tween(140)) + scaleIn(initialScale = 0.7f, animationSpec = tween(140)))
+                                        .togetherWith(fadeOut(animationSpec = tween(140)) + scaleOut(targetScale = 0.7f, animationSpec = tween(140)))
+                                },
+                                label = "miniPlayerPlayPauseAnimation"
+                            ) { playing ->
+                                Icon(
+                                    imageVector = if (playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
+                                    contentDescription = if (playing) "Pause" else "Play",
+                                    tint = if (isVideo) MaterialTheme.colorScheme.onTertiary else MaterialTheme.colorScheme.onPrimary,
+                                    modifier = Modifier.size(22.dp)
+                                )
+                            }
+                        }
+
+                        // Next
+                        IconButton(
+                            onClick = {
+                                if (isVideo) playerManager.playNextVideo() else playerManager.skipNext()
+                            },
+                            modifier = Modifier.size(34.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.SkipNext,
+                                contentDescription = "Next",
+                                tint = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.size(19.dp)
+                            )
+                        }
+
+                        // Dismiss / Stop Mini Player
+                        IconButton(
+                            onClick = {
+                                if (isVideo) playerManager.stopVideo() else playerManager.stop()
+                            },
+                            modifier = Modifier.size(32.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.Close,
+                                contentDescription = "Close",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(17.dp)
+                            )
+                        }
                     }
-                }
-
-                // Next
-                IconButton(
-                    onClick = {
-                        if (isVideo) playerManager.playNextVideo() else playerManager.skipNext()
-                    },
-                    modifier = Modifier.size(32.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Rounded.SkipNext,
-                        contentDescription = "Next",
-                        tint = MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier.size(19.dp)
-                    )
-                }
-
-                // Dismiss / Stop Mini Player
-                IconButton(
-                    onClick = {
-                        if (isVideo) playerManager.stopVideo() else playerManager.stop()
-                    },
-                    modifier = Modifier.size(30.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Rounded.Close,
-                        contentDescription = "Close",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(17.dp)
-                    )
                 }
             }
         }

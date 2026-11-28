@@ -128,10 +128,11 @@ fun FolderListItem(
     modifier: Modifier = Modifier,
     context: Context = LocalContext.current,
 ) {
+    val appContext = remember(context) { context.applicationContext }
     val firstVideo = remember(folder.videos) { folder.videos.firstOrNull() }
     val imageRequest = remember(firstVideo?.artworkUri, firstVideo?.id) {
         if (firstVideo?.artworkUri != null) {
-            ImageRequest.Builder(context)
+            ImageRequest.Builder(appContext)
                 .data(firstVideo.artworkUri)
                 .size(320, 200)
                 .diskCacheKey("vthumb_${firstVideo.id}")
@@ -277,10 +278,11 @@ fun FolderGridItem(
     modifier: Modifier = Modifier,
     context: Context = LocalContext.current
 ) {
+    val appContext = remember(context) { context.applicationContext }
     val firstVideo = remember(folder.videos) { folder.videos.firstOrNull() }
     val imageRequest = remember(firstVideo?.artworkUri, firstVideo?.id) {
         if (firstVideo?.artworkUri != null) {
-            ImageRequest.Builder(context)
+            ImageRequest.Builder(appContext)
                 .data(firstVideo.artworkUri)
                 .size(360, 220)
                 .diskCacheKey("vthumb_${firstVideo.id}")
@@ -430,8 +432,9 @@ fun VideoCardItem(
     context: Context = LocalContext.current,
     recentThresholdEpochSec: Long = remember { (System.currentTimeMillis() / 1000L) - (14L * 24L * 3600L) }
 ) {
+    val appContext = remember(context) { context.applicationContext }
     val imageRequest = remember(item.artworkUri, item.id) {
-        ImageRequest.Builder(context)
+        ImageRequest.Builder(appContext)
             .data(item.artworkUri)
             .size(480, 270)
             .diskCacheKey("vthumb_${item.id}")
@@ -703,8 +706,9 @@ fun VideoListItem(
     context: Context = LocalContext.current,
     recentThresholdEpochSec: Long = remember { System.currentTimeMillis() / 1000L - 14L * 24L * 3600L }
 ) {
+    val appContext = remember(context) { context.applicationContext }
     val imageRequest = remember(item.artworkUri, item.id) {
-        ImageRequest.Builder(context)
+        ImageRequest.Builder(appContext)
             .data(item.artworkUri)
             .size(320, 180)
             .diskCacheKey("vthumb_${item.id}")
@@ -1621,8 +1625,9 @@ private fun ContinueWatchingSection(
             ) { _, (video, posMs, _) ->
                 val isPlaying = currentPlayingId == video.id
                 val (cleanTitle, _) = remember(video.title) { cleanMovieDisplayTitle(video.title) }
+                val appContext = remember(context) { context.applicationContext }
                 val imageRequest = remember(video.artworkUri, video.id) {
-                    ImageRequest.Builder(context)
+                    ImageRequest.Builder(appContext)
                         .data(video.artworkUri)
                         .size(360, 200)
                         .diskCacheKey("vthumb_${video.id}")

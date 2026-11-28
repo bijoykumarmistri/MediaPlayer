@@ -160,4 +160,54 @@ class VideoPlayerFeaturesTest {
         )
         assertTrue(fallbackWebError.contains("web page link", ignoreCase = true))
     }
+
+    @Test
+    fun isNetworkStreamPath_identifiesNetworkSchemesOnly() {
+        assertTrue(NativeMpvEngine.isNetworkStreamPath("https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8"))
+        assertTrue(NativeMpvEngine.isNetworkStreamPath("http://example.com/video.mp4"))
+        assertTrue(NativeMpvEngine.isNetworkStreamPath("rtsp://192.168.1.10/live"))
+        assertTrue(NativeMpvEngine.isNetworkStreamPath("rtmp://live.example.com/app/key"))
+        assertTrue(NativeMpvEngine.isNetworkStreamPath("mms://stream.example.com/feed"))
+
+        assertFalse(NativeMpvEngine.isNetworkStreamPath("fd://42"))
+        assertFalse(NativeMpvEngine.isNetworkStreamPath("content://media/external/video/media/10"))
+        assertFalse(NativeMpvEngine.isNetworkStreamPath("/storage/emulated/0/Movies/sample.mkv"))
+        assertFalse(NativeMpvEngine.isNetworkStreamPath(null))
+    }
+
+    @Test
+    fun nonFatalMediaLogErrors_filterFrameTimeoutsAndAudioPackets() {
+        assertTrue(NativeMpvEngine.isAImageReaderTimeoutError("vo/gpu/aimagereader", "acquireLatestImage failed: -30001"))
+        assertTrue(NativeMpvEngine.isAImageReaderTimeoutError("vo/gpu/aimagereader", "Waiting for frame timed out!"))
+        assertFalse(NativeMpvEngine.isAImageReaderTimeoutError("ffmpeg/demuxer", "Invalid data found when processing input"))
+
+        assertTrue(NativeMpvEngine.isNonFatalMediaLogError("vo/gpu/aimagereader", "acquireLatestImage failed: -30001"))
+        assertTrue(NativeMpvEngine.isNonFatalMediaLogError("ffmpeg/audio", "aac: env_facs_q 255 is invalid"))
+        assertFalse(NativeMpvEngine.isNonFatalMediaLogError("ffmpeg/demuxer", "partial file"))
+        assertFalse(NativeMpvEngine.isNonFatalMediaLogError("cplayer", "Failed to recognize file format."))
+    }
+
+    @Test
+    fun aiImageReaderFallbackTracker_triggersOnlyOnSustainedHwPlusTimeouts() {
+        val tracker = NativeMpvEngine.AImageReaderFallbackTracker(threshold = 4, windowMs = 5000L)
+
+        // Isolated timeouts spaced > 5s apart should NOT trigger fallback
+        assertFalse(tracker.recordFailureAndShouldFallback(1_000L, DecoderMode.HW_PLUS))
+        assertFalse(tracker.recordFailureAndShouldFallback(7_000L, DecoderMode.HW_PLUS))
+        assertFalse(tracker.recordFailureAndShouldFallback(13_000L, DecoderMode.HW_PLUS))
+        assertFalse(tracker.recordFailureAndShouldFallback(19_000L, DecoderMode.HW_PLUS))
+
+        // Already in HW or SW mode should never trigger fallback
+        assertFalse(tracker.recordFailureAndShouldFallback(19_100L, DecoderMode.HW))
+
+        // 4 timeouts within 5 seconds in HW+ MUST trigger fallback
+        tracker.reset()
+        assertFalse(tracker.recordFailureAndShouldFallback(20_000L, DecoderMode.HW_PLUS))
+        assertFalse(tracker.recordFailureAndShouldFallback(20_500L, DecoderMode.HW_PLUS))
+        assertFalse(tracker.recordFailureAndShouldFallback(21_000L, DecoderMode.HW_PLUS))
+        assertTrue(tracker.recordFailureAndShouldFallback(21_500L, DecoderMode.HW_PLUS))
+
+        // Tracker resets after firing so subsequent events start a fresh window
+        assertFalse(tracker.recordFailureAndShouldFallback(21_600L, DecoderMode.HW_PLUS))
+    }
 }
